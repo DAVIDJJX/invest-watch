@@ -6,11 +6,17 @@
  "slotLabel": "手動更新",
  "summary": {
   "total": 12,
-  "ok": 12,
-  "error": 0,
-  "errorIds": []
+  "ok": 7,
+  "error": 5,
+  "errorIds": [
+   "gold_twd",
+   "gold_cny",
+   "gold_bar",
+   "fx_usd",
+   "fx_cny"
+  ]
  },
- "requests": 14,
+ "requests": 72,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -154,7 +160,7 @@
    "unit": "元",
    "decimals": 0,
    "priceLabel": "本行賣出",
-   "status": "ok",
+   "status": "error",
    "price": null,
    "bars": [
     {
