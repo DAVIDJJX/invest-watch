@@ -1,10 +1,10 @@
 {
  "date": "2026-08-31",
  "slot": "morning",
- "slotLabel": "手動更新",
+ "slotLabel": "晨報（了解今天狀況）",
  "title": "晨報：了解今天狀況",
- "generatedAt": "2026-08-31T22:39:28+08:00",
- "generatedAtText": "2026-08-31 22:39",
+ "generatedAt": "2026-08-31T22:46:35+08:00",
+ "generatedAtText": "2026-08-31 22:46",
  "market": {
   "date": "2026-08-31",
   "twTradingDay": true,
@@ -36,15 +36,15 @@
      "currency": "USD",
      "unit": "美元",
      "priceLabel": "收盤價",
-     "price": 218.96,
-     "priceText": "218.96",
-     "change": 1.41,
-     "changeText": "1.41",
-     "changePct": 0.6481,
-     "changePctText": "+0.65%",
+     "price": 219.97,
+     "priceText": "219.97",
+     "change": 2.42,
+     "changeText": "2.42",
+     "changePct": 1.1124,
+     "changePctText": "+1.11%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "NVIDIA 218.96 上漲（+0.65%）"
+     "text": "NVIDIA 219.97 上漲（+1.11%）"
     },
     {
      "id": "gspc",
@@ -53,15 +53,15 @@
      "currency": "USD",
      "unit": "點",
      "priceLabel": "指數",
-     "price": 7673.1,
-     "priceText": "7,673.10",
-     "change": -38.66,
-     "changeText": "-38.66",
-     "changePct": -0.5013,
-     "changePctText": "-0.50%",
+     "price": 7674.1,
+     "priceText": "7,674.10",
+     "change": -37.66,
+     "changeText": "-37.66",
+     "changePct": -0.4883,
+     "changePctText": "-0.49%",
      "dir": "down",
      "date": "2026-08-31",
-     "text": "S&P 500 指數 7,673.10 下跌（-0.50%）"
+     "text": "S&P 500 指數 7,674.10 下跌（-0.49%）"
     },
     {
      "id": "btc",
@@ -70,15 +70,15 @@
      "currency": "USD",
      "unit": "美元",
      "priceLabel": "現價",
-     "price": 77862.98,
-     "priceText": "77,863",
-     "change": 32.690938,
-     "changeText": "33",
-     "changePct": 0.042,
-     "changePctText": "+0.04%",
+     "price": 78437.52,
+     "priceText": "78,438",
+     "change": 607.230938,
+     "changeText": "607",
+     "changePct": 0.7802,
+     "changePctText": "+0.78%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "比特幣 77,863 上漲（+0.04%）"
+     "text": "比特幣 78,438 上漲（+0.78%）"
     },
     {
      "id": "wti",
@@ -87,15 +87,15 @@
      "currency": "USD",
      "unit": "美元 / 桶",
      "priceLabel": "近月期貨",
-     "price": 86.03,
-     "priceText": "86.03",
-     "change": 2.629998,
-     "changeText": "2.63",
-     "changePct": 3.1535,
-     "changePctText": "+3.15%",
+     "price": 85.32,
+     "priceText": "85.32",
+     "change": 1.919998,
+     "changeText": "1.92",
+     "changePct": 2.3022,
+     "changePctText": "+2.30%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "WTI 原油 86.03 上漲（+3.15%）"
+     "text": "WTI 原油 85.32 上漲（+2.30%）"
     }
    ],
    "subtitle": "台灣早上看到的美股是前一個交易日的收盤；比特幣則是 24 小時連續交易。"
@@ -400,7 +400,7 @@
     {
      "level": "up",
      "id": "nvda",
-     "text": "NVIDIA 今天站上 20 日均線（均線 218.66，現價 218.96）。"
+     "text": "NVIDIA 今天站上 20 日均線（均線 218.71，現價 219.97）。"
     },
     {
      "level": "up",
@@ -410,12 +410,12 @@
     {
      "level": "up",
      "id": "btc",
-     "text": "比特幣 的 RSI(14) 為 81.7，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+     "text": "比特幣 的 RSI(14) 為 82.1，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
     },
     {
      "level": "up",
      "id": "wti",
-     "text": "WTI 原油 今天上漲 3.15%，變動幅度較大。"
+     "text": "WTI 原油 今天上漲 2.30%，變動幅度較大。"
     },
     {
      "level": "down",
@@ -436,10 +436,10 @@
   "twii": 46128.47,
   "tw2330": 2405.0,
   "tw00646": 76.75,
-  "nvda": 218.96,
-  "gspc": 7673.1,
-  "btc": 77862.98,
-  "wti": 86.03,
+  "nvda": 219.97,
+  "gspc": 7674.1,
+  "btc": 78437.52,
+  "wti": 85.32,
   "fx_usd": 31.75,
   "fx_cny": 4.745
  },

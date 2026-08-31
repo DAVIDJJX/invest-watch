@@ -3,8 +3,8 @@
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
  "title": "收盤：檢討與分析",
- "generatedAt": "2026-08-31T22:44:03+08:00",
- "generatedAtText": "2026-08-31 22:44",
+ "generatedAt": "2026-08-31T22:47:27+08:00",
+ "generatedAtText": "2026-08-31 22:47",
  "market": {
   "date": "2026-08-31",
   "twTradingDay": true,
@@ -297,15 +297,15 @@
      "currency": "USD",
      "unit": "美元",
      "priceLabel": "收盤價",
-     "price": 219.95,
-     "priceText": "219.95",
-     "change": 2.4,
-     "changeText": "2.40",
-     "changePct": 1.1032,
-     "changePctText": "+1.10%",
+     "price": 219.991,
+     "priceText": "219.99",
+     "change": 2.441,
+     "changeText": "2.44",
+     "changePct": 1.122,
+     "changePctText": "+1.12%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "NVIDIA 219.95 上漲（+1.10%）"
+     "text": "NVIDIA 219.99 上漲（+1.12%）"
     },
     {
      "id": "gspc",
@@ -314,15 +314,15 @@
      "currency": "USD",
      "unit": "點",
      "priceLabel": "指數",
-     "price": 7676.74,
-     "priceText": "7,676.74",
-     "change": -35.02,
-     "changeText": "-35.02",
-     "changePct": -0.4541,
-     "changePctText": "-0.45%",
+     "price": 7674.14,
+     "priceText": "7,674.14",
+     "change": -37.62,
+     "changeText": "-37.62",
+     "changePct": -0.4878,
+     "changePctText": "-0.49%",
      "dir": "down",
      "date": "2026-08-31",
-     "text": "S&P 500 指數 7,676.74 下跌（-0.45%）"
+     "text": "S&P 500 指數 7,674.14 下跌（-0.49%）"
     },
     {
      "id": "btc",
@@ -331,15 +331,15 @@
      "currency": "USD",
      "unit": "美元",
      "priceLabel": "現價",
-     "price": 78642.25,
-     "priceText": "78,642",
-     "change": 811.960938,
-     "changeText": "812",
-     "changePct": 1.0432,
-     "changePctText": "+1.04%",
+     "price": 78436.77,
+     "priceText": "78,437",
+     "change": 606.480938,
+     "changeText": "606",
+     "changePct": 0.7792,
+     "changePctText": "+0.78%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "比特幣 78,642 上漲（+1.04%）"
+     "text": "比特幣 78,437 上漲（+0.78%）"
     },
     {
      "id": "wti",
@@ -348,15 +348,15 @@
      "currency": "USD",
      "unit": "美元 / 桶",
      "priceLabel": "近月期貨",
-     "price": 85.5,
-     "priceText": "85.50",
-     "change": 2.099998,
-     "changeText": "2.10",
-     "changePct": 2.518,
-     "changePctText": "+2.52%",
+     "price": 85.38,
+     "priceText": "85.38",
+     "change": 1.979998,
+     "changeText": "1.98",
+     "changePct": 2.3741,
+     "changePctText": "+2.37%",
      "dir": "up",
      "date": "2026-08-31",
-     "text": "WTI 原油 85.50 上漲（+2.52%）"
+     "text": "WTI 原油 85.38 上漲（+2.37%）"
     }
    ]
   },
@@ -381,10 +381,10 @@
       "text": "WTI 原油"
      },
      {
-      "text": "85.50"
+      "text": "85.38"
      },
      {
-      "text": "+2.52%",
+      "text": "+2.37%",
       "cls": "up"
      }
     ],
@@ -393,10 +393,10 @@
       "text": "NVIDIA"
      },
      {
-      "text": "219.95"
+      "text": "219.99"
      },
      {
-      "text": "+1.10%",
+      "text": "+1.12%",
       "cls": "up"
      }
     ],
@@ -405,10 +405,10 @@
       "text": "比特幣"
      },
      {
-      "text": "78,642"
+      "text": "78,437"
      },
      {
-      "text": "+1.04%",
+      "text": "+0.78%",
       "cls": "up"
      }
     ],
@@ -465,10 +465,10 @@
       "text": "S&P 500 指數"
      },
      {
-      "text": "7,676.74"
+      "text": "7,674.14"
      },
      {
-      "text": "-0.45%",
+      "text": "-0.49%",
       "cls": "down"
      }
     ],
@@ -635,10 +635,10 @@
       "text": "NVIDIA"
      },
      {
-      "text": "219.95"
+      "text": "219.99"
      },
      {
-      "text": "+1.10%",
+      "text": "+1.12%",
       "cls": "up"
      },
      {
@@ -655,10 +655,10 @@
       "text": "S&P 500 指數"
      },
      {
-      "text": "7,676.74"
+      "text": "7,674.14"
      },
      {
-      "text": "-0.45%",
+      "text": "-0.49%",
       "cls": "down"
      },
      {
@@ -675,10 +675,10 @@
       "text": "比特幣"
      },
      {
-      "text": "78,642"
+      "text": "78,437"
      },
      {
-      "text": "+1.04%",
+      "text": "+0.78%",
       "cls": "up"
      },
      {
@@ -695,10 +695,10 @@
       "text": "WTI 原油"
      },
      {
-      "text": "85.50"
+      "text": "85.38"
      },
      {
-      "text": "+2.52%",
+      "text": "+2.37%",
       "cls": "up"
      },
      {
@@ -791,22 +791,22 @@
     {
      "level": "up",
      "id": "nvda",
-     "text": "NVIDIA 今天站上 20 日均線（均線 218.71，現價 219.95）。"
+     "text": "NVIDIA 今天站上 20 日均線（均線 218.72，現價 219.99）。"
     },
     {
      "level": "up",
      "id": "gspc",
-     "text": "S&P 500 指數 位於 52 週區間第 92 百分位，接近一年來的高點（區間 6,343.72 ～ 7,798.99）。"
+     "text": "S&P 500 指數 位於 52 週區間第 91 百分位，接近一年來的高點（區間 6,343.72 ～ 7,798.99）。"
     },
     {
      "level": "up",
      "id": "btc",
-     "text": "比特幣 的 RSI(14) 為 82.3，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+     "text": "比特幣 的 RSI(14) 為 82.1，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
     },
     {
      "level": "up",
      "id": "wti",
-     "text": "WTI 原油 今天上漲 2.52%，變動幅度較大。"
+     "text": "WTI 原油 今天上漲 2.37%，變動幅度較大。"
     },
     {
      "level": "down",
@@ -827,10 +827,10 @@
   "twii": 46128.47,
   "tw2330": 2405.0,
   "tw00646": 76.75,
-  "nvda": 219.95,
-  "gspc": 7676.74,
-  "btc": 78642.25,
-  "wti": 85.5,
+  "nvda": 219.991,
+  "gspc": 7674.14,
+  "btc": 78436.77,
+  "wti": 85.38,
   "fx_usd": 31.75,
   "fx_cny": 4.745
  },
