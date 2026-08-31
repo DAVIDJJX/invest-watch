@@ -75,6 +75,11 @@ class FetchError(Exception):
     """單一資料來源抓取／解析失敗。會被上層接住，只影響該標的。"""
 
 
+class SkipAsset(Exception):
+    """這一輪刻意不更新這個標的（例如盤中輕量更新跳過實體條塊）。
+    上層會沿用上一次的結果，並標記原因——不是錯誤，也不會顯示成失敗。"""
+
+
 # ---------------------------------------------------------------- 共用工具
 
 
@@ -244,10 +249,15 @@ def parse_gold_chart(html):
     return out
 
 
-def fetch_bot_gold(f, currency):
-    """台銀黃金存摺牌價。主源 year（約 244 列），失敗退 half（約 126 列）。"""
+def fetch_bot_gold(f, currency, light=False):
+    """台銀黃金存摺牌價（歷史走勢表）。
+
+    完整模式先抓 year（約 244 列、198KB），失敗退 half；
+    輕量模式反過來，先抓 half（約 126 列、141KB）就夠——盤中要的是今天的牌價，
+    歷史早就在本機的 history 檔裡了。
+    """
     last_err = None
-    for rng in ("year", "half"):
+    for rng in (("half", "year") if light else ("year", "half")):
         url = "https://rate.bot.com.tw/gold/chart/%s/%s" % (rng, currency)
         try:
             html = f.get(url, delay=2.5).content.decode("utf-8", "replace")
@@ -261,14 +271,29 @@ def fetch_bot_gold(f, currency):
     raise FetchError(last_err or "無法取得黃金牌價")
 
 
-def fetch_gold_quote_time(f):
-    """黃金牌價的掛牌時間，例如 2026/08/31 19:45（PLAN 7.2）。"""
+def fetch_gold_page(f):
+    """台銀黃金主頁（85KB）：一次拿到「掛牌時間」與台幣黃金存摺的買賣價。
+
+    這一頁很關鍵——盤中只要它就夠了，不必再去下載 200KB 的一年走勢表。
+    回傳 (掛牌時間, 本行買進, 本行賣出)。
+    """
     html = f.get("https://rate.bot.com.tw/gold?Lang=zh-TW", delay=2.5) \
             .content.decode("utf-8", "replace")
+
     m = re.search(r"掛牌時間：\s*([0-9]{4}/[0-9]{2}/[0-9]{2}\s+[0-9]{2}:[0-9]{2})", html)
-    if not m:
-        raise FetchError("找不到掛牌時間")
-    return m.group(1).strip()
+    quote_time = m.group(1).strip() if m else None
+
+    buy = sell = None
+    tb = _table_by_summary(html, "此表格為黃金存摺")
+    if tb is not None:
+        s = _row_values(tb, "本行賣出")
+        b = _row_values(tb, "本行買進")
+        sell = s[0] if s else None
+        buy = b[0] if b else None
+
+    if quote_time is None and sell is None:
+        raise FetchError("黃金主頁解析不到掛牌時間，也解析不到牌價")
+    return quote_time, buy, sell
 
 
 def _table_by_summary(html, keyword):
@@ -280,18 +305,39 @@ def _table_by_summary(html, keyword):
     return None
 
 
+# 一整格 text-right 儲存格的內容。不能只抓「數字後面緊接 </td>」——
+# 黃金主頁的價格格子裡還包了一個「買進」表單按鈕（<form>…</form>）。
+# 抓整格再從裡面取第一個數字，格子是「-」就回 None，這樣欄位順序不會錯位。
+GOLD_CELL = re.compile(
+    r"<td[^>]*class=\"[^\"]*text-right[^\"]*\"[^>]*>(.*?)</td>", re.S
+)
+
+
 def _row_values(table_html, label):
-    """在表格內找含指定文字（例如 本行賣出）的那一列，回傳其 text-right 數字清單。"""
+    """在表格內找含指定文字（例如 本行賣出）的那一列，依序回傳各 text-right 格子的值。"""
     for row in re.findall(r"<tr[^>]*>(.*?)</tr>", table_html, re.S):
         if label in strip_tags(row):
-            return [to_float(x) for x in GOLD_ROW_NUM.findall(row)]
+            out = []
+            for cell in GOLD_CELL.findall(row):
+                m = re.search(r"([\d,]+(?:\.\d+)?)", cell)
+                out.append(to_float(m.group(1)) if m else None)
+            return out
     return []
 
 
 def fetch_gold_bars(f):
-    """台銀實體黃金條塊掛牌價（PLAN 7.2）。解析不到就報錯，不回空值假裝成功。"""
+    """台銀實體黃金條塊掛牌價（PLAN 7.2）。解析不到就報錯，不回空值假裝成功。
+
+    回傳 (條塊清單, 這一頁的掛牌時間)。
+    注意：這一頁的掛牌時間和黃金主頁的**不一樣**——實測 2026-08-31 這頁是 14:54、
+    主頁是 19:45。存摺牌價一路更新到晚上，實體條塊則大致在營業時間內設定一次，
+    所以條塊卡片要用這一頁的時間，不能共用主頁的。
+    """
     html = f.get("https://rate.bot.com.tw/gold/quote/recent", delay=2.5) \
             .content.decode("utf-8", "replace")
+
+    m = re.search(r"掛牌時間：\s*([0-9]{4}/[0-9]{2}/[0-9]{2}\s+[0-9]{2}:[0-9]{2})", html)
+    bar_quote_time = m.group(1).strip() if m else None
 
     bars = []
     t1 = _table_by_summary(html, "此表格為黃金條塊表格")
@@ -316,7 +362,7 @@ def fetch_gold_bars(f):
         "sell": s2[0],
         "buy": b2[0] if b2 else None,
     })
-    return bars
+    return bars, bar_quote_time
 
 
 # ---------------------------------------------------------------- 台銀匯率（PLAN 7.3）
@@ -590,7 +636,28 @@ def build_quote(asset, points, price, extra=None):
 
 
 def handle_bot_gold(f, asset, ctx):
-    pts = fetch_bot_gold(f, asset["symbol"])
+    light = ctx.get("light")
+    # 黃金主頁的牌價比歷史走勢表更即時：實測 2026-08-31 23:23 主頁是
+    # 19:45 掛牌的 4,562，走勢表今天那一列還停在 14:54 的 4,558。
+    # 所以只要主頁抓得到，今天這一點就以主頁為準。
+    page_pt = None
+    if asset["symbol"] == "TWD" and ctx.get("goldPageSell") is not None:
+        page_pt = {
+            "d": now_tpe().strftime("%Y-%m-%d"),
+            "buy": ctx.get("goldPageBuy"),
+            "sell": ctx["goldPageSell"],
+            "c": ctx["goldPageSell"],
+        }
+
+    if light and page_pt:
+        # 盤中輕量更新：主頁已經給了今天的牌價，不必再抓一年份走勢表，
+        # 歷史檔裡舊的點原封不動。
+        pts = [page_pt]
+    else:
+        pts = fetch_bot_gold(f, asset["symbol"], light=light)
+        if page_pt:
+            pts = pts + [page_pt]
+
     merged = merge_points(load_history(asset["id"]), pts)
     latest = pts[-1]
     if asset["symbol"] == "TWD":
@@ -616,7 +683,12 @@ BAR_SPECS = [
 
 
 def handle_bot_gold_bar(f, asset, ctx):
-    bars = fetch_gold_bars(f)
+    # 實體條塊一天大致只設定一次牌價（實測掛牌時間停在營業時間內），
+    # 盤中每半小時去抓是白費，所以輕量模式直接跳過、沿用上一次的結果。
+    if ctx.get("light"):
+        raise SkipAsset("實體條塊一天只更新一次，盤中的輕量更新不重抓")
+
+    bars, bar_quote_time = fetch_gold_bars(f)
     today = now_tpe().strftime("%Y-%m-%d")
 
     # 台銀不公布條塊的歷史牌價，所以本站從第一次執行那天起自己累積。
@@ -655,7 +727,8 @@ def handle_bot_gold_bar(f, asset, ctx):
         "status": "ok",
         "price": None,
         "bars": bars,
-        "quoteTime": ctx.get("goldQuoteTime"),
+        "quoteTime": bar_quote_time or ctx.get("goldQuoteTime"),
+        "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
         "quoteTimeError": ctx.get("goldQuoteTimeError"),
         "hasHistory": bool(merged and len(merged) >= 2),
         "historyFrom": merged[0]["d"] if merged else None,
@@ -718,16 +791,18 @@ def handle_twse(f, asset, ctx):
         except FetchError as e:
             notes.append("Yahoo 回補失敗：%s" % e)
 
-    # (2) 官方月檔：本月（歷史不足時多補上個月）＝收盤定案
-    months = [now_tpe().strftime("%Y%m")]
-    if len(old) + len(new_pts) < 60:
-        prev_m = now_tpe().replace(day=1) - timedelta(days=1)
-        months.insert(0, prev_m.strftime("%Y%m"))
-    for ym in months:
-        try:
-            new_pts += fetch_twse_month(f, asset, ym)
-        except FetchError as e:
-            notes.append("官方月檔 %s 失敗：%s" % (ym, e))
+    # (2) 官方月檔：本月（歷史不足時多補上個月）＝收盤定案。
+    #     盤中的輕量更新不需要它——即時報價就夠了，收盤定案交給每天的完整更新。
+    if not (ctx.get("light") and len(old) >= 60):
+        months = [now_tpe().strftime("%Y%m")]
+        if len(old) + len(new_pts) < 60:
+            prev_m = now_tpe().replace(day=1) - timedelta(days=1)
+            months.insert(0, prev_m.strftime("%Y%m"))
+        for ym in months:
+            try:
+                new_pts += fetch_twse_month(f, asset, ym)
+            except FetchError as e:
+                notes.append("官方月檔 %s 失敗：%s" % (ym, e))
 
     # (3) 即時報價（一次抓三檔，結果放 ctx 共用）
     rt = ctx.get("twseRealtime")
@@ -779,7 +854,13 @@ def handle_twse(f, asset, ctx):
 
 def handle_yahoo(f, asset, ctx):
     old = load_history(asset["id"])
-    rng = "1y" if len(old) < 60 else "3mo"
+    # 首次執行補一年；平常補三個月；盤中輕量更新只要最近五天（回應小很多）
+    if len(old) < 60:
+        rng = "1y"
+    elif ctx.get("light"):
+        rng = "5d"
+    else:
+        rng = "3mo"
     price, currency, pts = fetch_yahoo(f, asset["symbol"], rng)
     merged = merge_points(old, pts)
     extra = {}
@@ -863,10 +944,14 @@ def main():
     ap.add_argument("--slot", choices=["morning", "midday", "close", "manual"],
                     default=None, help="更新時段；不給就依台北時間自動判斷")
     ap.add_argument("--only", default=None, help="只抓這些 id（逗號分隔），測試用")
+    ap.add_argument("--light", action="store_true",
+                    help="輕量更新：只更新現價，不重抓一年份歷史、不重產報告。"
+                         "給盤中每半小時的密集更新用。")
     args = ap.parse_args()
 
     slot = args.slot or guess_slot()
     only = set(x.strip() for x in args.only.split(",")) if args.only else None
+    light = args.light
 
     with open(ASSETS_FILE, encoding="utf-8") as fh:
         cfg = json.load(fh)
@@ -876,12 +961,13 @@ def main():
 
     started = now_tpe()
     print("=" * 62)
-    print("InvestWatch 資料更新  時段：%s（%s）" % (slot, SLOT_LABEL.get(slot, slot)))
+    print("InvestWatch 資料更新  時段：%s（%s）%s"
+          % (slot, SLOT_LABEL.get(slot, slot), "　【輕量】" if light else ""))
     print("台北時間：%s  標的數：%d" % (started.strftime("%Y-%m-%d %H:%M:%S"), len(assets)))
     print("=" * 62)
 
     f = Fetcher()
-    ctx = {}
+    ctx = {"light": light}
     prev = load_prev_latest()
     prev_assets = prev.get("assets") or {}
 
@@ -890,12 +976,16 @@ def main():
 
     if "bot_gold" in types or "bot_gold_bar" in types:
         try:
-            ctx["goldQuoteTime"] = fetch_gold_quote_time(f)
-            print(". 黃金掛牌時間：%s" % ctx["goldQuoteTime"])
+            qt, gbuy, gsell = fetch_gold_page(f)
+            ctx["goldQuoteTime"] = qt
+            ctx["goldPageBuy"] = gbuy
+            ctx["goldPageSell"] = gsell
+            print(". 黃金掛牌時間：%s（存摺台幣 買 %s / 賣 %s）"
+                  % (qt, gbuy, gsell))
         except Exception as e:
             ctx["goldQuoteTime"] = None
             ctx["goldQuoteTimeError"] = str(e)
-            print("! 黃金掛牌時間抓取失敗：%s" % e)
+            print("! 黃金主頁抓取失敗：%s" % e)
 
     twse_codes = [a["symbol"] for a in assets
                   if a["type"] in ("twse_index", "twse_stock")]
@@ -935,6 +1025,19 @@ def main():
                 print("    . 注意：%s" % w)
             results[a["id"]] = quote
             ok_ids.append(a["id"])
+        except SkipAsset as e:
+            # 刻意不更新：沿用上次結果並標明原因，不算失敗
+            old = prev_assets.get(a["id"])
+            if old:
+                carried = dict(old)
+                carried["carriedOver"] = True
+                carried["carriedReason"] = str(e)
+                results[a["id"]] = carried
+                if carried.get("status") == "ok":
+                    ok_ids.append(a["id"])
+                else:
+                    err_ids.append(a["id"])
+            print("    - 跳過：%s（沿用上次結果）" % e)
         except Exception as e:
             msg = str(e) or e.__class__.__name__
             if not isinstance(e, FetchError):
@@ -967,6 +1070,7 @@ def main():
         "timezone": "Asia/Taipei (UTC+8)",
         "slot": slot,
         "slotLabel": SLOT_LABEL.get(slot, slot),
+        "mode": "light" if light else "full",
         "summary": {
             "total": len(results),
             "ok": len(ok_ids),
@@ -982,19 +1086,24 @@ def main():
         fh.write("\n")
 
     # --- 產生並封存這個時段的報告（Phase 2）---
-    try:
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import report as report_mod
-        rep = report_mod.generate(slot, latest)
-        print("\n. 已產生 %s 報告並封存到 data/archive/%s/"
-              % (rep["slot"], rep["date"]))
-        for s in rep["sections"]:
-            n = len(s.get("items") or s.get("rows") or s.get("paragraphs") or [])
-            print("    - %s（%d 項）" % (s["title"], n))
-    except Exception as e:
-        # 報告失敗不能拖垮行情更新——行情資料已經寫進去了
-        print("\n! 報告產生失敗（行情資料已更新，不受影響）：%s" % e)
-        traceback.print_exc(limit=3)
+    # 輕量更新不重產報告：報告代表的是「那個時段的整理」，
+    # 用 11:30 的資料去改寫早上 10 點的晨報並不合理，也會讓封存一直變動。
+    if light:
+        print("\n. 輕量更新，不重新產生報告（報告維持三個主要時段產出的版本）")
+    else:
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import report as report_mod
+            rep = report_mod.generate(slot, latest)
+            print("\n. 已產生 %s 報告並封存到 data/archive/%s/"
+                  % (rep["slot"], rep["date"]))
+            for s in rep["sections"]:
+                n = len(s.get("items") or s.get("rows") or s.get("paragraphs") or [])
+                print("    - %s（%d 項）" % (s["title"], n))
+        except Exception as e:
+            # 報告失敗不能拖垮行情更新——行情資料已經寫進去了
+            print("\n! 報告產生失敗（行情資料已更新，不受影響）：%s" % e)
+            traceback.print_exc(limit=3)
 
     print("\n" + "=" * 62)
     print("完成：成功 %d / 失敗 %d（共發出 %d 次請求，耗時 %d 秒）"

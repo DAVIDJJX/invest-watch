@@ -24,7 +24,11 @@
 
 param(
     # morning / midday / close / manual；不給就讓 Python 依台北時間自己判斷
-    [string]$Slot = ""
+    [string]$Slot = "",
+
+    # 輕量更新：只更新現價，不重抓一年份歷史、不重產報告。
+    # 給盤中每半小時的密集更新用（請求數 10 次、約 15 秒，完整版是 14 次、25 秒）。
+    [switch]$Light
 )
 
 $ErrorActionPreference = "Continue"
@@ -75,6 +79,7 @@ if ([string]::IsNullOrWhiteSpace($dirty)) {
 # --- 2. 抓資料 -----------------------------------------------------------
 $args = @("scripts\fetch_data.py")
 if ($Slot -ne "") { $args += @("--slot", $Slot) }
+if ($Light)       { $args += "--light" }
 
 Write-Log "執行：python $($args -join ' ')"
 $output = & $Python $args 2>&1
@@ -94,7 +99,9 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 $date = Get-Date -Format "yyyy-MM-dd"
-$msg  = "data: $date 本機補抓（含台銀黃金與匯率）"
+$time = Get-Date -Format "HH:mm"
+$msg  = if ($Light) { "data: $date $time 盤中輕量更新（黃金與匯率現價）" }
+        else        { "data: $date 本機補抓（含台銀黃金與匯率）" }
 git commit -m $msg 2>&1 | ForEach-Object { Write-Log "  git commit: $_" }
 
 for ($i = 1; $i -le 3; $i++) {

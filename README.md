@@ -106,6 +106,9 @@ pip install requests
 # 抓一次資料
 python scripts/fetch_data.py --slot manual
 
+# 盤中輕量更新（只更新現價，不重抓歷史、不重產報告）
+python scripts/fetch_data.py --light
+
 # 只抓其中幾項（測試用，其他項會沿用上次結果）
 python scripts/fetch_data.py --only gold_twd,fx_cny
 
@@ -132,36 +135,67 @@ python -m http.server 8765
 
 ### 解法：家用電腦負責補抓（已設定好）
 
-家用電腦上已建立 Windows 排程工作 **`InvestWatch-UpdateData`**，每天 **10:05 / 13:05 / 15:05**
-自動執行 `scripts/update_local.ps1`：抓全部 12 項 → 有變動就 commit → 推回 GitHub。
-電腦關機而錯過的時段，會在**下次開機時自動補跑**（`StartWhenAvailable`）。
+家用電腦上有兩個 Windows 排程工作，都會執行 `scripts/update_local.ps1`：
+抓資料 → 有變動就 commit → 推回 GitHub。
 
-所以實際上是兩邊分工：
-
-| 誰 | 什麼時候 | 負責哪些 |
+| 工作名稱 | 什麼時候 | 做什麼 |
 |---|---|---|
-| GitHub Actions（雲端） | 每天 10:00 / 13:00 / 15:00 | 台股 3 項 + 海外 4 項（一定會更新，不需開電腦） |
-| 這台電腦的排程工作 | 每天 10:05 / 13:05 / 15:05 | 全部 12 項，含台銀那 5 項（要電腦有開機） |
+| `InvestWatch-UpdateData` | 每天 10:05 / 13:05 / 15:05 | **完整更新**：12 項全抓、更新歷史、產生並封存該時段報告 |
+| `InvestWatch-UpdateLight` | **平日** 09:00–17:00 **每 30 分鐘** | **輕量更新**：只更新現價，不重抓歷史、不重產報告 |
 
-若某個時段電腦沒開，網站上台銀那 5 項會誠實顯示「更新失敗＋失敗時間」，
-其餘 7 項照常更新。
+加上雲端，整體分工是：
+
+| 誰 | 什麼時候 | 負責哪些 | 要開電腦？ |
+|---|---|---|---|
+| GitHub Actions | 每天 10:00 / 13:00 / 15:00 | 台股 3 項 + 海外 4 項 | ❌ 不用 |
+| 這台電腦（完整） | 每天 10:05 / 13:05 / 15:05 | 全部 12 項 + 報告 | ✅ 要 |
+| 這台電腦（輕量） | 平日 09:00–17:00 每 30 分 | 現價（黃金存摺、匯率、台股、國際） | ✅ 要 |
+
+**待機也會跑。** 兩個工作都開了「喚醒電腦執行」（`WakeToRun`），所以**插電待機時，
+時間到會自動醒來、跑完再睡回去**，你不用管它。用電池時 Windows 會停用喚醒計時器，
+所以不會醒——但電腦一恢復使用就會自動補跑錯過的那次（`StartWhenAvailable`）。
+
+#### 輕量更新省在哪
+
+| | 完整更新 | 輕量更新 |
+|---|---|---|
+| 請求數 | 14 次 | **9～10 次** |
+| 耗時 | 約 25 秒 | **約 13～15 秒** |
+| 倉庫變動 | 約 237 行 | **約 44 行** |
+
+省下來的主要是兩份「一年份黃金走勢表」（各約 200KB）。盤中要的是**今天的牌價**，
+而台銀黃金主頁（85KB）就同時有牌價和掛牌時間，不必重抓整年歷史。
+實體條塊一天大致只設定一次牌價，輕量更新會直接跳過並標明「沿用上次結果」。
+
+> 實測發現：黃金主頁的牌價比歷史走勢表更即時。2026-08-31 23:23 主頁顯示 19:45 掛牌的
+> 4,562，走勢表今天那一列還停在 4,558。所以現價一律以主頁為準。
+>
+> 另外，**存摺和實體條塊的「掛牌時間」是兩回事**：同一時刻實測存摺是 19:45、
+> 條塊是 14:54。存摺一路更新到晚上，條塊大致在營業時間內設定一次，
+> 所以兩張卡片顯示各自的掛牌時間。
 
 **查看／管理排程**（PowerShell）：
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "InvestWatch-UpdateData"
+Get-ScheduledTaskInfo -TaskName "InvestWatch-UpdateData"; Get-ScheduledTaskInfo -TaskName "InvestWatch-UpdateLight"
 ```
 
-手動跑一次：
+想立刻更新一次：
 
 ```powershell
-Start-ScheduledTask -TaskName "InvestWatch-UpdateData"
+Start-ScheduledTask -TaskName "InvestWatch-UpdateLight"
 ```
 
-不想要了就移除：
+覺得太密集，想改成每小時一次：
 
 ```powershell
-Unregister-ScheduledTask -TaskName "InvestWatch-UpdateData" -Confirm:$false
+$t = Get-ScheduledTask -TaskName "InvestWatch-UpdateLight"; $t.Triggers[0].Repetition.Interval = "PT1H"; Set-ScheduledTask -InputObject $t
+```
+
+不想要了就移除（兩個都移除就完全停掉本機更新）：
+
+```powershell
+Unregister-ScheduledTask -TaskName "InvestWatch-UpdateLight" -Confirm:$false
 ```
 
 執行紀錄在 `scripts/update_local.log`（不進倉庫）。
