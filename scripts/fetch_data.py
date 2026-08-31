@@ -593,6 +593,9 @@ def handle_bot_gold(f, asset, ctx):
     pts = fetch_bot_gold(f, asset["symbol"])
     merged = merge_points(load_history(asset["id"]), pts)
     latest = pts[-1]
+    if asset["symbol"] == "TWD":
+        # 給實體條塊卡片算「比存摺貴多少」用
+        ctx["goldSell"] = latest.get("sell")
     extra = {
         "buy": latest.get("buy"),
         "sell": latest.get("sell"),
@@ -602,8 +605,43 @@ def handle_bot_gold(f, asset, ctx):
     return merged, build_quote(asset, merged, latest.get("sell"), extra)
 
 
+BAR_SPECS = [
+    # 顯示名稱, 歷史檔的欄位名, 公克數
+    ("1 公斤", "g1000", 1000.0),
+    ("500 公克", "g500", 500.0),
+    ("250 公克", "g250", 250.0),
+    ("100 公克", "g100", 100.0),
+    ("金鑽 1 台兩", "tael", 37.5),
+]
+
+
 def handle_bot_gold_bar(f, asset, ctx):
     bars = fetch_gold_bars(f)
+    today = now_tpe().strftime("%Y-%m-%d")
+
+    # 台銀不公布條塊的歷史牌價，所以本站從第一次執行那天起自己累積。
+    # 主序列 c ＝ 1 公斤條塊的「每公克單價」，才能跟黃金存摺的每公克牌價比較。
+    by_spec = {b["spec"]: b for b in bars}
+    point = {"d": today}
+    for spec, key, grams in BAR_SPECS:
+        b = by_spec.get(spec) or {}
+        if b.get("sell") is not None:
+            point[key] = b["sell"]
+        if spec == "金鑽 1 台兩" and b.get("buy") is not None:
+            point["taelBuy"] = b["buy"]
+    if point.get("g1000") is not None:
+        point["c"] = round(point["g1000"] / 1000.0, 4)
+    merged = merge_points(load_history(asset["id"]), [point]) if "c" in point else None
+
+    # 每公克單價與「比黃金存摺賣出價貴多少」——今天就看得到，不用等歷史
+    gold = ctx.get("goldSell")
+    for b in bars:
+        grams = dict((s, g) for s, _, g in BAR_SPECS).get(b["spec"])
+        b["grams"] = grams
+        b["perGram"] = round(b["sell"] / grams, 2) if (grams and b.get("sell")) else None
+        b["premiumPct"] = (round((b["perGram"] - gold) / gold * 100, 3)
+                           if (b.get("perGram") and gold) else None)
+
     q = {
         "id": asset["id"],
         "name": asset["name"],
@@ -619,12 +657,17 @@ def handle_bot_gold_bar(f, asset, ctx):
         "bars": bars,
         "quoteTime": ctx.get("goldQuoteTime"),
         "quoteTimeError": ctx.get("goldQuoteTimeError"),
-        "hasHistory": False,
-        "date": now_tpe().strftime("%Y-%m-%d"),
+        "hasHistory": bool(merged and len(merged) >= 2),
+        "historyFrom": merged[0]["d"] if merged else None,
+        "points": len(merged or []),
+        "goldSell": gold,          # 同日的黃金存摺賣出價，供前端說明價差
+        "spark": [p.get("c") for p in (merged or [])[-SPARK_POINTS:]
+                  if p.get("c") is not None],
+        "date": today,
         "fetchedAt": iso(now_tpe()),
         "error": None,
     }
-    return None, q
+    return merged, q
 
 
 def handle_bot_fx(f, asset, ctx):
@@ -937,6 +980,21 @@ def main():
     with open(LATEST_FILE, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(latest, fh, ensure_ascii=False, indent=1)
         fh.write("\n")
+
+    # --- 產生並封存這個時段的報告（Phase 2）---
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import report as report_mod
+        rep = report_mod.generate(slot, latest)
+        print("\n. 已產生 %s 報告並封存到 data/archive/%s/"
+              % (rep["slot"], rep["date"]))
+        for s in rep["sections"]:
+            n = len(s.get("items") or s.get("rows") or s.get("paragraphs") or [])
+            print("    - %s（%d 項）" % (s["title"], n))
+    except Exception as e:
+        # 報告失敗不能拖垮行情更新——行情資料已經寫進去了
+        print("\n! 報告產生失敗（行情資料已更新，不受影響）：%s" % e)
+        traceback.print_exc(limit=3)
 
     print("\n" + "=" * 62)
     print("完成：成功 %d / 失敗 %d（共發出 %d 次請求，耗時 %d 秒）"

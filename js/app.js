@@ -129,25 +129,47 @@
     return h;
   }
 
-  /* 實體黃金條塊：獨立一張卡，列出各規格掛牌價（無歷史走勢） */
+  /*
+   * 實體黃金條塊：列出各規格掛牌價，並換算成「每公克單價」。
+   * 每公克單價才能互相比較——買越大條通常每公克越便宜，
+   * 也才看得出比黃金存摺貴多少（那個差價就是鑄造與加工費）。
+   */
   function barTableHtml(a, latest) {
     var fx = latest.assets.fx_cny;
     var rate = (fx && fx.status === 'ok') ? fx.spotSell : null;
+    var hasPremium = (a.bars || []).some(function (b) {
+      return typeof b.premiumPct === 'number';
+    });
 
     var h = '<div class="table-scroll"><table class="bar-table"><thead><tr>' +
-            '<th>規格</th><th>本行賣出 (TWD)</th>' +
+            '<th>規格</th><th>掛牌賣出 (TWD)</th><th>每公克</th>' +
+            (hasPremium ? '<th>比存摺貴</th>' : '') +
             (rate ? '<th>約當人民幣</th>' : '') +
-            '<th>本行買進</th></tr></thead><tbody>';
+            '</tr></thead><tbody>';
     (a.bars || []).forEach(function (b) {
       h += '<tr><td>' + esc(b.spec) + '</td>';
       h += '<td>' + num(b.sell, 0) + '</td>';
+      h += '<td>' + (typeof b.perGram === 'number' ? num(b.perGram, 1) : '—') + '</td>';
+      if (hasPremium) {
+        h += '<td>' + (typeof b.premiumPct === 'number'
+              ? '+' + b.premiumPct.toFixed(2) + '%' : '—') + '</td>';
+      }
       if (rate) h += '<td>' + num(b.sell / rate, 0) + '</td>';
-      h += '<td>' + (typeof b.buy === 'number' ? num(b.buy, 0) : '—') + '</td></tr>';
+      h += '</tr>';
     });
     h += '</tbody></table></div>';
+
+    var notes = [];
+    if (hasPremium && typeof a.goldSell === 'number') {
+      notes.push('「比存摺貴」是把每公克單價和今日黃金存摺賣出價 ' +
+                 num(a.goldSell, 0) + ' 元相比，差額就是鑄造與加工費。');
+    }
     if (rate) {
-      h += '<div class="range-note">人民幣欄位是用今日台銀 CNY 即期賣出 ' +
-           num(rate, 3) + ' 換算的參考值，不是台銀的人民幣掛牌價。</div>';
+      notes.push('人民幣欄位是用今日台銀 CNY 即期賣出 ' + num(rate, 3) +
+                 ' 換算的參考值，不是台銀的人民幣掛牌價。');
+    }
+    if (notes.length) {
+      h += '<div class="range-note">' + notes.join('<br>') + '</div>';
     }
     return h;
   }
@@ -175,15 +197,18 @@
     if (a.status !== 'ok') card.classList.add('is-error');
 
     var isBar = a.type === 'bot_gold_bar';
-    var hasHistory = a.status === 'ok' && !isBar && (a.points || 0) > 1;
+    // 條塊卡也能展開：台銀不公布條塊歷史牌價，展開後先用黃金存摺的走勢代表金價，
+    // 等本站自己累積夠天數再換成條塊自己的線。
+    var hasHistory = a.status === 'ok' && (isBar || (a.points || 0) > 1);
 
     /* --- 頭部 --- */
     var head = el('div', 'card-head');
 
     var left = el('div');
     var name = el('div', 'card-name');
-    // 位置燈號要等歷史資料載進來才算得出來，先放一個佔位
-    name.innerHTML = esc(a.name) + (hasHistory
+    // 位置燈號要等歷史資料載進來才算得出來，先放一個佔位。
+    // 條塊沒有足夠歷史可以算區間位置，就不掛燈號。
+    name.innerHTML = esc(a.name) + (hasHistory && !isBar
       ? ' <span class="signal unknown" data-signal="' + esc(a.id) + '">' +
         '<span class="dot"></span>計算中</span>'
       : '');
@@ -343,7 +368,60 @@
     return h;
   }
 
+  /*
+   * 實體條塊的展開內容。
+   * 台銀不公布條塊的歷史牌價，所以：
+   *   累積夠 5 天 → 畫條塊自己的「每公克單價」走勢
+   *   還不夠     → 先畫黃金存摺賣出價（同一塊金子的價格，條塊只是再加鑄造費）
+   * 兩種情況都會在圖下面寫清楚現在看的是哪一條線。
+   */
+  function renderBarBody(card, a) {
+    var body = $('.card-body', card);
+    var barPts = ((state.history.gold_bar || {}).points) || [];
+    var goldPts = ((state.history.gold_twd || {}).points) || [];
+    var useBar = barPts.length >= 5;
+
+    var points = (useBar ? barPts : goldPts).filter(function (p) {
+      return typeof p.c === 'number';
+    });
+    var since = barPts.length ? barPts[0].d : null;
+
+    if (points.length < 2) {
+      body.innerHTML = '<div class="fatal">目前還沒有足夠的歷史可以畫圖。' +
+        '台銀不公布實體條塊的歷史牌價，本站' +
+        (since ? '從 ' + esc(since) + ' 起' : '') +
+        '開始自行累積，過幾天這裡就會有走勢了。</div>';
+      return;
+    }
+
+    var canvasId = 'chart-' + a.id;
+    var label = useBar ? '1 公斤條塊 每公克單價' : '黃金存摺 本行賣出';
+    var explain = useBar
+      ? ('這是本站自 ' + esc(since) + ' 起累積的台銀條塊掛牌價，換算成每公克單價，' +
+         '目前共 ' + barPts.length + ' 個交易日。')
+      : ('台銀不公布實體條塊的歷史牌價，本站' +
+         (since ? '從 ' + esc(since) + ' 起' : '') + '自行累積（目前 ' +
+         barPts.length + ' 天，滿 5 天後這裡會換成條塊自己的走勢）。' +
+         '下圖先用<b>黃金存摺賣出價</b>代表金價走勢——條塊價就是它再加上鑄造與加工費。');
+
+    body.innerHTML =
+      '<div class="chart-box"><canvas id="' + canvasId + '"></canvas></div>' +
+      '<div class="chart-legend">' +
+        '<span><i style="background:' + window.Charts.COLORS.line + '"></i>' +
+          esc(label) + '</span>' +
+        '<span><i style="background:' + window.Charts.COLORS.ma20 + '"></i>MA20</span>' +
+        '<span><i style="background:' + window.Charts.COLORS.ma60 + '"></i>MA60</span>' +
+        '<span style="color:var(--text-faint)">' + points.length + ' 個交易日 · ' +
+          esc(points[0].d) + ' ～ ' + esc(points[points.length - 1].d) + '</span>' +
+      '</div>' +
+      '<div class="range-bar"><div class="range-note">' + explain + '</div></div>';
+
+    window.Charts.drawHistory(document.getElementById(canvasId), points,
+      { decimals: useBar ? 1 : 0, label: label });
+  }
+
   function renderBody(card, a, hist) {
+    if (a.type === 'bot_gold_bar') return renderBarBody(card, a);
     var body = $('.card-body', card);
     var points = (hist && hist.points) || [];
     if (points.length < 2) {
@@ -395,19 +473,34 @@
     }
     card.classList.add('is-open');
 
-    if (state.history[a.id]) {
+    // 條塊的圖需要同時有條塊歷史與黃金存摺歷史（存摺是底圖）
+    var need = a.type === 'bot_gold_bar' ? ['gold_bar', 'gold_twd'] : [a.id];
+    var missing = need.filter(function (id) { return !state.history[id]; });
+
+    if (!missing.length) {
       renderBody(card, a, state.history[a.id]);
       return;
     }
-    fetchJSON('data/history/' + a.id + '.json')
-      .then(function (h) {
-        state.history[a.id] = h;
-        if (card.classList.contains('is-open')) renderBody(card, a, h);
-      })
-      .catch(function (e) {
-        $('.card-body', card).innerHTML =
-          '<div class="fatal">歷史資料讀取失敗：' + esc(e.message) + '</div>';
+    ensureHistories(need)
+      .then(function () {
+        if (!card.classList.contains('is-open')) return;
+        if (!state.history[a.id]) {
+          $('.card-body', card).innerHTML =
+            '<div class="fatal">歷史資料讀取失敗。</div>';
+          return;
+        }
+        renderBody(card, a, state.history[a.id]);
       });
+  }
+
+  /* 確保這些標的的歷史都載進 state.history（已載過的不重複抓） */
+  function ensureHistories(ids) {
+    return Promise.all(ids.map(function (id) {
+      if (state.history[id]) return Promise.resolve(state.history[id]);
+      return fetchJSON('data/history/' + id + '.json')
+        .then(function (h) { state.history[id] = h; return h; })
+        .catch(function () { return null; });
+    }));
   }
 
   /* ---------------------------------------------------------- 主流程 */
@@ -454,7 +547,9 @@
   function loadHistories(latest) {
     Object.keys(latest.assets).forEach(function (id) {
       var a = latest.assets[id];
-      if (a.status !== 'ok' || a.type === 'bot_gold_bar' || !(a.points > 1)) return;
+      var isBar = a.type === 'bot_gold_bar';
+      if (a.status !== 'ok') return;
+      if (!(a.points > 1) && !(isBar && a.points >= 1)) return;
       fetchJSON('data/history/' + id + '.json')
         .then(function (h) {
           state.history[id] = h;
@@ -473,7 +568,31 @@
     });
   }
 
+  /* 頂部那條「今天的報告」入口。沒有報告就整條不顯示。 */
+  function loadReportBanner() {
+    var box = $('#report-banner');
+    if (!box) return;
+    fetchJSON('data/report-latest.json')
+      .then(function (r) {
+        var notes = (r.sections || []).filter(function (s) {
+          return s.type === 'notes';
+        })[0];
+        var n = notes ? (notes.items || []).length : 0;
+        box.href = 'history.html#' + r.date + '/' + r.slot;
+        box.innerHTML =
+          '<span class="rp-banner-tag">最新報告</span>' +
+          '<span class="rp-banner-title">' + esc(r.title || '') + '</span>' +
+          '<span class="rp-banner-meta">' + esc(r.date) + ' ' +
+            esc((r.generatedAtText || '').slice(11)) +
+            (n ? '　' + n + ' 則觀察' : '') + '</span>' +
+          '<span class="rp-banner-go">看報告 →</span>';
+        box.hidden = false;
+      })
+      .catch(function () { /* 還沒有報告就安靜地不顯示 */ });
+  }
+
   function boot() {
+    loadReportBanner();
     fetchJSON('data/latest.json')
       .then(function (latest) {
         render(latest);

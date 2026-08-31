@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1420">
-<title>歷史 — InvestWatch</title>
+<meta name="description" content="每天 10:00 / 13:00 / 15:00 三份市場報告的歷史封存。">
+<title>歷史報告 — InvestWatch</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -13,7 +14,7 @@
   <div class="wrap">
     <div class="brand">
       <h1>Invest<span class="brand-dot">Watch</span></h1>
-      <span class="tagline">歷史</span>
+      <span class="tagline">歷史報告封存</span>
     </div>
     <nav class="nav">
       <a href="index.html">儀表板</a>
@@ -25,24 +26,36 @@
 </header>
 
 <main class="wrap">
-  <div class="placeholder">
-    <div class="big">🗓</div>
-    <h2>每天的資料都會留下來</h2>
-    <p>之後這一頁會做成日曆式清單：點任何一天，就能看到當天早上、中午、收盤三份報告，以及當天所有標的的價格快照。目前資料已經開始每天累積存進倉庫了，不會漏掉。</p>
-    <span class="soon">Phase 2 推出</span>
+  <div class="hist-layout">
+
+    <aside class="hist-side">
+      <div class="section-title">選日期</div>
+      <div id="day-list" class="day-list">
+        <div class="loading">載入中…</div>
+      </div>
+    </aside>
+
+    <div class="hist-main">
+      <div id="slot-tabs" class="slot-tabs"></div>
+      <div id="report">
+        <div class="loading">載入報告中…</div>
+      </div>
+
+      <details class="snap-box">
+        <summary>當日各標的行情快照</summary>
+        <div id="snapshot"><div class="loading">載入中…</div></div>
+      </details>
+    </div>
+
   </div>
 
-  <section class="disclaimer">
-    <b>⚠ 請先看這段</b><br>
-    本站所有燈號與參考數字，都只是把客觀市場數據做分類整理，<b>未經歷史回測驗證，
-    不構成投資建議</b>。實際投資決定與盈虧請自行負責。
-  </section>
-
   <footer class="site-foot">
-    <span>資料來源：臺灣銀行牌價 · 臺灣證券交易所 · Yahoo Finance</span>
+    <span>報告由 scripts/report.py 依固定規則自動產生，每天封存進倉庫</span>
     <span>本站不儲存任何個人持倉資料</span>
   </footer>
 </main>
 
+<script src="js/report.js"></script>
+<script src="js/history.js"></script>
 </body>
 </html>
