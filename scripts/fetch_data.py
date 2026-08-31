@@ -128,6 +128,7 @@ class Fetcher:
     def __init__(self, verbose=True):
         self.session = requests.Session()
         self.last_hit = {}      # host -> 上次請求的時間戳
+        self.blocked = {}       # host -> 已確認被擋的原因
         self.verbose = verbose
         self.count = 0
 
@@ -140,8 +141,12 @@ class Fetcher:
         self.last_hit[host] = time.time()
 
     def get(self, url, delay=2.0, headers=None, timeout=30,
-            bot_retry=3, tries=2, expect_json=False):
+            bot_retry=2, tries=2, expect_json=False):
         host = re.sub(r"^https?://([^/]+).*$", r"\1", url)
+        # 這個網站這一輪已經確認擋我們了，就不要再一直敲門（禮貌，也省時間）
+        if host in self.blocked:
+            raise FetchError(self.blocked[host])
+
         hdrs = dict(BROWSER_HEADERS)
         if headers:
             hdrs.update(headers)
@@ -173,8 +178,12 @@ class Fetcher:
                         got = True
                         break
                 if not got:
-                    last_err = "台銀持續回傳驗證頁，暫時無法取得資料"
-                    continue
+                    # 一直過不了＝這個來源封鎖了目前這個 IP（GitHub Actions 的
+                    # 資料中心 IP 常被這樣對待）。記下來，本輪不再重試。
+                    last_err = ("台銀擋下了這次連線（回傳機器人驗證頁）。"
+                                "雲端主機的 IP 常被這樣阻擋，本輪不再重試。")
+                    self.blocked[host] = last_err
+                    break
 
             # Yahoo 限流
             if r.status_code == 429:
