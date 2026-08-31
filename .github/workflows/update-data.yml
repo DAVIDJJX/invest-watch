@@ -102,7 +102,27 @@ jobs:
             exit 0
           fi
           DATE=$(TZ=Asia/Taipei date +%Y-%m-%d)
-          git commit -m "data: $DATE ${{ steps.slot.outputs.slot }} 更新"
-          # 若這期間有別的 commit 推上來，先 rebase 再推，避免直接失敗
-          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          MSG="data: $DATE ${{ steps.slot.outputs.slot }} 更新"
+          git commit -m "$MSG"
+
+          # 推不上去＝這期間有別的 commit 進來。這時「絕對不要」用 merge/rebase 去
+          # 逐行合併 data/ 的 JSON——那會產生自相矛盾的檔案（summary 說失敗、
+          # 各標的卻是成功）。正確做法是：把 HEAD 移到最新的遠端，工作區保持
+          # 這次剛抓到的檔案，再重新 commit 一次。
+          for i in 1 2 3; do
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              echo "推送成功。"
+              exit 0
+            fi
+            echo "遠端有新的 commit，改以這次抓到的資料重新提交（第 $i 次）"
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --soft "origin/${GITHUB_REF_NAME}"
+            git add data/
+            if git diff --cached --quiet; then
+              echo "和遠端內容一樣，不用再 commit。"
+              exit 0
+            fi
+            git commit -m "$MSG"
+          done
+          echo "連續三次都推不上去，這次先跳過（下一個時段會再更新）。"
+          exit 1
