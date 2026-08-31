@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1420">
+<meta name="description" content="個人理財監控儀表板：黃金、台股、美股、匯率的每日行情與量化指標整理。">
+<title>InvestWatch 儀表板</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-head">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Invest<span class="brand-dot">Watch</span></h1>
+      <span class="tagline">每天 10:00 / 13:00 / 15:00 自動更新</span>
+    </div>
+    <div class="status-bar" id="status-bar">
+      <span class="chip">讀取資料中…</span>
+    </div>
+    <nav class="nav">
+      <a href="index.html" class="active">儀表板</a>
+      <a href="history.html">歷史</a>
+      <a href="records.html">我的紀錄</a>
+      <a href="settings.html">設定</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="dashboard">
+    <div class="loading">載入行情中…</div>
+  </div>
+
+  <section class="disclaimer">
+    <b>⚠ 請先看這段</b><br>
+    本頁的「相對低檔區／中性／相對高檔區」燈號，只是把 RSI、均線位置、52 週區間百分位
+    這些<b>客觀數字做分類</b>，<b>未經任何歷史回測驗證，不構成投資建議</b>，也不保證未來走勢。
+    實際投資決定與盈虧請自行負責。<br>
+    價格資料來自臺灣銀行、臺灣證券交易所與 Yahoo Finance 的公開牌價，可能有延遲或誤差，
+    正式交易請以各機構官方公告為準。
+  </section>
+
+  <footer class="site-foot">
+    <span>資料來源：臺灣銀行牌價 · 臺灣證券交易所 · Yahoo Finance</span>
+    <span>更新方式：GitHub Actions 每日三時段自動抓取</span>
+    <span>本站不儲存任何個人持倉資料</span>
+  </footer>
+</main>
+
+<script src="lib/chart.umd.min.js"></script>
+<script src="js/indicators.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

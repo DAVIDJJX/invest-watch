@@ -1,0 +1,108 @@
+name: 更新市場資料
+
+# GitHub 的排程用的是 UTC 時間，台北時間要減 8 小時：
+#   台北 10:00 -> UTC 02:00   （晨報 morning）
+#   台北 13:00 -> UTC 05:00   （午盤 midday）
+#   台北 15:00 -> UTC 07:00   （收盤 close）
+# 免費的 Actions 排程有時會晚 5～15 分鐘啟動，屬正常現象。
+on:
+  schedule:
+    - cron: "0 2,5,7 * * *"
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "要記成哪個時段"
+        required: false
+        default: "manual"
+        type: choice
+        options:
+          - manual
+          - morning
+          - midday
+          - close
+
+# 同一時間只跑一份，避免兩次執行互相蓋掉對方的 commit
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 取出倉庫
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝套件
+        run: pip install requests
+
+      - name: 決定這次的時段名稱
+        id: slot
+        run: |
+          if [ -n "${{ github.event.inputs.slot }}" ]; then
+            SLOT="${{ github.event.inputs.slot }}"
+          else
+            # 依 UTC 小時判斷；排程延遲一兩個小時也還是對得上
+            H=$(date -u +%H)
+            H=$((10#$H))
+            if   [ "$H" -ge 1 ] && [ "$H" -le 3 ]; then SLOT=morning
+            elif [ "$H" -ge 4 ] && [ "$H" -le 6 ]; then SLOT=midday
+            elif [ "$H" -ge 7 ] && [ "$H" -le 9 ]; then SLOT=close
+            else SLOT=manual
+            fi
+          fi
+          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
+          echo "本次時段：$SLOT"
+
+      - name: 抓取行情資料
+        run: python scripts/fetch_data.py --slot "${{ steps.slot.outputs.slot }}"
+
+      - name: 把抓到的結果寫進執行摘要
+        if: always()
+        continue-on-error: true
+        run: |
+          {
+            echo "### 本次更新結果"
+            echo ""
+            python - <<'PY'
+          import json
+          d = json.load(open("data/latest.json", encoding="utf-8"))
+          s = d["summary"]
+          print(f"- 台北時間：**{d['updatedAtText']}**")
+          print(f"- 時段：**{d['slotLabel']}**")
+          print(f"- 成功 {s['ok']} 項 / 失敗 {s['error']} 項（共 {s['total']} 項）")
+          print("")
+          print("| 標的 | 狀態 | 價格 |")
+          print("|---|---|---|")
+          for a in d["assets"].values():
+              price = a.get("price")
+              price = "—" if price is None else f"{price:,}"
+              mark = "OK" if a.get("status") == "ok" else "更新失敗"
+              print(f"| {a['name']} | {mark} | {price} |")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 有變動就存檔並推上來
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "資料沒有變動，這次不用 commit。"
+            exit 0
+          fi
+          DATE=$(TZ=Asia/Taipei date +%Y-%m-%d)
+          git commit -m "data: $DATE ${{ steps.slot.outputs.slot }} 更新"
+          # 若這期間有別的 commit 推上來，先 rebase 再推，避免直接失敗
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,6 @@
+# 統一用 LF，避免 Windows 本機與 Linux 的 GitHub Actions 之間
+# 反覆產生「整檔都變了」的假差異
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
