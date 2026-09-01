@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0e1420">
 <meta name="robots" content="noindex">
 <title>我的紀錄 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css?v=20260901-2">
+<link rel="stylesheet" href="css/style.css?v=20260901-6">
 </head>
 <body>
 
@@ -65,10 +65,15 @@
 
     <!-- ---------------------------------------------- 交易紀錄 -->
     <div class="section-title">交易紀錄</div>
+    <p class="panel-lead" style="margin:0 0 4px">
+      本來就持有、想不起來每一筆怎麼買的 → 按<b>「我已經持有的」</b>登記目前的數量與平均成本。
+      之後每次進出場 → 按<b>「記一筆買賣」</b>。
+    </p>
     <div class="row-actions">
-      <button class="btn btn-primary" id="btn-add-trade">＋ 新增一筆紀錄</button>
-      <button class="btn" id="btn-add-asset">＋ 新增標的</button>
+      <button class="btn btn-primary" id="btn-add-owned">＋ 我已經持有的</button>
+      <button class="btn" id="btn-add-trade">＋ 記一筆買賣</button>
       <button class="btn" id="btn-add-nav">＋ 輸入淨值</button>
+      <button class="btn" id="btn-add-asset">＋ 只新增標的</button>
     </div>
     <div id="trades"></div>
 
@@ -96,10 +101,11 @@
 </div>
 
 <script src="lib/chart.umd.min.js"></script>
-<script src="js/indicators.js?v=20260901-2"></script>
-<script src="js/charts.js?v=20260901-2"></script>
-<script src="js/storage.js?v=20260901-2"></script>
-<script src="js/portfolio.js?v=20260901-2"></script>
-<script src="js/records.js?v=20260901-2"></script>
+<script src="js/indicators.js?v=20260901-6"></script>
+<script src="js/charts.js?v=20260901-6"></script>
+<script src="js/lock.js?v=20260901-6"></script>
+<script src="js/storage.js?v=20260901-6"></script>
+<script src="js/portfolio.js?v=20260901-6"></script>
+<script src="js/records.js?v=20260901-6"></script>
 </body>
 </html>

@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0e1420">
 <meta name="robots" content="noindex">
 <title>設定 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css?v=20260901-2">
+<link rel="stylesheet" href="css/style.css?v=20260901-6">
 </head>
 <body>
 
@@ -110,6 +110,50 @@
     <div id="backup-result"></div>
   </section>
 
+  <!-- ================================================ 密碼鎖 -->
+  <div class="section-title">密碼鎖</div>
+
+  <section class="panel">
+    <p class="panel-lead">
+      加了密碼鎖之後，存在<b>這台裝置</b>上的紀錄與同步金鑰都會被<b>加密</b>，
+      沒有密碼就只是一團看不懂的亂碼——別人拿到你沒鎖螢幕的手機也打不開。
+    </p>
+
+    <div class="privacy-note">
+      🔐 為什麼不是做「登入畫面」？這是純前端的靜態網站，沒有後端可以驗證身分，
+      登入畫面只是把畫面遮起來，開發者工具一開就繞過去了——那是<b>假的保護</b>。
+      這裡做的是真的把資料<b>加密</b>（瀏覽器內建的 AES-GCM，密碼經 PBKDF2 推導 25 萬次）。
+      密碼本身不會被存下來，所以誰也拿不回你的密碼。
+    </div>
+
+    <div id="lock-state" class="result"></div>
+
+    <div id="lock-setup">
+      <div class="f-two">
+        <div class="f"><span class="f-label">設定密碼</span>
+          <input id="lock-new" type="password" autocomplete="new-password"></div>
+        <div class="f"><span class="f-label">再輸入一次</span>
+          <input id="lock-new2" type="password" autocomplete="new-password"></div>
+      </div>
+      <span class="f-hint">至少 4 個字，建議 6 個以上。
+        <b class="warn-line">⚠ 忘記密碼＝這台裝置上的資料就解不開了。
+        啟用前請先到上面「匯出備份」存一份。</b></span>
+      <div class="row-actions">
+        <button class="btn btn-primary" id="btn-lock-on">啟用密碼鎖</button>
+      </div>
+    </div>
+
+    <div id="lock-manage" hidden>
+      <div class="row-actions">
+        <button class="btn" id="btn-lock-now">立刻上鎖</button>
+        <button class="btn danger" id="btn-lock-off">關閉密碼鎖</button>
+      </div>
+      <span class="f-hint">「立刻上鎖」會清掉這個分頁的解鎖狀態，下次開頁要重新輸入密碼。
+        關掉分頁或關瀏覽器也會自動上鎖。</span>
+    </div>
+    <div id="lock-result"></div>
+  </section>
+
   <!-- ================================================ 這台裝置的資料 -->
   <div class="section-title">這台裝置上的資料</div>
 
@@ -128,8 +172,9 @@
   </footer>
 </main>
 
-<script src="js/storage.js?v=20260901-2"></script>
-<script src="js/portfolio.js?v=20260901-2"></script>
-<script src="js/settings.js?v=20260901-2"></script>
+<script src="js/lock.js?v=20260901-6"></script>
+<script src="js/storage.js?v=20260901-6"></script>
+<script src="js/portfolio.js?v=20260901-6"></script>
+<script src="js/settings.js?v=20260901-6"></script>
 </body>
 </html>

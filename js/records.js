@@ -186,8 +186,10 @@
     if (!rows.length && !closed.length) {
       box.innerHTML = '<div class="placeholder">' +
         '<div class="big">📒</div><h2>還沒有任何紀錄</h2>' +
-        '<p>先按下面的「新增標的」建立你要追蹤的項目（例如台積電、黃金存摺、某檔基金），' +
-        '再用「新增一筆紀錄」記下每次進場。所有數字只會存在你自己的裝置上。</p></div>';
+        '<p>如果你<b>現在就持有</b>某些東西（股票、黃金、基金都可以），' +
+        '直接按下面的<b>「＋ 我已經持有的」</b>，填目前的數量和平均成本就好——' +
+        '以前每一筆怎麼買的不用回想。之後每次進出場再用「記一筆買賣」。<br>' +
+        '所有數字只會存在你自己的裝置上。</p></div>';
       return;
     }
 
@@ -530,6 +532,107 @@
     persist().then(recompute);
   }
 
+  /* --- 我已經持有的（期初持有）---
+   *
+   * 給「這些我本來就有，不是今天買的」用。想不起來以前每一筆怎麼買的時候，
+   * 直接登記目前的數量與平均成本就好。
+   * 這張表單可以順手建立新標的，不用先開「新增標的」再開「新增紀錄」。
+   */
+  function openOwnedForm() {
+    var existing = (state.data.assets || []).filter(function (a) {
+      return a.kind !== '現金';
+    });
+    var kinds = window.Portfolio.KINDS.filter(function (k) { return k !== '現金'; })
+      .map(function (k) { return '<option value="' + k + '">' + k + '</option>'; }).join('');
+    var monitored = '<option value="">（不連結，例如基金）</option>' +
+      state.monitored.map(function (m) {
+        return '<option value="' + esc(m.id) + '">' + esc(m.name) + '</option>';
+      }).join('');
+
+    var h = '';
+    h += '<div class="f-hint" style="margin:-2px 0 12px">' +
+         '這裡登記的是<b>你現在就持有的部位</b>，不是今天的買入。' +
+         '填目前的數量與平均成本就好，以前每一筆怎麼買的不用回想。</div>';
+
+    h += field('標的',
+      '<select name="assetId" id="owned-asset">' +
+        '<option value="__new__">＋ 建立新標的…</option>' +
+        existing.map(function (a) {
+          return '<option value="' + esc(a.id) + '">' + esc(a.name) + '</option>';
+        }).join('') +
+      '</select>');
+
+    h += '<div id="owned-new">' +
+           field('新標的名稱', '<input name="newName" maxlength="40" ' +
+                 'placeholder="例：黃金存摺、第一金AI基金、元大美債20年">') +
+           field('分類', '<select name="newKind">' + kinds + '</select>') +
+           field('連結監控標的', '<select name="newLinkId">' + monitored + '</select>',
+                 '連結後會自動帶市價與加碼參考；基金選「不連結」，之後用「輸入淨值」更新') +
+         '</div>';
+
+    h += field('目前持有數量',
+      '<input name="qty" type="number" step="any" inputmode="decimal" required ' +
+      'placeholder="股數 / 公克數 / 單位數">',
+      '單位要和市價一致：股票填股數、黃金存摺填公克、基金填單位數');
+
+    h += '<div class="f-two">' +
+         field('平均成本（每單位）',
+               '<input name="price" type="number" step="any" inputmode="decimal">') +
+         field('或　總投入金額',
+               '<input name="amount" type="number" step="any" inputmode="decimal">') +
+         '</div>';
+    h += '<div class="f-hint" style="margin:-4px 0 12px">' +
+         '兩個<b>填一個就好</b>，另一個會自動算出來。' +
+         '真的不記得成本可以先留白，之後再回來補（那樣就只會顯示現值、不算損益）。</div>';
+
+    h += field('以哪一天為基準', '<input name="date" type="date" required value="' +
+               today() + '">', '通常填今天就好，只是用來排序');
+    h += field('備註', '<input name="note" maxlength="60" placeholder="選填">');
+
+    openModal('登記我已經持有的', h, function (fd) {
+      var assetId = fd.get('assetId');
+
+      if (assetId === '__new__') {
+        var name = String(fd.get('newName') || '').trim();
+        if (!name) throw new Error('請填新標的的名稱');
+        var newAsset = {
+          id: window.Portfolio.uid('a'),
+          name: name,
+          kind: fd.get('newKind'),
+          linkId: fd.get('newLinkId') || null,
+          unit: '',
+          note: '',
+          cashAmount: null
+        };
+        state.data.assets.push(newAsset);
+        assetId = newAsset.id;
+      }
+
+      var qty = toNum(fd.get('qty'));
+      if (!qty || qty <= 0) throw new Error('請填目前持有的數量（要大於 0）');
+
+      var obj = {
+        id: window.Portfolio.uid('t'),
+        date: fd.get('date'),
+        assetId: assetId,
+        action: 'open',
+        price: toNum(fd.get('price')),
+        qty: qty,
+        amount: toNum(fd.get('amount')),
+        fee: 0,
+        note: String(fd.get('note') || '').trim()
+      };
+      state.data.trades.push(obj);
+    });
+
+    // 選既有標的時就不用填新標的那幾欄
+    var sel = $('#owned-asset');
+    var box = $('#owned-new');
+    function sync() { box.hidden = sel.value !== '__new__'; }
+    sel.addEventListener('change', sync);
+    sync();
+  }
+
   /* --- 手動淨值 --- */
 
   function openNavForm() {
@@ -580,16 +683,26 @@
     renderOverview();
     renderHoldings();
     renderTrades();
+
+    // 剛新增的標的還沒算指標，補載入之後再把持倉表重畫一次，
+    // 否則「加碼參考」那一欄會永遠卡在「指標計算中」。
+    loadIndicators().then(function (loadedNew) {
+      if (!loadedNew) return;
+      state.rows = window.Portfolio.buildHoldings(
+        state.data, state.market, state.indicators);
+      renderHoldings();
+    });
   }
 
-  /* 只載入「我有持有、而且有連結監控標的」的歷史，不用把 12 個都抓下來 */
+  /* 只載入「我有持有、而且有連結監控標的」的歷史，不用把整份監控清單都抓下來。
+     已經載過的不重抓；回傳這次有沒有載到新的，好決定要不要重畫。 */
   function loadIndicators() {
     var ids = {};
     (state.data.assets || []).forEach(function (a) {
-      if (a.linkId) ids[a.linkId] = true;
+      if (a.linkId && !state.indicators[a.linkId]) ids[a.linkId] = true;
     });
     var list = Object.keys(ids);
-    if (!list.length) return Promise.resolve();
+    if (!list.length) return Promise.resolve(false);
     return Promise.all(list.map(function (id) {
       return fetchJSON('data/history/' + id + '.json')
         .then(function (h) {
@@ -598,12 +711,13 @@
             (h && h.points) || [], m && m.price);
         })
         .catch(function () { /* 這一項沒有歷史就不顯示燈號，不影響其他 */ });
-    }));
+    })).then(function () { return true; });
   }
 
   /* ---------------------------------------------------------- 啟動 */
 
   function boot() {
+    $('#btn-add-owned').addEventListener('click', openOwnedForm);
     $('#btn-add-trade').addEventListener('click', function () { openTradeForm(null); });
     $('#btn-add-asset').addEventListener('click', function () { openAssetForm(null); });
     $('#btn-add-nav').addEventListener('click', openNavForm);
@@ -621,6 +735,13 @@
       submitModal();
     });
 
+    // 有開密碼鎖就先擋在解鎖畫面，解開後才載入資料
+    window.Lock.resume().then(function () {
+      window.Lock.gate(function () { window.Storage.init().then(start); });
+    });
+  }
+
+  function start() {
     Promise.all([
       fetchJSON('data/latest.json').catch(function () { return null; }),
       fetchJSON('data/assets.json').catch(function () { return null; }),

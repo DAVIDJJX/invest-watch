@@ -42,9 +42,12 @@
 
     if (repo) window.Storage.setRepo(repo);
     // 欄位留空代表「沿用已存的金鑰」，不是要清除（清除請按清除鈕）
-    if (pat) window.Storage.setPat(pat);
+    var step = pat ? window.Storage.setPat(pat) : Promise.resolve();
     $('#pat').value = '';
+    step.then(doTest);
+  }
 
+  function doTest() {
     if (!window.Storage.hasPat()) {
       say('#sync-result', '還沒有金鑰可以測試。請先貼上金鑰再按一次。', 'bad');
       renderPatState();
@@ -155,12 +158,22 @@
   /* ---------------------------------------------------------- 本機資料 */
 
   function renderLocalStat() {
-    var d = window.Storage._localLoad();
     var box = $('#local-stat');
-    if (!d) {
+    if (!window.Storage.hasLocalData()) {
       box.textContent = '這台裝置目前沒有存任何紀錄。';
       return;
     }
+    window.Storage._localLoad()
+      .then(function (d) { showLocalStat(d); })
+      .catch(function () {
+        box.innerHTML = '這台裝置上有加密保存的紀錄，' +
+                        '<b>目前是鎖定狀態</b>——輸入密碼解鎖後才看得到內容。';
+      });
+  }
+
+  function showLocalStat(d) {
+    var box = $('#local-stat');
+    if (!d) { box.textContent = '這台裝置目前沒有存任何紀錄。'; return; }
     var n = window.Portfolio.normalize(d);
     box.innerHTML = '這台裝置存了 <b>' + n.assets.length + '</b> 個標的、<b>' +
       n.trades.length + '</b> 筆交易紀錄、<b>' + n.navs.length + '</b> 筆手動淨值。' +
@@ -175,7 +188,7 @@
     if (!confirm('確定要清除這台裝置上的所有紀錄嗎？\n\n' +
                  '建議先「匯出備份」。這個動作無法復原。')) return;
     if (!confirm('再確認一次：真的要清除嗎？')) return;
-    try { localStorage.removeItem('iw_portfolio'); } catch (e) { /* 無痕模式 */ }
+    window.Storage.wipeLocal();
     renderLocalStat();
     say('#backup-result', '這台裝置上的紀錄已清除。' +
         (window.Storage.getMode() === 'github'
@@ -185,10 +198,73 @@
 
   /* ---------------------------------------------------------- 啟動 */
 
+  /* ---------------------------------------------------------- 密碼鎖 */
+
+  function renderLockState() {
+    var on = window.Lock.isEnabled();
+    var box = $('#lock-state');
+    $('#lock-setup').hidden = on;
+    $('#lock-manage').hidden = !on;
+    if (!window.Lock.supported()) {
+      box.className = 'result bad';
+      box.textContent = '這個瀏覽器不支援加密功能，無法使用密碼鎖。';
+      $('#lock-setup').hidden = true;
+      return;
+    }
+    if (on) {
+      box.className = 'result ok';
+      box.innerHTML = '🔐 <b>密碼鎖已啟用</b>。這台裝置上的紀錄與同步金鑰都是加密保存的，' +
+                      '每次開啟網站都要輸入密碼。';
+    } else {
+      box.className = 'result';
+      box.innerHTML = '目前<b>沒有</b>密碼鎖。資料以明文存在這台裝置的瀏覽器裡——' +
+                      '任何能操作這台裝置的人都看得到。';
+    }
+  }
+
+  function lockOn() {
+    var a = $('#lock-new').value, b = $('#lock-new2').value;
+    if (a !== b) { say('#lock-result', '兩次輸入的密碼不一樣。', 'bad'); return; }
+    if (!confirm('啟用密碼鎖後，忘記密碼就再也解不開這台裝置上的資料。\n\n' +
+                 '建議先按上面的「匯出備份」存一份。確定要啟用嗎？')) return;
+    window.Lock.enable(a)
+      .then(function () { return window.Storage.rewriteStored(); })
+      .then(function () {
+        $('#lock-new').value = ''; $('#lock-new2').value = '';
+        renderLockState();
+        renderLocalStat();
+        say('#lock-result', '✓ 密碼鎖已啟用，這台裝置上的資料與金鑰都已加密。' +
+            '下次開啟網站會要求輸入密碼。', 'ok');
+      })
+      .catch(function (e) { say('#lock-result', '✗ ' + esc(e.message), 'bad'); });
+  }
+
+  function lockOff() {
+    if (!confirm('關閉密碼鎖之後，這台裝置上的資料會恢復成沒有加密的狀態。確定嗎？')) return;
+    window.Lock.disable();
+    window.Storage.rewriteStored().then(function () {
+      renderLockState();
+      renderLocalStat();
+      say('#lock-result', '密碼鎖已關閉。', '');
+    });
+  }
+
+  function lockNow() {
+    window.Lock.lock();
+    say('#lock-result', '已上鎖。重新整理頁面就會要求輸入密碼。', 'ok');
+  }
+
+  /* ---------------------------------------------------------- 啟動 */
+
   function boot() {
     $('#repo').value = window.Storage.getRepo();
     renderPatState();
     renderLocalStat();
+    renderLockState();
+
+    $('#btn-lock-on').addEventListener('click', lockOn);
+    $('#btn-lock-off').addEventListener('click', lockOff);
+    $('#btn-lock-now').addEventListener('click', lockNow);
 
     $('#btn-save-sync').addEventListener('click', saveSync);
     $('#btn-clear-pat').addEventListener('click', clearPat);
@@ -208,9 +284,15 @@
     $('#btn-wipe').addEventListener('click', wipeLocal);
   }
 
+  function start() {
+    window.Lock.resume().then(function () {
+      window.Lock.gate(function () { window.Storage.init().then(boot); });
+    });
+  }
+
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', boot);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    boot();
+    start();
   }
 })();

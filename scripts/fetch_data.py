@@ -421,9 +421,14 @@ def fetch_bot_fx_history(f, code):
 # ---------------------------------------------------------------- 台股（PLAN 7.4 / 7.5）
 
 
-def fetch_twse_realtime(f, codes):
-    """證交所 mis 即時報價，三檔一次抓。回傳 {代號: {...}}。"""
-    ex_ch = "|".join("tse_%s.tw" % c for c in codes)
+def fetch_twse_realtime(f, items):
+    """證交所 mis 即時報價，多檔一次抓。回傳 {代號: {...}}。
+
+    items 是 [(代號, 市場別)]，市場別 tse=上市、otc=上櫃。
+    這個前綴一定要對：00679B 是上櫃，用 tse_ 抓會回一筆空資料（不會報錯，
+    但什麼都沒有），2026-09-02 實測確認要用 otc_00679B.tw 才抓得到。
+    """
+    ex_ch = "|".join("%s_%s.tw" % (mkt or "tse", c) for c, mkt in items)
     url = ("https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
            "?ex_ch=%s&json=1&delay=0" % ex_ch)
     j = f.get(url, delay=3.0, expect_json=True,
@@ -802,7 +807,12 @@ def handle_twse(f, asset, ctx):
 
     # (2) 官方月檔：本月（歷史不足時多補上個月）＝收盤定案。
     #     盤中的輕量更新不需要它——即時報價就夠了，收盤定案交給每天的完整更新。
-    if not (ctx.get("light") and len(old) >= 60):
+    #     ⚠ 證交所的 STOCK_DAY 只有「上市」股票，上櫃（otc）查不到，
+    #       那些標的的歷史一律走 Yahoo（PLAN 7.6 允許的來源）。
+    is_otc = (asset.get("market") or "tse") == "otc"
+    if is_otc:
+        pass
+    elif not (ctx.get("light") and len(old) >= 60):
         months = [now_tpe().strftime("%Y%m")]
         if len(old) + len(new_pts) < 60:
             prev_m = now_tpe().replace(day=1) - timedelta(days=1)
@@ -997,7 +1007,7 @@ def main():
             ctx["goldQuoteTimeError"] = str(e)
             print("! 黃金主頁抓取失敗：%s" % e)
 
-    twse_codes = [a["symbol"] for a in assets
+    twse_codes = [(a["symbol"], a.get("market") or "tse") for a in assets
                   if a["type"] in ("twse_index", "twse_stock")]
     if twse_codes:
         try:

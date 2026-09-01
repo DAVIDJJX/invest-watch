@@ -7,7 +7,8 @@
     "twse_index": "台股加權指數（PLAN 7.4 即時 + 7.5 官方月檔）",
     "twse_stock": "台股個股／ETF（PLAN 7.4 即時 + 7.5 官方月檔）",
     "yahoo": "Yahoo Finance chart API（PLAN 7.6），symbol 填 Yahoo 代號",
-    "bot_fx": "台銀即期匯率（PLAN 7.3），symbol 填幣別代碼"
+    "bot_fx": "台銀即期匯率（PLAN 7.3），symbol 填幣別代碼",
+    "market": "台股專用：tse=上市、otc=上櫃（不填視為上市）。前綴錯了證交所會回一筆空資料不報錯，而且上櫃股沒有官方月檔，歷史走 Yahoo。"
   },
   "assets": [
     {
@@ -85,6 +86,21 @@
       "type": "twse_stock",
       "symbol": "00646",
       "yahooSymbol": "00646.TW",
+      "currency": "TWD",
+      "unit": "元",
+      "decimals": 2,
+      "priceLabel": "成交價",
+      "enabled": true
+    },
+    {
+      "id": "tw00679b",
+      "name": "元大美債20年 00679B",
+      "shortName": "00679B",
+      "group": "台股",
+      "type": "twse_stock",
+      "symbol": "00679B",
+      "market": "otc",
+      "yahooSymbol": "00679B.TWO",
       "currency": "TWD",
       "unit": "元",
       "decimals": 2,

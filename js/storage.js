@@ -10,20 +10,27 @@
  *     公開倉庫 invest-watch 裡永遠不會有這些數字。
  *   * 同步金鑰（PAT）只存在這台裝置的 localStorage，不會被送到任何第三方，
  *     只會用來呼叫 api.github.com。畫面上一律遮罩顯示，隨時可以清除。
- *   * 即使開了 github 同步，資料同時也會留一份在本機——網路斷了照樣看得到。
+ *   * 開了密碼鎖（js/lock.js）之後，寫進 localStorage 的資料與金鑰都是**加密**的，
+ *     沒有密碼連開發者工具也讀不出來。
  *
  * GitHub Contents API 的寫入規則：更新既有檔案必須帶正確的 sha，
  * 所以每次寫入前都先讀一次最新的 sha，避免手機和電腦互相蓋掉。
+ *
+ * 用法：頁面載入時先 await Storage.init()，之後 getPat() 等同步函式才拿得到值。
  */
 (function (global) {
   'use strict';
 
-  var LS_DATA = 'iw_portfolio';       // 本機資料
-  var LS_PAT = 'iw_pat';              // 同步金鑰
-  var LS_REPO = 'iw_repo';            // 私人倉庫（預設 DAVIDJJX/invest-data）
-  var LS_MODE = 'iw_mode';            // local | github
+  var LS_DATA = 'iw_portfolio';
+  var LS_PAT = 'iw_pat';
+  var LS_REPO = 'iw_repo';
+  var LS_MODE = 'iw_mode';
   var FILE = 'portfolio.json';
   var DEFAULT_REPO = 'DAVIDJJX/invest-data';
+
+  // 解密後的金鑰放記憶體，讓 getPat() 這種同步呼叫還能用
+  var patCache = null;
+  var ready = false;
 
   /* ---------------------------------------------------------- 小工具 */
 
@@ -34,11 +41,8 @@
   function lsSet(k, v) {
     try { localStorage.setItem(k, v); return true; } catch (e) { return false; }
   }
-  function lsDel(k) {
-    try { localStorage.removeItem(k); } catch (e) { /* 隱私模式下可能不給寫 */ }
-  }
+  function lsDel(k) { try { localStorage.removeItem(k); } catch (e) { } }
 
-  /* UTF-8 安全的 base64（GitHub API 要 base64，中文備註不能直接 btoa） */
   function b64encode(str) {
     var bytes = new TextEncoder().encode(str);
     var bin = '';
@@ -52,6 +56,32 @@
     return new TextDecoder('utf-8').decode(bytes);
   }
 
+  /* 有開密碼鎖就加密／解密，沒開就原樣進出 */
+  function protect(text) {
+    return global.Lock ? global.Lock.protect(text) : Promise.resolve(text);
+  }
+  function unprotect(text) {
+    return global.Lock ? global.Lock.unprotect(text) : Promise.resolve(text);
+  }
+
+  /* ---------------------------------------------------------- 啟動 */
+
+  /*
+   * 頁面載入時呼叫一次：接回這個分頁先前的解鎖狀態，並把金鑰解密到記憶體。
+   * 還鎖著的話 patCache 會是 null，等使用者解鎖後再呼叫一次即可。
+   */
+  function init() {
+    var step = global.Lock ? global.Lock.resume() : Promise.resolve(true);
+    return step.then(function () {
+      var raw = lsGet(LS_PAT, '');
+      if (!raw) { patCache = ''; ready = true; return; }
+      return unprotect(raw)
+        .then(function (p) { patCache = p || ''; })
+        .catch(function () { patCache = null; })   // 還鎖著
+        .then(function () { ready = true; });
+    });
+  }
+
   /* ---------------------------------------------------------- 設定 */
 
   function getMode() {
@@ -60,13 +90,16 @@
   }
   function setMode(m) { lsSet(LS_MODE, m === 'github' ? 'github' : 'local'); }
 
-  function getPat() { return lsGet(LS_PAT, '') || ''; }
+  function getPat() { return patCache || ''; }
+
   function setPat(p) {
     var v = String(p || '').trim();
-    if (!v) { clearPat(); return; }
-    lsSet(LS_PAT, v);
+    if (!v) { clearPat(); return Promise.resolve(); }
+    patCache = v;
+    return protect(v).then(function (stored) { lsSet(LS_PAT, stored); });
   }
-  function clearPat() { lsDel(LS_PAT); setMode('local'); }
+
+  function clearPat() { patCache = ''; lsDel(LS_PAT); setMode('local'); }
   function hasPat() { return !!getPat(); }
 
   /* 只給人看的遮罩，例如 github_pat_11AB…q7Xz（永遠不顯示完整金鑰） */
@@ -88,15 +121,24 @@
 
   function localLoad() {
     var raw = lsGet(LS_DATA, '');
-    if (!raw) return null;
-    try { return JSON.parse(raw); } catch (e) { return null; }
+    if (!raw) return Promise.resolve(null);
+    return unprotect(raw)
+      .then(function (text) {
+        try { return JSON.parse(text); } catch (e) { return null; }
+      })
+      .catch(function (e) { throw e; });   // 鎖著就往上丟，由畫面提示解鎖
   }
+
   function localSave(data) {
-    var ok = lsSet(LS_DATA, JSON.stringify(data));
-    if (!ok) {
-      throw new Error('這台裝置的瀏覽器不允許儲存資料（可能是無痕模式或空間已滿）');
-    }
+    return protect(JSON.stringify(data)).then(function (stored) {
+      if (!lsSet(LS_DATA, stored)) {
+        throw new Error('這台裝置的瀏覽器不允許儲存資料（可能是無痕模式或空間已滿）');
+      }
+    });
   }
+
+  /* 有沒有資料存在這台裝置（不需要解密就看得出來） */
+  function hasLocalData() { return !!lsGet(LS_DATA, ''); }
 
   /* ---------------------------------------------------------- GitHub 後端 */
 
@@ -131,7 +173,6 @@
     return new Error('GitHub 回應錯誤：' + msg);
   }
 
-  /* 讀私人倉庫的 portfolio.json。回傳 {data, sha}；檔案不存在回 {data:null, sha:null} */
   function ghLoad() {
     return fetch(apiUrl(FILE) + '?t=' + Date.now(), { headers: ghHeaders() })
       .then(function (res) {
@@ -154,7 +195,8 @@
   function ghSave(data) {
     return ghLoad().then(function (cur) {
       var body = {
-        message: 'portfolio 更新（' + new Date().toISOString().slice(0, 16).replace('T', ' ') + '）',
+        message: 'portfolio 更新（' +
+                 new Date().toISOString().slice(0, 16).replace('T', ' ') + '）',
         content: b64encode(JSON.stringify(data, null, 1))
       };
       if (cur.sha) body.sha = cur.sha;
@@ -171,7 +213,6 @@
     });
   }
 
-  /* 測試連線：確認倉庫看得到、權限夠 */
   function testConnection() {
     if (!hasPat()) return Promise.reject(new Error('還沒有貼上同步金鑰'));
     return fetch('https://api.github.com/repos/' + getRepo(), { headers: ghHeaders() })
@@ -193,54 +234,66 @@
 
   /* ---------------------------------------------------------- 對外介面 */
 
-  /*
-   * 讀取資料。github 模式會以雲端為準，並順手在本機留一份備份；
-   * 雲端讀不到（沒網路、金鑰過期）就退回本機那份，並回報原因。
-   */
   function load() {
-    var localData = localLoad();
-    if (getMode() !== 'github') {
-      return Promise.resolve({ data: localData, source: 'local', warning: null });
-    }
-    return ghLoad()
-      .then(function (r) {
-        if (r.data) {
-          try { localSave(r.data); } catch (e) { /* 本機存不了不影響讀取 */ }
-          return { data: r.data, source: 'github', warning: null };
-        }
-        // 私人倉庫還沒有這個檔案 → 用本機這份，下次儲存時會自動建立
-        return { data: localData, source: 'local',
-                 warning: '私人倉庫還沒有 portfolio.json，第一次儲存時會自動幫你建立。' };
-      })
-      .catch(function (e) {
-        return { data: localData, source: 'local',
-                 warning: '雲端同步讀取失敗，先顯示這台裝置上的資料：' + e.message };
-      });
+    return localLoad().then(function (localData) {
+      if (getMode() !== 'github') {
+        return { data: localData, source: 'local', warning: null };
+      }
+      return ghLoad()
+        .then(function (r) {
+          if (r.data) {
+            return localSave(r.data)
+              .catch(function () { })
+              .then(function () {
+                return { data: r.data, source: 'github', warning: null };
+              });
+          }
+          return { data: localData, source: 'local',
+                   warning: '私人倉庫還沒有 portfolio.json，第一次儲存時會自動幫你建立。' };
+        })
+        .catch(function (e) {
+          return { data: localData, source: 'local',
+                   warning: '雲端同步讀取失敗，先顯示這台裝置上的資料：' + e.message };
+        });
+    });
   }
 
-  /*
-   * 儲存。本機一定先寫（確保不會因為網路問題掉資料），
-   * github 模式再往雲端推一份。
-   */
   function save(data) {
     data.updatedAt = new Date().toISOString();
-    localSave(data);
-    if (getMode() !== 'github') {
-      return Promise.resolve({ synced: false, warning: null });
+    return localSave(data).then(function () {
+      if (getMode() !== 'github') {
+        return { synced: false, warning: null };
+      }
+      return ghSave(data)
+        .then(function () { return { synced: true, warning: null }; })
+        .catch(function (e) {
+          return { synced: false,
+                   warning: '已存在這台裝置，但雲端同步失敗：' + e.message };
+        });
+    });
+  }
+
+  /* 啟用／關閉密碼鎖之後，要把已存的資料與金鑰用新狀態重寫一次 */
+  function rewriteStored() {
+    var jobs = [];
+    var pat = getPat();
+    if (pat) jobs.push(protect(pat).then(function (s) { lsSet(LS_PAT, s); }));
+    var raw = lsGet(LS_DATA, '');
+    if (raw) {
+      // 這時 raw 可能還是舊狀態（明文或舊密文），先用目前的鎖狀態解出來再寫回去
+      jobs.push(Promise.resolve(raw).then(function (r) {
+        if (global.Lock && global.Lock.looksEncrypted(r)) return unprotect(r);
+        return r;
+      }).then(function (text) {
+        return protect(text).then(function (s) { lsSet(LS_DATA, s); });
+      }));
     }
-    return ghSave(data)
-      .then(function () { return { synced: true, warning: null }; })
-      .catch(function (e) {
-        return { synced: false,
-                 warning: '已存在這台裝置，但雲端同步失敗：' + e.message };
-      });
+    return Promise.all(jobs);
   }
 
   /* ---------------------------------------------------------- 備份 */
 
-  function exportJSON(data) {
-    return JSON.stringify(data, null, 1);
-  }
+  function exportJSON(data) { return JSON.stringify(data, null, 1); }
 
   function importJSON(text) {
     var d = JSON.parse(text);
@@ -252,6 +305,7 @@
   }
 
   global.Storage = {
+    init: init, isReady: function () { return ready; },
     getMode: getMode, setMode: setMode,
     getPat: getPat, setPat: setPat, clearPat: clearPat,
     hasPat: hasPat, maskedPat: maskedPat,
@@ -259,6 +313,9 @@
     load: load, save: save,
     testConnection: testConnection,
     exportJSON: exportJSON, importJSON: importJSON,
-    _localLoad: localLoad, _localSave: localSave
+    hasLocalData: hasLocalData,
+    rewriteStored: rewriteStored,
+    _localLoad: localLoad, _localSave: localSave,
+    wipeLocal: function () { lsDel(LS_DATA); }
   };
 })(window);
