@@ -1,24 +1,32 @@
 {
- "updatedAt": "2026-09-01T12:11:09+08:00",
+ "updatedAt": "2026-09-01T15:03:17+08:00",
  "count": 2,
  "days": [
   {
    "date": "2026-09-01",
    "slots": [
-    "midday"
+    "midday",
+    "close"
    ],
    "slotTimes": {
-    "midday": "12:11"
+    "midday": "12:11",
+    "close": "15:03"
    },
    "twTradingDay": true,
    "weekday": "二",
    "dataStatus": {
     "total": 12,
-    "ok": 12,
-    "error": 0,
-    "errorNames": []
+    "ok": 7,
+    "error": 5,
+    "errorNames": [
+     "黃金存摺（台幣）",
+     "黃金存摺（人民幣）",
+     "台銀實體黃金條塊",
+     "美元 / 台幣",
+     "人民幣 / 台幣"
+    ]
    },
-   "updatedAt": "2026-09-01T12:11:09+08:00"
+   "updatedAt": "2026-09-01T15:03:17+08:00"
   },
   {
    "date": "2026-08-31",
