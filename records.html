@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1420">
+<meta name="robots" content="noindex">
 <title>我的紀錄 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20260901-2">
 </head>
 <body>
 
@@ -14,6 +15,10 @@
     <div class="brand">
       <h1>Invest<span class="brand-dot">Watch</span></h1>
       <span class="tagline">我的紀錄</span>
+    </div>
+    <div class="status-bar">
+      <span id="sync-chip" class="chip">讀取中…</span>
+      <span class="refresh-msg dim" id="save-msg"></span>
     </div>
     <nav class="nav">
       <a href="index.html">儀表板</a>
@@ -25,24 +30,76 @@
 </header>
 
 <main class="wrap">
-  <div class="placeholder">
-    <div class="big">📒</div>
-    <h2>記錄你自己的持倉與每次進場</h2>
-    <p>之後這一頁會有表單，讓你隨時新增標的、記下每次進場的日期／價位／金額／備註，手機也能填。你的個人資料只會存在你自己的裝置上，或你自己的私人倉庫，絕不會出現在這個公開網站裡。</p>
-    <span class="soon">Phase 3 推出</span>
+
+  <!-- 隱私說明：這一頁的所有數字都不會離開你的裝置與私人倉庫 -->
+  <div class="privacy-note">
+    🔒 這一頁的所有數字（持倉、成本、金額）<b>只存在這台裝置的瀏覽器</b>
+    <span id="privacy-sync"></span>，
+    公開網站與公開倉庫裡永遠不會有它們。
   </div>
 
-  <section class="disclaimer">
-    <b>⚠ 請先看這段</b><br>
-    本站所有燈號與參考數字，都只是把客觀市場數據做分類整理，<b>未經歷史回測驗證，
-    不構成投資建議</b>。實際投資決定與盈虧請自行負責。
-  </section>
+  <div id="loading" class="loading">載入紀錄中…</div>
+
+  <div id="content" hidden>
+
+    <!-- ---------------------------------------------- 總覽 -->
+    <div class="section-title">總覽</div>
+    <div class="overview">
+      <div class="ov-nums" id="ov-nums"></div>
+      <div class="ov-pie">
+        <div class="pie-box"><canvas id="pie-chart"></canvas></div>
+        <div class="pie-legend" id="pie-legend"></div>
+      </div>
+    </div>
+
+    <!-- ---------------------------------------------- 持倉 -->
+    <div class="section-title">目前持倉</div>
+    <div id="holdings"></div>
+
+    <div class="disclaimer" id="signal-disclaimer">
+      <b>⚠ 關於「加碼參考」那一欄</b><br>
+      那一欄只是把儀表板上的<b>客觀指標</b>（52 週區間位置、RSI）搬過來放在你的持倉旁邊，
+      方便你一眼看到「已投資的項目現在在什麼位置」。它<b>未經任何歷史回測驗證，
+      不構成投資建議</b>，也不會因為你持有就變得比較準。要不要加碼請自行判斷。
+    </div>
+
+    <!-- ---------------------------------------------- 交易紀錄 -->
+    <div class="section-title">交易紀錄</div>
+    <div class="row-actions">
+      <button class="btn btn-primary" id="btn-add-trade">＋ 新增一筆紀錄</button>
+      <button class="btn" id="btn-add-asset">＋ 新增標的</button>
+      <button class="btn" id="btn-add-nav">＋ 輸入淨值</button>
+    </div>
+    <div id="trades"></div>
+
+  </div>
 
   <footer class="site-foot">
-    <span>資料來源：臺灣銀行牌價 · 臺灣證券交易所 · Yahoo Finance</span>
-    <span>本站不儲存任何個人持倉資料</span>
+    <span>個人資料只存在本機瀏覽器與你的私人倉庫</span>
+    <span>市價與指標來自公開的監控資料</span>
   </footer>
 </main>
 
+<!-- ---------------------------------------------- 表單對話框 -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h2 id="modal-title">新增</h2>
+      <button class="modal-x" id="modal-close" aria-label="關閉">×</button>
+    </div>
+    <form id="modal-form" class="form"></form>
+    <div class="modal-foot">
+      <button class="btn" id="modal-cancel">取消</button>
+      <button class="btn btn-primary" id="modal-save">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script src="lib/chart.umd.min.js"></script>
+<script src="js/indicators.js?v=20260901-2"></script>
+<script src="js/charts.js?v=20260901-2"></script>
+<script src="js/storage.js?v=20260901-2"></script>
+<script src="js/portfolio.js?v=20260901-2"></script>
+<script src="js/records.js?v=20260901-2"></script>
 </body>
 </html>

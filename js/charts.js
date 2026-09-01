@@ -183,10 +183,78 @@
     return true;
   }
 
+  /* ---------------------------------------------------------- 資產配置圓餅圖
+   *
+   * 只在瀏覽器裡畫，資料完全不離開這台裝置。
+   * items: [{kind, value, pct}]
+   */
+  var PIE_COLORS = {
+    '台股': '#5b9cf8',
+    '美股ETF': '#a78bfa',
+    '黃金': '#e5b567',
+    '基金': '#4ade80',
+    '現金': '#8fa2bd',
+    '其他': '#f7b955'
+  };
+
+  function drawPie(canvas, items, opts) {
+    opts = opts || {};
+    if (!global.Chart || !canvas) return false;
+    destroy(canvas.id);
+    if (!items || !items.length) return false;
+
+    var nf = new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 0 });
+
+    instances[canvas.id] = new global.Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: items.map(function (x) { return x.kind; }),
+        datasets: [{
+          data: items.map(function (x) { return x.value; }),
+          backgroundColor: items.map(function (x) {
+            return PIE_COLORS[x.kind] || '#64748b';
+          }),
+          borderColor: '#182132',
+          borderWidth: 2,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '58%',
+        animation: { duration: 300 },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#0e1420',
+            borderColor: '#263349',
+            borderWidth: 1,
+            titleColor: '#e6edf7',
+            bodyColor: '#e6edf7',
+            padding: 10,
+            callbacks: {
+              label: function (ctx) {
+                var v = ctx.parsed;
+                var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+                var pct = total > 0 ? (v / total * 100).toFixed(1) : '0.0';
+                return ' ' + ctx.label + '　' +
+                       (opts.hideAmount ? pct + '%' : nf.format(v) + '　' + pct + '%');
+              }
+            }
+          }
+        }
+      }
+    });
+    return true;
+  }
+
   global.Charts = {
     sparkline: sparkline,
     drawHistory: drawHistory,
+    drawPie: drawPie,
     destroy: destroy,
-    COLORS: COLORS
+    COLORS: COLORS,
+    PIE_COLORS: PIE_COLORS
   };
 })(window);

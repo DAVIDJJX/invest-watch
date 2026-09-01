@@ -16,3 +16,15 @@ PLAN.md.md
 
 # 本機補抓腳本的執行紀錄
 scripts/update_local.log
+
+# ===== 隱私保險絲 =====
+# 個人持倉資料只存在瀏覽器與私人倉庫 invest-data，
+# 就算不小心在這個資料夾產生了，也絕對不會被 commit 進公開倉庫。
+portfolio.json
+portfolio*.json
+*portfolio*.json
+my-*.json
+invest-data/
+backup/
+*.pat
+.env

@@ -4,8 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1420">
+<meta name="robots" content="noindex">
 <title>設定 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/style.css?v=20260901-2">
 </head>
 <body>
 
@@ -25,24 +26,110 @@
 </header>
 
 <main class="wrap">
-  <div class="placeholder">
-    <div class="big">⚙</div>
-    <h2>顯示偏好與跨裝置同步</h2>
-    <p>之後這一頁可以設定：想看哪些標的、金額顯示幣別、每月換匯預算，以及貼上你的個人存取權杖（PAT）來讓紀錄跨裝置同步。權杖只會存在你這台裝置的瀏覽器裡。</p>
-    <span class="soon">Phase 3 / Phase 4 推出</span>
-  </div>
 
-  <section class="disclaimer">
-    <b>⚠ 請先看這段</b><br>
-    本站所有燈號與參考數字，都只是把客觀市場數據做分類整理，<b>未經歷史回測驗證，
-    不構成投資建議</b>。實際投資決定與盈虧請自行負責。
+  <!-- ================================================ 跨裝置同步 -->
+  <div class="section-title">跨裝置同步</div>
+
+  <section class="panel">
+    <p class="panel-lead">
+      預設情況下，「我的紀錄」<b>只存在你正在用的這台裝置</b>——換手機看就看不到。
+      想要手機和電腦看到同一份資料，就把資料同步到<b>你自己的私人倉庫</b>。
+    </p>
+
+    <div class="privacy-note">
+      🔒 同步金鑰只會存在<b>這台裝置的瀏覽器</b>，不會傳給我、也不會進入公開倉庫。
+      它只用來呼叫 GitHub 的 API 讀寫你指定的那一個私人倉庫。
+      畫面上永遠只顯示遮罩後的樣子，隨時可以清除。
+    </div>
+
+    <div class="f">
+      <span class="f-label">私人倉庫</span>
+      <input id="repo" placeholder="DAVIDJJX/invest-data" autocomplete="off">
+      <span class="f-hint">格式是「帳號/倉庫名」。這個倉庫<b>必須是 Private</b>，
+        存進去的是你的持倉與交易紀錄。</span>
+    </div>
+
+    <div class="f">
+      <span class="f-label">同步金鑰（PAT）</span>
+      <div class="pat-row">
+        <input id="pat" type="password" placeholder="貼上 github_pat_… 開頭的金鑰"
+               autocomplete="off" spellcheck="false">
+        <button class="btn" id="btn-toggle-pat" type="button">顯示</button>
+      </div>
+      <span class="f-hint" id="pat-state"></span>
+    </div>
+
+    <div class="row-actions">
+      <button class="btn btn-primary" id="btn-save-sync">儲存並測試連線</button>
+      <button class="btn danger" id="btn-clear-pat">清除金鑰</button>
+    </div>
+    <div id="sync-result"></div>
+
+    <details class="snap-box" style="margin-top:14px">
+      <summary>還沒有金鑰？照這幾步做（約 10 分鐘）</summary>
+      <div class="howto">
+        <ol>
+          <li>先確認你已經有一個<b>私人</b>倉庫（例如 <code>invest-data</code>）。
+            沒有的話：GitHub 右上「＋」→ New repository → 名稱填 <code>invest-data</code>
+            → 選 <b>Private</b> → Create repository。</li>
+          <li>GitHub 右上角頭像 → <b>Settings</b></li>
+          <li>左邊選單拉到最下面 → <b>Developer settings</b></li>
+          <li><b>Personal access tokens</b> → <b>Fine-grained tokens</b> →
+            右上 <b>Generate new token</b></li>
+          <li>Token name 填 <code>invest-watch-key</code>；
+            Expiration 選 <b>1 year</b>；
+            Repository access 選 <b>Only select repositories</b> →
+            只勾 <b>invest-data</b> 這一個</li>
+          <li>Permissions → Repository permissions → 找到 <b>Contents</b> →
+            改成 <b>Read and write</b>（其他都不要動）</li>
+          <li>按最下面綠色 <b>Generate token</b> → 畫面會顯示一串
+            <code>github_pat_…</code>，<b>只會顯示這一次</b>，整串複製起來</li>
+          <li>貼進上面的「同步金鑰」欄位 → 按「儲存並測試連線」</li>
+          <li>手機也要用的話，在手機瀏覽器打開這一頁再貼一次</li>
+        </ol>
+        <p class="warn-line">⚠ 這串金鑰不要貼到聊天、文件或任何公開的地方。
+          萬一外流，回到步驟 4 的頁面把它 Delete 掉就作廢了——而且它本來就只能動
+          你勾選的那一個私人倉庫，影響有限。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ================================================ 備份 -->
+  <div class="section-title">備份與還原</div>
+
+  <section class="panel">
+    <p class="panel-lead">
+      不管有沒有開同步，都建議偶爾匯出一份備份存到你自己的雲端硬碟。
+      匯出的檔案含有你的持倉數字，請當成私人文件保管。
+    </p>
+    <div class="row-actions">
+      <button class="btn btn-primary" id="btn-export">匯出備份（JSON）</button>
+      <button class="btn" id="btn-import">匯入備份</button>
+      <input type="file" id="import-file" accept="application/json,.json" hidden>
+    </div>
+    <div id="backup-result"></div>
+  </section>
+
+  <!-- ================================================ 這台裝置的資料 -->
+  <div class="section-title">這台裝置上的資料</div>
+
+  <section class="panel">
+    <div id="local-stat" class="rp-dim">讀取中…</div>
+    <div class="row-actions">
+      <button class="btn danger" id="btn-wipe">清除這台裝置上的紀錄</button>
+    </div>
+    <span class="f-hint">只會清掉<b>這台裝置</b>瀏覽器裡的資料。
+      如果有開同步，私人倉庫裡那份不受影響，下次還會讀回來。</span>
   </section>
 
   <footer class="site-foot">
-    <span>資料來源：臺灣銀行牌價 · 臺灣證券交易所 · Yahoo Finance</span>
-    <span>本站不儲存任何個人持倉資料</span>
+    <span>金鑰與個人資料只存在這台裝置的瀏覽器</span>
+    <span>公開倉庫裡永遠沒有這些內容</span>
   </footer>
 </main>
 
+<script src="js/storage.js?v=20260901-2"></script>
+<script src="js/portfolio.js?v=20260901-2"></script>
+<script src="js/settings.js?v=20260901-2"></script>
 </body>
 </html>

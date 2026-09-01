@@ -56,7 +56,11 @@ invest-watch/
 │   ├─ charts.js         畫圖（迷你走勢線 + Chart.js 大圖）
 │   ├─ app.js            儀表板頁面邏輯
 │   ├─ report.js         把報告 JSON 畫成畫面
-│   └─ history.js        歷史頁邏輯
+│   ├─ history.js        歷史頁邏輯
+│   ├─ storage.js        個人紀錄的存放層（本機 / 私人倉庫，雙後端同介面）
+│   ├─ portfolio.js      持倉與損益計算（純函式）
+│   ├─ records.js        「我的紀錄」頁邏輯
+│   └─ settings.js       設定頁邏輯
 ├─ lib/chart.umd.min.js  Chart.js 4.4.4，下載到本地，不依賴 CDN
 ├─ data/
 │   ├─ assets.json       監控清單設定檔 ← 要增減標的只改這一個檔
@@ -68,6 +72,7 @@ invest-watch/
 │   ├─ fetch_data.py     抓資料腳本（只用 requests）
 │   ├─ indicators.py     指標計算（js/indicators.js 的 Python 版，報告用）
 │   ├─ report.py         三時段報告產生器
+│   ├─ bump_assets.py    幫 HTML 的 css/js 引用加版本號（避免瀏覽器用到舊檔）
 │   └─ update_local.ps1  家用電腦排程用的補抓腳本
 └─ .github/workflows/update-data.yml   排程設定
 ```
@@ -233,6 +238,22 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
 
 ---
 
+## 個人資料放在哪裡（Phase 3）
+
+「我的紀錄」裡的持倉、成本、金額**永遠不會進入這個公開倉庫**。它們只會在兩個地方：
+
+1. **你正在用的那台裝置的瀏覽器**（localStorage）——不設定任何金鑰就能用
+2. **你自己的私人倉庫**（預設 `DAVIDJJX/invest-data` 的 `portfolio.json`）——
+   只有在設定頁貼上金鑰、開啟同步之後才會用到
+
+同步金鑰（fine-grained PAT）只存在該台裝置的瀏覽器，畫面上一律遮罩顯示，隨時可清除。
+它只需要對那一個私人倉庫有 Contents 的讀寫權限，其他什麼都不能動。
+
+倉庫裡另外設了幾道保險絲（`.gitignore`）：`portfolio*.json`、`*.pat`、`.env` 等
+一律不可能被 commit 進來，就算不小心在專案資料夾裡產生了也一樣。
+
+---
+
 ## 資料壞掉的時候會怎樣
 
 這是刻意設計過的（誠實原則）：
@@ -289,8 +310,19 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
   - 歷史頁的日期選擇由清單改成**月曆**（清單累積久了會難以找尋）
   - 儀表板加上**「重新讀取」按鈕**：重新去讀最新的資料檔並重算指標，
     並誠實回報「已更新到 ○○」或「資料沒有變新，最後更新仍是 ○○」
-- [ ] **Phase 3 — 我的紀錄（持倉與進場紀錄，跨裝置同步）**（下一步）
-- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
+- [x] **Phase 3 — 我的紀錄（持倉與進場紀錄，跨裝置同步）**（2026-09-01 完成）
+  - 資料模型：標的清單、交易紀錄（買入／賣出／定期定額）、自訂標的的手動淨值
+  - `js/storage.js` 雙後端同介面：**本機**（localStorage，不設金鑰也完全可用）
+    與 **GitHub**（透過 Contents API 讀寫你的私人倉庫；寫入前先讀最新 sha，
+    手機與電腦同時用也不會互相蓋掉）
+  - 金鑰只存這台裝置的 localStorage，畫面一律遮罩，隨時可清除；
+    測試連線時會**擋下公開倉庫**，個人資料不可能被存進公開的地方
+  - `records.html`：持倉總覽（數量、平均成本、現值、損益%）、
+    **加碼參考欄**（把儀表板的位置燈號與 RSI 帶到每檔持倉旁）、資產配置圓餅圖
+  - 平均成本用加權平均法；賣出會結算已實現損益；定期定額可只填金額自動換算股數
+  - 沒有市價的標的用最後一筆手動淨值，並明白標示價格來源，不拿成本價假裝現值
+  - 匯出／匯入 JSON 備份
+- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA（下一步）
 
 ---
 
