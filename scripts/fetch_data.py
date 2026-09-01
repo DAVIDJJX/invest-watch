@@ -472,7 +472,12 @@ def fetch_twse_month(f, asset, yyyymm):
     j = f.get(url, delay=3.5, expect_json=True,
               headers={"Accept": "application/json, text/plain, */*"})
     if j.get("stat") != "OK":
-        raise FetchError("證交所月檔回應 stat=%s" % j.get("stat"))
+        stat = str(j.get("stat") or "")
+        # 每個月 1 號、或當月還沒有交易日時，官方月檔本來就還沒發布，
+        # 這不是故障，不要在報告裡當成警告刷出來。
+        if "沒有符合條件" in stat:
+            return []
+        raise FetchError("證交所月檔回應 stat=%s" % stat)
     pts = []
     for row in j.get("data") or []:
         if len(row) <= col:
@@ -685,7 +690,11 @@ BAR_SPECS = [
 def handle_bot_gold_bar(f, asset, ctx):
     # 實體條塊一天大致只設定一次牌價（實測掛牌時間停在營業時間內），
     # 盤中每半小時去抓是白費，所以輕量模式直接跳過、沿用上一次的結果。
-    if ctx.get("light"):
+    #
+    # 但「上一次的結果」如果本身就是失敗的（例如雲端那一輪被台銀擋掉），
+    # 跳過就會把錯誤一直延續下去——這種情況要照抓不誤。
+    if ctx.get("light") and (ctx.get("prevAssets") or {}).get(
+            asset["id"], {}).get("status") == "ok":
         raise SkipAsset("實體條塊一天只更新一次，盤中的輕量更新不重抓")
 
     bars, bar_quote_time = fetch_gold_bars(f)
@@ -970,6 +979,7 @@ def main():
     ctx = {"light": light}
     prev = load_prev_latest()
     prev_assets = prev.get("assets") or {}
+    ctx["prevAssets"] = prev_assets      # 讓 handler 能判斷上次是否成功
 
     # --- 先抓多個標的共用的來源，抓一次大家一起用 ---
     types = set(a["type"] for a in assets)
@@ -1086,11 +1096,19 @@ def main():
         fh.write("\n")
 
     # --- 產生並封存這個時段的報告（Phase 2）---
-    # 輕量更新不重產報告：報告代表的是「那個時段的整理」，
+    # 輕量更新原則上不重產報告：報告代表的是「那個時段的整理」，
     # 用 11:30 的資料去改寫早上 10 點的晨報並不合理，也會讓封存一直變動。
-    if light:
-        print("\n. 輕量更新，不重新產生報告（報告維持三個主要時段產出的版本）")
+    #
+    # 但有一種例外一定要補：那個時段**根本還沒有任何報告**。
+    # 2026-09-01 就發生過——10:05 的完整更新因為筆電在待機沒跑到，
+    # 等 12:10 醒來補跑時已經被判定成「午盤」，早報就永遠消失了。
+    report_path = os.path.join(
+        DATA_DIR, "archive", finished.strftime("%Y-%m-%d"), "%s.json" % slot)
+    if light and os.path.exists(report_path):
+        print("\n. 輕量更新，不重新產生報告（%s 報告已經存在）" % slot)
     else:
+        if light:
+            print("\n. 輕量更新，但 %s 時段還沒有報告 → 補產一份" % slot)
         try:
             sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             import report as report_mod

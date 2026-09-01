@@ -114,8 +114,30 @@
            (t ? '<span class="slot-time">' + esc(t) + '</span>' : '') +
            '</button>';
     });
+
+    // 缺少的時段也要顯示出來（灰色不可點），不要安靜地當作不存在——
+    // 2026-09-01 就發生過整份晨報遺失，畫面上卻完全看不出來。
+    var missing = ['morning', 'midday', 'close'].filter(function (s) {
+      return slots.indexOf(s) < 0;
+    });
+    if (entry && entry.twTradingDay !== false) {
+      missing.forEach(function (s) {
+        h += '<span class="slot-tab is-missing" title="這個時段沒有產生報告">' +
+             esc(SLOT_NAME[s] || s) + '<span class="slot-time">缺</span></span>';
+      });
+    }
+
     var box = $('#slot-tabs');
+    var oldNote = $('#missing-note');    // 切換日期時先清掉上一天的提示
+    if (oldNote) oldNote.remove();
     box.innerHTML = h;
+    if (missing.length && entry && entry.twTradingDay !== false) {
+      var names = missing.map(function (s) { return SLOT_NAME[s]; }).join('、');
+      box.insertAdjacentHTML('afterend',
+        '<div class="rp-note-line" id="missing-note">這一天缺少「' + esc(names) +
+        '」報告——多半是那個時段的自動更新沒有跑到（例如電腦在待機、' +
+        '或雲端排程被跳過）。</div>');
+    }
     box.querySelectorAll('.slot-tab').forEach(function (b) {
       b.addEventListener('click', function () { go(state.day, b.dataset.slot); });
     });

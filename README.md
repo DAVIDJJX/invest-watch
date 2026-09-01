@@ -135,25 +135,48 @@ python -m http.server 8765
 
 ### 解法：家用電腦負責補抓（已設定好）
 
-家用電腦上有兩個 Windows 排程工作，都會執行 `scripts/update_local.ps1`：
+家用電腦上有四個 Windows 排程工作，都會執行 `scripts/update_local.ps1`：
 抓資料 → 有變動就 commit → 推回 GitHub。
 
 | 工作名稱 | 什麼時候 | 做什麼 |
 |---|---|---|
-| `InvestWatch-UpdateData` | 每天 10:05 / 13:05 / 15:05 | **完整更新**：12 項全抓、更新歷史、產生並封存該時段報告 |
-| `InvestWatch-UpdateLight` | **平日** 09:00–17:00 **每 30 分鐘** | **輕量更新**：只更新現價，不重抓歷史、不重產報告 |
+| `InvestWatch-Morning` | 每天 10:05 | **完整更新**＋產生**晨報**（`--slot morning`） |
+| `InvestWatch-Midday` | 每天 13:05 | **完整更新**＋產生**午盤報告**（`--slot midday`） |
+| `InvestWatch-Close` | 每天 15:05 | **完整更新**＋產生**收盤報告**（`--slot close`） |
+| `InvestWatch-UpdateLight` | **平日** 09:00–17:00 **每 30 分鐘** | **輕量更新**：只更新現價，不重抓歷史；該時段若還沒有報告會補產一份 |
+
+> 為什麼完整更新要拆成三個工作、而且各自帶 `--slot`？
+> 2026-09-01 踩到：原本三個時段共用一個工作、由程式依當下時間猜時段。
+> 10:05 那次因為筆電在待機沒跑到，等 12:10 醒來補跑時已經被猜成「午盤」，
+> **整份晨報就永遠消失了**。現在每個時段各自一個工作、帶明確的 `--slot`，
+> 補跑再晚也還是寫成正確的時段。
 
 加上雲端，整體分工是：
 
 | 誰 | 什麼時候 | 負責哪些 | 要開電腦？ |
 |---|---|---|---|
-| GitHub Actions | 每天 10:00 / 13:00 / 15:00 | 台股 3 項 + 海外 4 項 | ❌ 不用 |
+| GitHub Actions | 每天 10:17 / 13:17 / 15:17 | 台股 3 項 + 海外 4 項 | ❌ 不用 |
 | 這台電腦（完整） | 每天 10:05 / 13:05 / 15:05 | 全部 12 項 + 報告 | ✅ 要 |
 | 這台電腦（輕量） | 平日 09:00–17:00 每 30 分 | 現價（黃金存摺、匯率、台股、國際） | ✅ 要 |
 
-**待機也會跑。** 兩個工作都開了「喚醒電腦執行」（`WakeToRun`），所以**插電待機時，
-時間到會自動醒來、跑完再睡回去**，你不用管它。用電池時 Windows 會停用喚醒計時器，
-所以不會醒——但電腦一恢復使用就會自動補跑錯過的那次（`StartWhenAvailable`）。
+> 雲端排程為什麼是 :17 而不是整點？2026-09-01 實測：原本設整點，當天三次排程
+> **只有一次真的觸發**。GitHub 免費排程在整點負載最重、會直接把工作丟掉，
+> 官方也建議避開整點。
+
+**⚠ 待機時不會跑（2026-09-01 實測）。**
+所有工作都設了「喚醒電腦執行」（`WakeToRun`），但這台筆電是**現代待機（S0）**機種——
+Windows 在現代待機期間會暫停一般桌面程式，而 `WakeToRun` 是為舊式 S3 睡眠設計的。
+實際結果是**一次都沒有把電腦叫醒過**（`powercfg /lastwake` 的喚醒記錄計數為 0）。
+
+2026-09-01 整天只跑了 3 次（09:04、12:10、17:52），全部是**電腦醒來後的補跑**
+（`StartWhenAvailable`）。想要真的每 30 分鐘更新，必須讓筆電插電時不要進入待機：
+
+```powershell
+powercfg /change standby-timeout-ac 0
+```
+
+（`0` = 插電時永不待機；想改回來就把 `0` 換成分鐘數，原本是 `5`。
+這只影響插電時，用電池時仍會照常待機省電。）
 
 #### 輕量更新省在哪
 
@@ -177,7 +200,7 @@ python -m http.server 8765
 **查看／管理排程**（PowerShell）：
 
 ```powershell
-Get-ScheduledTaskInfo -TaskName "InvestWatch-UpdateData"; Get-ScheduledTaskInfo -TaskName "InvestWatch-UpdateLight"
+Get-ScheduledTask -TaskName "InvestWatch-*" | Get-ScheduledTaskInfo
 ```
 
 想立刻更新一次：
@@ -192,10 +215,10 @@ Start-ScheduledTask -TaskName "InvestWatch-UpdateLight"
 $t = Get-ScheduledTask -TaskName "InvestWatch-UpdateLight"; $t.Triggers[0].Repetition.Interval = "PT1H"; Set-ScheduledTask -InputObject $t
 ```
 
-不想要了就移除（兩個都移除就完全停掉本機更新）：
+不想要了就全部移除（本機更新就完全停掉）：
 
 ```powershell
-Unregister-ScheduledTask -TaskName "InvestWatch-UpdateLight" -Confirm:$false
+Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:$false
 ```
 
 執行紀錄在 `scripts/update_local.log`（不進倉庫）。
@@ -249,6 +272,18 @@ Unregister-ScheduledTask -TaskName "InvestWatch-UpdateLight" -Confirm:$false
     不把上一個交易日的漲跌當成今天的
   - 實體黃金條塊：新增每公克單價與「比黃金存摺貴多少」，並開始累積條塊歷史
     （台銀不公布條塊歷史牌價，本站自 2026-08-31 起自行記錄）
+- [x] **2026-09-01 上線後第一天的問題修正**
+  - **晨報遺失**：完整更新原本三個時段共用一個排程、由程式猜時段，補跑時猜錯。
+    改成 `InvestWatch-Morning / Midday / Close` 三個工作各帶明確 `--slot`
+  - **報告可能整份消失**：輕量更新現在會檢查「該時段是否已有報告」，沒有就補產一份
+  - **歷史頁看不出缺報告**：缺少的時段改成灰色「缺」分頁並附一行說明，不再安靜略過
+  - **雲端排程三次只跑一次**：cron 從整點改到 :17（GitHub 整點會丟工作）
+  - **條塊被誤標成失敗**：輕量更新跳過條塊時若上次是錯誤狀態，改成照抓不誤，
+    不再把錯誤一直延續下去
+  - **月初噴假警告**：證交所當月月檔尚未發布是正常情形，不再當成異常寫進報告
+  - **看起來像壞掉**：資料日期不是今天的標的會標「（最近一筆）」並說明原因
+    （例：台灣白天看美股，最新收盤本來就是前一天）
+  - **待機時排程完全不會跑**（現代待機 S0 機種的限制），已寫進上方說明與解法
 - [ ] **Phase 3 — 我的紀錄（持倉與進場紀錄，跨裝置同步）**（下一步）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 

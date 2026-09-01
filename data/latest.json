@@ -1,17 +1,17 @@
 {
- "updatedAt": "2026-09-01T17:52:46+08:00",
- "updatedAtText": "2026-09-01 17:52",
+ "updatedAt": "2026-09-01T21:40:29+08:00",
+ "updatedAtText": "2026-09-01 21:40",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
- "mode": "full",
+ "mode": "light",
  "summary": {
   "total": 12,
   "ok": 12,
   "error": 0,
   "errorIds": []
  },
- "requests": 14,
+ "requests": 9,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -24,10 +24,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4471.0,
+   "price": 4487.0,
    "prevClose": 4558.0,
-   "change": -87.0,
-   "changePct": -1.9087,
+   "change": -71.0,
+   "changePct": -1.5577,
    "date": "2026-09-01",
    "points": 245,
    "spark": [
@@ -70,13 +70,13 @@
     4711.0,
     4704.0,
     4558.0,
-    4471.0
+    4487.0
    ],
-   "fetchedAt": "2026-09-01T17:52:24+08:00",
+   "fetchedAt": "2026-09-01T21:40:20+08:00",
    "error": null,
-   "buy": 4419.0,
-   "sell": 4471.0,
-   "quoteTime": "2026/09/01 17:33",
+   "buy": 4434.0,
+   "sell": 4487.0,
+   "quoteTime": "2026/09/01 19:43",
    "quoteTimeError": null
   },
   "gold_cny": {
@@ -138,11 +138,11 @@
     963.8,
     961.7
    ],
-   "fetchedAt": "2026-09-01T17:52:27+08:00",
+   "fetchedAt": "2026-09-01T21:40:23+08:00",
    "error": null,
    "buy": 951.55,
    "sell": 961.7,
-   "quoteTime": "2026/09/01 17:33",
+   "quoteTime": "2026/09/01 19:43",
    "quoteTimeError": null
   },
   "gold_bar": {
@@ -212,7 +212,9 @@
    ],
    "date": "2026-09-01",
    "fetchedAt": "2026-09-01T17:52:29+08:00",
-   "error": null
+   "error": null,
+   "carriedOver": true,
+   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
   },
   "twii": {
    "id": "twii",
@@ -273,7 +275,7 @@
     46128.47,
     46948.72
    ],
-   "fetchedAt": "2026-09-01T17:52:30+08:00",
+   "fetchedAt": "2026-09-01T21:40:23+08:00",
    "error": null,
    "open": 46177.11,
    "high": 46948.72,
@@ -340,7 +342,7 @@
     2405.0,
     2440.0
    ],
-   "fetchedAt": "2026-09-01T17:52:33+08:00",
+   "fetchedAt": "2026-09-01T21:40:23+08:00",
    "error": null,
    "open": 2395.0,
    "high": 2440.0,
@@ -407,7 +409,7 @@
     76.75,
     76.55
    ],
-   "fetchedAt": "2026-09-01T17:52:37+08:00",
+   "fetchedAt": "2026-09-01T21:40:23+08:00",
    "error": null,
    "open": 76.8,
    "high": 76.8,
@@ -426,14 +428,13 @@
    "decimals": 2,
    "priceLabel": "收盤價",
    "status": "ok",
-   "price": 220.78,
-   "prevClose": 217.550003,
-   "change": 3.229997,
-   "changePct": 1.4847,
-   "date": "2026-08-31",
-   "points": 252,
+   "price": 216.015,
+   "prevClose": 220.779999,
+   "change": -4.764999,
+   "changePct": -2.1583,
+   "date": "2026-09-01",
+   "points": 253,
    "spark": [
-    196.929993,
     204.119995,
     202.779999,
     210.960007,
@@ -472,9 +473,10 @@
     209.660004,
     227.979996,
     217.550003,
-    220.78
+    220.779999,
+    216.015
    ],
-   "fetchedAt": "2026-09-01T17:52:38+08:00",
+   "fetchedAt": "2026-09-01T21:40:23+08:00",
    "error": null
   },
   "gspc": {
@@ -488,14 +490,13 @@
    "decimals": 2,
    "priceLabel": "指數",
    "status": "ok",
-   "price": 7686.14,
-   "prevClose": 7711.76,
-   "change": -25.62,
-   "changePct": -0.3322,
-   "date": "2026-08-31",
-   "points": 252,
+   "price": 7633.23,
+   "prevClose": 7686.140137,
+   "change": -52.910137,
+   "changePct": -0.6884,
+   "date": "2026-09-01",
+   "points": 253,
    "spark": [
-    7503.850098,
     7482.709961,
     7543.640137,
     7575.390137,
@@ -534,9 +535,10 @@
     7675.700195,
     7730.990234,
     7711.76,
-    7686.14
+    7686.140137,
+    7633.23
    ],
-   "fetchedAt": "2026-09-01T17:52:39+08:00",
+   "fetchedAt": "2026-09-01T21:40:25+08:00",
    "error": null
   },
   "btc": {
@@ -550,10 +552,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 77945.78,
+   "price": 77569.71,
    "prevClose": 78548.632812,
-   "change": -602.852812,
-   "changePct": -0.7675,
+   "change": -978.922812,
+   "changePct": -1.2463,
    "date": "2026-09-01",
    "points": 367,
    "spark": [
@@ -596,9 +598,9 @@
     78245.8125,
     77667.570312,
     78548.632812,
-    77945.78
+    77569.71
    ],
-   "fetchedAt": "2026-09-01T17:52:41+08:00",
+   "fetchedAt": "2026-09-01T21:40:27+08:00",
    "error": null
   },
   "wti": {
@@ -612,10 +614,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 87.88,
+   "price": 88.04,
    "prevClose": 85.760002,
-   "change": 2.119998,
-   "changePct": 2.472,
+   "change": 2.279998,
+   "changePct": 2.6586,
    "date": "2026-09-01",
    "points": 252,
    "spark": [
@@ -658,9 +660,9 @@
     83.529999,
     83.400002,
     85.760002,
-    87.88
+    88.04
    ],
-   "fetchedAt": "2026-09-01T17:52:43+08:00",
+   "fetchedAt": "2026-09-01T21:40:29+08:00",
    "error": null
   },
   "fx_usd": {
@@ -722,7 +724,7 @@
     31.75,
     31.745
    ],
-   "fetchedAt": "2026-09-01T17:52:45+08:00",
+   "fetchedAt": "2026-09-01T21:40:29+08:00",
    "error": null,
    "spotBuy": 31.595,
    "spotSell": 31.745,
@@ -788,7 +790,7 @@
     4.745,
     4.742
    ],
-   "fetchedAt": "2026-09-01T17:52:46+08:00",
+   "fetchedAt": "2026-09-01T21:40:29+08:00",
    "error": null,
    "spotBuy": 4.682,
    "spotSell": 4.742,

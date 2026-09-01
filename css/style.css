@@ -803,3 +803,12 @@ a:hover { text-decoration: underline; }
    造成整頁橫向捲動。設成 0 才會乖乖讓表格自己在框內捲。 */
 .hist-main, .hist-side, .card, .rp-quote { min-width: 0; }
 .rp-table .stale { color: var(--warn); }
+
+/* 歷史頁：缺少報告的時段（灰色、不可點） */
+.slot-tab.is-missing {
+  color: var(--text-faint);
+  border-style: dashed;
+  cursor: default;
+  opacity: .65;
+}
+.slot-tab.is-missing:hover { background: var(--card); color: var(--text-faint); }

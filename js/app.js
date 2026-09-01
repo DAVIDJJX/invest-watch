@@ -214,10 +214,15 @@
       : '');
     left.appendChild(name);
 
+    // 資料日期不是「這次更新的日期」時要講清楚，否則看起來像壞掉。
+    // 例：台灣白天看 NVIDIA，美股還沒收盤，最新收盤價本來就是前一天的。
+    var dataDay = latest.dataDate;
+    var stale = a.status === 'ok' && a.date && dataDay && a.date !== dataDay;
+
     var subBits = [];
     if (a.priceLabel && !isBar) subBits.push(esc(a.priceLabel));
     if (a.unit) subBits.push(esc(a.unit));
-    if (a.date) subBits.push(esc(a.date));
+    if (a.date) subBits.push(esc(a.date) + (stale ? '（最近一筆）' : ''));
     if (a.quoteTime && !isBar && a.type !== 'bot_gold') subBits.push(esc(a.quoteTime));
     left.appendChild(el('div', 'card-sub',
       subBits.join(' · ') +
@@ -279,8 +284,20 @@
       head.appendChild(el('div', 'note-box', '註：' + esc(a.sourceNote)));
     }
     if (a.carriedOver) {
+      // 「刻意跳過」和「意外沒更新」要分開講。條塊一天只掛一次牌，
+      // 每半小時提醒一次「沒有重新抓取」只是噪音——它自己的掛牌時間才是實話。
+      head.appendChild(a.carriedReason
+        ? el('div', 'card-sub', '（' + esc(a.carriedReason) + '）')
+        : el('div', 'note-box',
+            '這一項本次沒有重新抓取，顯示的是 ' + esc(shortTime(a.fetchedAt)) + ' 的資料。'));
+    }
+    if (stale) {
       head.appendChild(el('div', 'note-box',
-        '這一項本次沒有重新抓取，顯示的是 ' + esc(shortTime(a.fetchedAt)) + ' 的資料。'));
+        '這一項今天（' + esc(dataDay) + '）還沒有新報價，上面是 ' + esc(a.date) +
+        ' 的收盤價。' +
+        (a.group === '海外'
+          ? '台灣白天時美股尚未收盤，看到前一個交易日的收盤價是正常的。'
+          : '該市場今天還沒有產生新的收盤價。')));
     }
 
     card.appendChild(head);
@@ -507,6 +524,8 @@
 
   function render(latest) {
     state.latest = latest;
+    // 這次更新是哪一天（台北時間）——拿來判斷各標的的資料是不是今天的
+    latest.dataDate = String(latest.updatedAt || '').slice(0, 10) || null;
     renderStatus(latest);
 
     var root = $('#dashboard');

@@ -1,18 +1,80 @@
 {
- "updatedAt": "2026-09-01T17:52:46+08:00",
- "updatedAtText": "2026-09-01 17:52",
+ "updatedAt": "2026-09-01T21:39:01+08:00",
+ "updatedAtText": "2026-09-01 21:39",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
- "mode": "full",
+ "mode": "light",
  "summary": {
   "total": 12,
   "ok": 12,
   "error": 0,
   "errorIds": []
  },
- "requests": 14,
+ "requests": 1,
  "assets": {
+  "btc": {
+   "id": "btc",
+   "name": "比特幣",
+   "shortName": "BTC",
+   "group": "海外",
+   "type": "yahoo",
+   "currency": "USD",
+   "unit": "美元",
+   "decimals": 0,
+   "priceLabel": "現價",
+   "status": "ok",
+   "price": 77565.29,
+   "prevClose": 78548.632812,
+   "change": -983.342812,
+   "changePct": -1.2519,
+   "date": "2026-09-01",
+   "points": 367,
+   "spark": [
+    64098.496094,
+    64311.8125,
+    65340.300781,
+    63724.898438,
+    63871.363281,
+    63908.167969,
+    64725.308594,
+    62813.746094,
+    62763.320312,
+    63482.0,
+    63460.898438,
+    64055.953125,
+    64597.5,
+    64262.113281,
+    64880.191406,
+    64904.6875,
+    64844.886719,
+    63910.585938,
+    63551.875,
+    63402.433594,
+    63402.171875,
+    62975.59375,
+    63024.320312,
+    62818.652344,
+    64506.253906,
+    64680.710938,
+    69266.1875,
+    73032.757812,
+    78335.1875,
+    77083.414062,
+    77755.265625,
+    78964.484375,
+    78564.976562,
+    79027.421875,
+    80257.539062,
+    77830.289062,
+    78245.8125,
+    77667.570312,
+    78548.632812,
+    77565.29
+   ],
+   "fetchedAt": "2026-09-01T21:39:01+08:00",
+   "error": null
+  },
   "gold_twd": {
    "id": "gold_twd",
    "name": "黃金存摺（台幣）",
@@ -77,7 +139,8 @@
    "buy": 4419.0,
    "sell": 4471.0,
    "quoteTime": "2026/09/01 17:33",
-   "quoteTimeError": null
+   "quoteTimeError": null,
+   "carriedOver": true
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -143,7 +206,8 @@
    "buy": 951.55,
    "sell": 961.7,
    "quoteTime": "2026/09/01 17:33",
-   "quoteTimeError": null
+   "quoteTimeError": null,
+   "carriedOver": true
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -212,7 +276,8 @@
    ],
    "date": "2026-09-01",
    "fetchedAt": "2026-09-01T17:52:29+08:00",
-   "error": null
+   "error": null,
+   "carriedOver": true
   },
   "twii": {
    "id": "twii",
@@ -279,7 +344,8 @@
    "high": 46948.72,
    "low": 46081.11,
    "quoteTime": "13:33:00",
-   "sourceNote": null
+   "sourceNote": null,
+   "carriedOver": true
   },
   "tw2330": {
    "id": "tw2330",
@@ -346,7 +412,8 @@
    "high": 2440.0,
    "low": 2390.0,
    "quoteTime": "13:30:00",
-   "sourceNote": null
+   "sourceNote": null,
+   "carriedOver": true
   },
   "tw00646": {
    "id": "tw00646",
@@ -413,7 +480,8 @@
    "high": 76.8,
    "low": 76.4,
    "quoteTime": "13:30:00",
-   "sourceNote": null
+   "sourceNote": null,
+   "carriedOver": true
   },
   "nvda": {
    "id": "nvda",
@@ -475,7 +543,8 @@
     220.78
    ],
    "fetchedAt": "2026-09-01T17:52:38+08:00",
-   "error": null
+   "error": null,
+   "carriedOver": true
   },
   "gspc": {
    "id": "gspc",
@@ -537,69 +606,8 @@
     7686.14
    ],
    "fetchedAt": "2026-09-01T17:52:39+08:00",
-   "error": null
-  },
-  "btc": {
-   "id": "btc",
-   "name": "比特幣",
-   "shortName": "BTC",
-   "group": "海外",
-   "type": "yahoo",
-   "currency": "USD",
-   "unit": "美元",
-   "decimals": 0,
-   "priceLabel": "現價",
-   "status": "ok",
-   "price": 77945.78,
-   "prevClose": 78548.632812,
-   "change": -602.852812,
-   "changePct": -0.7675,
-   "date": "2026-09-01",
-   "points": 367,
-   "spark": [
-    64098.496094,
-    64311.8125,
-    65340.300781,
-    63724.898438,
-    63871.363281,
-    63908.167969,
-    64725.308594,
-    62813.746094,
-    62763.320312,
-    63482.0,
-    63460.898438,
-    64055.953125,
-    64597.5,
-    64262.113281,
-    64880.191406,
-    64904.6875,
-    64844.886719,
-    63910.585938,
-    63551.875,
-    63402.433594,
-    63402.171875,
-    62975.59375,
-    63024.320312,
-    62818.652344,
-    64506.253906,
-    64680.710938,
-    69266.1875,
-    73032.757812,
-    78335.1875,
-    77083.414062,
-    77755.265625,
-    78964.484375,
-    78564.976562,
-    79027.421875,
-    80257.539062,
-    77830.289062,
-    78245.8125,
-    77667.570312,
-    78548.632812,
-    77945.78
-   ],
-   "fetchedAt": "2026-09-01T17:52:41+08:00",
-   "error": null
+   "error": null,
+   "carriedOver": true
   },
   "wti": {
    "id": "wti",
@@ -661,7 +669,8 @@
     87.88
    ],
    "fetchedAt": "2026-09-01T17:52:43+08:00",
-   "error": null
+   "error": null,
+   "carriedOver": true
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -727,7 +736,8 @@
    "spotBuy": 31.595,
    "spotSell": 31.745,
    "cashBuy": 31.27,
-   "cashSell": 31.94
+   "cashSell": 31.94,
+   "carriedOver": true
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -793,7 +803,8 @@
    "spotBuy": 4.682,
    "spotSell": 4.742,
    "cashBuy": 4.615,
-   "cashSell": 4.777
+   "cashSell": 4.777,
+   "carriedOver": true
   }
  }
 }
