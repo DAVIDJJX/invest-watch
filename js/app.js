@@ -73,7 +73,8 @@
   /* ---------------------------------------------------------- 頂部狀態列 */
 
   function renderStatus(latest) {
-    var bar = $('#status-bar');
+    // 只改寫 chips 那一段——刷新按鈕和它同在 .status-bar 裡，不能被蓋掉
+    var bar = $('#status-chips') || $('#status-bar');
     if (!bar) return;
     var s = latest.summary || {};
     var bad = (s.error || 0) > 0;
@@ -610,7 +611,65 @@
       .catch(function () { /* 還沒有報告就安靜地不顯示 */ });
   }
 
+  /* ---------------------------------------------------------- 手動刷新
+   *
+   * 這個網站是靜態的：資料由排程（雲端 + 你的電腦）更新後推上 GitHub。
+   * 所以「刷新」＝重新去讀最新的資料檔，而不是即時去跟台銀要價格。
+   * 按了之後會誠實告訴你：資料有沒有變新，沒變的話最後更新是什麼時候。
+   */
+  var refreshMsgTimer = null;
+
+  function setRefreshMsg(text, cls, autoClear) {
+    var msg = $('#refresh-msg');
+    if (!msg) return;
+    if (refreshMsgTimer) { clearTimeout(refreshMsgTimer); refreshMsgTimer = null; }
+    msg.textContent = text;
+    msg.className = 'refresh-msg ' + (cls || 'dim');
+    // 訊息看過就好，過幾秒自動收掉，不要一直佔著一行把畫面往下推
+    if (autoClear) {
+      refreshMsgTimer = setTimeout(function () {
+        msg.textContent = '';
+        msg.className = 'refresh-msg dim';
+      }, 8000);
+    }
+  }
+
+  function refreshNow() {
+    var btn = $('#refresh-btn');
+    if (!btn || btn.disabled) return;
+
+    var before = (state.latest && state.latest.updatedAt) || null;
+    btn.disabled = true;
+    btn.classList.add('is-busy');
+    setRefreshMsg('重新讀取中…', 'dim', false);
+
+    state.history = {};          // 歷史也一起重讀，不要用舊的算指標
+    loadReportBanner();
+
+    fetchJSON('data/latest.json')
+      .then(function (latest) {
+        render(latest);
+        loadHistories(latest);
+        if (before && latest.updatedAt === before) {
+          setRefreshMsg('資料沒有變新，最後更新仍是 ' + (latest.updatedAtText || '—') +
+                        '。下一次自動更新後再按就會看到新的。', 'dim', true);
+        } else {
+          setRefreshMsg('已更新到 ' + (latest.updatedAtText || '—') + '。', 'ok', true);
+        }
+      })
+      .catch(function (e) {
+        setRefreshMsg('讀取失敗：' + e.message, 'bad', true);
+      })
+      .then(function () {
+        btn.disabled = false;
+        btn.classList.remove('is-busy');
+      });
+  }
+
   function boot() {
+    var btn = $('#refresh-btn');
+    if (btn) btn.addEventListener('click', refreshNow);
+
     loadReportBanner();
     fetchJSON('data/latest.json')
       .then(function (latest) {
@@ -622,7 +681,7 @@
           '<div class="fatal">讀不到行情資料（data/latest.json）：' + esc(e.message) +
           '<br><br>如果你是剛部署好，請先到 GitHub 的 Actions 頁手動執行一次 ' +
           '「更新市場資料」。</div>';
-        var bar = $('#status-bar');
+        var bar = $('#status-chips') || $('#status-bar');
         if (bar) bar.innerHTML = '<span class="chip bad">⚠ 資料檔讀取失敗</span>';
       });
   }

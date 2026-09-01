@@ -19,9 +19,8 @@
     manual: '手動更新'
   };
   var SLOT_ORDER = ['morning', 'midday', 'close', 'manual'];
-  var FIRST_BATCH = 30;   // 最近 30 天直接列出
 
-  var state = { index: null, day: null, slot: null, expanded: false, cache: {} };
+  var state = { index: null, day: null, slot: null, month: null, cache: {} };
 
   function $(s, r) { return (r || document).querySelector(s); }
 
@@ -47,47 +46,124 @@
     });
   }
 
-  /* ---------------------------------------------------------- 日期清單 */
+  /* ---------------------------------------------------------- 月曆選日期
+   *
+   * 用月曆而不是清單：報告一天天累積下去，清單很快就會長到找不到東西。
+   * 月曆一眼就看得出「哪幾天有報告、哪天缺、哪天休市」。
+   */
+
+  var WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+
+  function ym(dateStr) { return String(dateStr).slice(0, 7); }   // 2026-09-01 -> 2026-09
+
+  function ymTitle(m) {
+    var p = m.split('-');
+    return p[0] + ' 年 ' + Number(p[1]) + ' 月';
+  }
+
+  function shiftMonth(m, delta) {
+    var p = m.split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1 + delta, 1);
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  }
+
+  /* 依日期建索引，月曆才查得快 */
+  function dayMap() {
+    var map = {};
+    ((state.index && state.index.days) || []).forEach(function (d) {
+      map[d.date] = d;
+    });
+    return map;
+  }
 
   function renderDays() {
     var box = $('#day-list');
     var days = (state.index && state.index.days) || [];
     if (!days.length) {
       box.innerHTML = '<div class="rp-dim" style="padding:10px 2px">' +
-        '還沒有任何封存的報告。第一份會在下一次自動更新（10:00 / 13:00 / 15:00）後出現。</div>';
+        '還沒有任何封存的報告。第一份會在下一次自動更新後出現。</div>';
       return;
     }
-    var show = state.expanded ? days : days.slice(0, FIRST_BATCH);
-    var h = '';
-    show.forEach(function (d) {
-      var slots = (d.slots || []).length;
-      var bad = d.dataStatus && d.dataStatus.error;
-      h += '<button class="day-btn' + (d.date === state.day ? ' active' : '') +
-           '" data-date="' + esc(d.date) + '">' +
-             '<span class="day-date">' + esc(d.date) +
-               '<span class="day-wd">週' + esc(d.weekday || '') + '</span></span>' +
-             '<span class="day-tags">' +
-               (d.twTradingDay === false
-                 ? '<span class="day-tag holiday">台股休市</span>' : '') +
-               '<span class="day-tag">' + slots + ' 份報告</span>' +
-               (bad ? '<span class="day-tag bad">' + bad + ' 項失敗</span>' : '') +
+
+    var map = dayMap();
+    var newest = days[0].date;                 // index 是新到舊排序
+    var oldest = days[days.length - 1].date;
+    if (!state.month) state.month = ym(state.day || newest);
+
+    var p = state.month.split('-');
+    var year = Number(p[0]), mon = Number(p[1]);
+    var first = new Date(year, mon - 1, 1);
+    var daysInMonth = new Date(year, mon, 0).getDate();
+    var lead = first.getDay();                 // 這個月 1 號是星期幾（0=日）
+
+    var canPrev = state.month > ym(oldest);
+    var canNext = state.month < ym(newest);
+
+    var h = '<div class="cal">';
+    h += '<div class="cal-head">' +
+           '<button class="cal-nav" data-dir="-1"' + (canPrev ? '' : ' disabled') +
+             ' aria-label="上個月">‹</button>' +
+           '<span class="cal-title">' + esc(ymTitle(state.month)) + '</span>' +
+           '<button class="cal-nav" data-dir="1"' + (canNext ? '' : ' disabled') +
+             ' aria-label="下個月">›</button>' +
+         '</div>';
+
+    h += '<div class="cal-grid">';
+    WEEKDAYS.forEach(function (w) { h += '<span class="cal-wd">' + w + '</span>'; });
+    for (var i = 0; i < lead; i++) h += '<span class="cal-pad"></span>';
+
+    for (var dd = 1; dd <= daysInMonth; dd++) {
+      var ds = year + '-' + String(mon).padStart(2, '0') + '-' + String(dd).padStart(2, '0');
+      var entry = map[ds];
+      if (!entry) {
+        h += '<span class="cal-day is-empty">' + dd + '</span>';
+        continue;
+      }
+      var nSlots = (entry.slots || []).length;
+      var bad = entry.dataStatus && entry.dataStatus.error;
+      var cls = 'cal-day has-data';
+      if (ds === state.day) cls += ' is-active';
+      if (entry.twTradingDay === false) cls += ' is-holiday';
+      var tip = ds + '　' + nSlots + ' 份報告' +
+                (entry.twTradingDay === false ? '　台股休市' : '') +
+                (bad ? '　' + bad + ' 項更新失敗' : '');
+      h += '<button class="' + cls + '" data-date="' + esc(ds) + '" title="' + esc(tip) + '">' +
+             dd +
+             '<span class="cal-dots">' +
+               (bad ? '<i class="cal-dot bad"></i>'
+                    : new Array(Math.min(nSlots, 3) + 1).join('<i class="cal-dot"></i>')) +
              '</span>' +
            '</button>';
-    });
-    if (!state.expanded && days.length > FIRST_BATCH) {
-      h += '<button class="day-more" id="day-more">顯示更早的 ' +
-           (days.length - FIRST_BATCH) + ' 天</button>';
     }
+    h += '</div>';
+
+    h += '<div class="cal-legend">' +
+           '<span><i class="cal-dot"></i> 一點＝一份報告</span>' +
+           '<span><i class="cal-dot bad"></i> 有更新失敗</span>' +
+           '<span class="cal-holiday-key">灰底＝台股休市</span>' +
+         '</div>';
+
+    if (state.day !== newest) {
+      h += '<button class="cal-jump" id="cal-jump">跳到最新（' + esc(newest) + '）</button>';
+    }
+    h += '</div>';
     box.innerHTML = h;
 
-    box.querySelectorAll('.day-btn').forEach(function (b) {
+    box.querySelectorAll('.cal-day.has-data').forEach(function (b) {
       b.addEventListener('click', function () { go(b.dataset.date, null); });
     });
-    var more = $('#day-more');
-    if (more) {
-      more.addEventListener('click', function () {
-        state.expanded = true;
+    box.querySelectorAll('.cal-nav').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.disabled) return;
+        state.month = shiftMonth(state.month, Number(b.dataset.dir));
         renderDays();
+      });
+    });
+    var jump = $('#cal-jump');
+    if (jump) {
+      jump.addEventListener('click', function () {
+        state.month = ym(newest);
+        go(newest, null);
       });
     }
   }
@@ -229,6 +305,7 @@
   function go(date, slot) {
     state.day = date;
     state.slot = slot;
+    state.month = ym(date);      // 月曆跟著跳到選到的那個月
     location.hash = date + (slot ? '/' + slot : '');
     show();
   }

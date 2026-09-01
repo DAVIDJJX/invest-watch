@@ -16,8 +16,16 @@
       <h1>Invest<span class="brand-dot">Watch</span></h1>
       <span class="tagline">每天 10:00 / 13:00 / 15:00 自動更新</span>
     </div>
-    <div class="status-bar" id="status-bar">
-      <span class="chip">讀取資料中…</span>
+    <!-- 狀態列與刷新按鈕同一行，手機上才不會多吃掉一整列高度。
+         chips 用 display:contents，讓裡面的標籤直接參與外層的 flex 排版。 -->
+    <div class="status-bar">
+      <span id="status-chips" class="contents">
+        <span class="chip">讀取資料中…</span>
+      </span>
+      <button type="button" class="refresh-btn" id="refresh-btn">
+        <span class="refresh-icon">⟳</span>重新讀取
+      </button>
+      <span class="refresh-msg dim" id="refresh-msg"></span>
     </div>
     <nav class="nav">
       <a href="index.html" class="active">儀表板</a>
