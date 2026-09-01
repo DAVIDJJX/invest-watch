@@ -1,19 +1,17 @@
 {
- "updatedAt": "2026-09-01T17:52:31+08:00",
+ "updatedAt": "2026-09-01T17:52:46+08:00",
  "updatedAtText": "2026-09-01 17:52",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
- "mode": "light",
+ "mode": "full",
  "summary": {
   "total": 12,
-  "ok": 11,
-  "error": 1,
-  "errorIds": [
-   "gold_bar"
-  ]
+  "ok": 12,
+  "error": 0,
+  "errorIds": []
  },
- "requests": 9,
+ "requests": 14,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -74,7 +72,7 @@
     4558.0,
     4471.0
    ],
-   "fetchedAt": "2026-09-01T17:52:23+08:00",
+   "fetchedAt": "2026-09-01T17:52:24+08:00",
    "error": null,
    "buy": 4419.0,
    "sell": 4471.0,
@@ -140,7 +138,7 @@
     963.8,
     961.7
    ],
-   "fetchedAt": "2026-09-01T17:52:24+08:00",
+   "fetchedAt": "2026-09-01T17:52:27+08:00",
    "error": null,
    "buy": 951.55,
    "sell": 961.7,
@@ -157,60 +155,64 @@
    "unit": "元",
    "decimals": 0,
    "priceLabel": "本行賣出",
-   "status": "error",
+   "status": "ok",
    "price": null,
-   "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-09-01T15:03:03+08:00",
-   "fetchedAt": "2026-09-01T15:03:03+08:00",
-   "lastGood": {
-    "price": null,
-    "bars": [
-     {
-      "spec": "1 公斤",
-      "sell": 4568039.0,
-      "buy": null,
-      "grams": 1000.0,
-      "perGram": 4568.04,
-      "premiumPct": 0.751
-     },
-     {
-      "spec": "500 公克",
-      "sell": 2287825.0,
-      "buy": null,
-      "grams": 500.0,
-      "perGram": 4575.65,
-      "premiumPct": 0.919
-     },
-     {
-      "spec": "250 公克",
-      "sell": 1146073.0,
-      "buy": null,
-      "grams": 250.0,
-      "perGram": 4584.29,
-      "premiumPct": 1.109
-     },
-     {
-      "spec": "100 公克",
-      "sell": 459734.0,
-      "buy": null,
-      "grams": 100.0,
-      "perGram": 4597.34,
-      "premiumPct": 1.397
-     },
-     {
-      "spec": "金鑽 1 台兩",
-      "sell": 172588.0,
-      "buy": 168150.0,
-      "grams": 37.5,
-      "perGram": 4602.35,
-      "premiumPct": 1.507
-     }
-    ],
-    "date": "2026-09-01",
-    "fetchedAt": "2026-09-01T12:10:55+08:00"
-   },
-   "carriedOver": true,
-   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
+   "bars": [
+    {
+     "spec": "1 公斤",
+     "sell": 4569963.0,
+     "buy": null,
+     "grams": 1000.0,
+     "perGram": 4569.96,
+     "premiumPct": 2.213
+    },
+    {
+     "spec": "500 公克",
+     "sell": 2288790.0,
+     "buy": null,
+     "grams": 500.0,
+     "perGram": 4577.58,
+     "premiumPct": 2.384
+    },
+    {
+     "spec": "250 公克",
+     "sell": 1146557.0,
+     "buy": null,
+     "grams": 250.0,
+     "perGram": 4586.23,
+     "premiumPct": 2.577
+    },
+    {
+     "spec": "100 公克",
+     "sell": 459929.0,
+     "buy": null,
+     "grams": 100.0,
+     "perGram": 4599.29,
+     "premiumPct": 2.869
+    },
+    {
+     "spec": "金鑽 1 台兩",
+     "sell": 172661.0,
+     "buy": 168225.0,
+     "grams": 37.5,
+     "perGram": 4604.29,
+     "premiumPct": 2.981
+    }
+   ],
+   "quoteTime": "2026/09/01 15:19",
+   "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
+   "quoteTimeError": null,
+   "hasHistory": true,
+   "historyFrom": "2026-08-31",
+   "points": 2,
+   "goldSell": 4471.0,
+   "spark": [
+    4592.501,
+    4569.963
+   ],
+   "date": "2026-09-01",
+   "fetchedAt": "2026-09-01T17:52:29+08:00",
+   "error": null
   },
   "twii": {
    "id": "twii",
@@ -271,7 +273,7 @@
     46128.47,
     46948.72
    ],
-   "fetchedAt": "2026-09-01T17:52:24+08:00",
+   "fetchedAt": "2026-09-01T17:52:30+08:00",
    "error": null,
    "open": 46177.11,
    "high": 46948.72,
@@ -338,7 +340,7 @@
     2405.0,
     2440.0
    ],
-   "fetchedAt": "2026-09-01T17:52:24+08:00",
+   "fetchedAt": "2026-09-01T17:52:33+08:00",
    "error": null,
    "open": 2395.0,
    "high": 2440.0,
@@ -405,7 +407,7 @@
     76.75,
     76.55
    ],
-   "fetchedAt": "2026-09-01T17:52:24+08:00",
+   "fetchedAt": "2026-09-01T17:52:37+08:00",
    "error": null,
    "open": 76.8,
    "high": 76.8,
@@ -472,7 +474,7 @@
     217.550003,
     220.78
    ],
-   "fetchedAt": "2026-09-01T17:52:25+08:00",
+   "fetchedAt": "2026-09-01T17:52:38+08:00",
    "error": null
   },
   "gspc": {
@@ -534,7 +536,7 @@
     7711.76,
     7686.14
    ],
-   "fetchedAt": "2026-09-01T17:52:26+08:00",
+   "fetchedAt": "2026-09-01T17:52:39+08:00",
    "error": null
   },
   "btc": {
@@ -548,10 +550,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 77957.99,
+   "price": 77945.78,
    "prevClose": 78548.632812,
-   "change": -590.642812,
-   "changePct": -0.7519,
+   "change": -602.852812,
+   "changePct": -0.7675,
    "date": "2026-09-01",
    "points": 367,
    "spark": [
@@ -594,9 +596,9 @@
     78245.8125,
     77667.570312,
     78548.632812,
-    77957.99
+    77945.78
    ],
-   "fetchedAt": "2026-09-01T17:52:28+08:00",
+   "fetchedAt": "2026-09-01T17:52:41+08:00",
    "error": null
   },
   "wti": {
@@ -610,10 +612,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 87.84,
+   "price": 87.88,
    "prevClose": 85.760002,
-   "change": 2.079998,
-   "changePct": 2.4254,
+   "change": 2.119998,
+   "changePct": 2.472,
    "date": "2026-09-01",
    "points": 252,
    "spark": [
@@ -656,9 +658,9 @@
     83.529999,
     83.400002,
     85.760002,
-    87.84
+    87.88
    ],
-   "fetchedAt": "2026-09-01T17:52:30+08:00",
+   "fetchedAt": "2026-09-01T17:52:43+08:00",
    "error": null
   },
   "fx_usd": {
@@ -720,7 +722,7 @@
     31.75,
     31.745
    ],
-   "fetchedAt": "2026-09-01T17:52:31+08:00",
+   "fetchedAt": "2026-09-01T17:52:45+08:00",
    "error": null,
    "spotBuy": 31.595,
    "spotSell": 31.745,
@@ -786,7 +788,7 @@
     4.745,
     4.742
    ],
-   "fetchedAt": "2026-09-01T17:52:31+08:00",
+   "fetchedAt": "2026-09-01T17:52:46+08:00",
    "error": null,
    "spotBuy": 4.682,
    "spotSell": 4.742,
