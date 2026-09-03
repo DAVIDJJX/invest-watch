@@ -3,8 +3,8 @@
  "slot": "morning",
  "slotLabel": "晨報（了解今天狀況）",
  "title": "晨報：了解今天狀況",
- "generatedAt": "2026-09-03T11:17:49+08:00",
- "generatedAtText": "2026-09-03 11:17",
+ "generatedAt": "2026-09-03T11:18:01+08:00",
+ "generatedAtText": "2026-09-03 11:18",
  "market": {
   "date": "2026-09-03",
   "twTradingDay": true,
@@ -70,15 +70,15 @@
      "currency": "USD",
      "unit": "美元",
      "priceLabel": "現價",
-     "price": 77737.55,
-     "priceText": "77,738",
-     "change": 748.36,
-     "changeText": "748",
-     "changePct": 0.972,
-     "changePctText": "+0.97%",
+     "price": 77764.51,
+     "priceText": "77,765",
+     "change": 775.32,
+     "changeText": "775",
+     "changePct": 1.0071,
+     "changePctText": "+1.01%",
      "dir": "up",
      "date": "2026-09-03",
-     "text": "比特幣 77,738 上漲（+0.97%）"
+     "text": "比特幣 77,765 上漲（+1.01%）"
     },
     {
      "id": "wti",
@@ -87,15 +87,15 @@
      "currency": "USD",
      "unit": "美元 / 桶",
      "priceLabel": "近月期貨",
-     "price": 91.07,
-     "priceText": "91.07",
-     "change": 0.059998,
-     "changeText": "0.06",
-     "changePct": 0.0659,
-     "changePctText": "+0.07%",
+     "price": 91.06,
+     "priceText": "91.06",
+     "change": 0.049998,
+     "changeText": "0.05",
+     "changePct": 0.0549,
+     "changePctText": "+0.05%",
      "dir": "up",
      "date": "2026-09-03",
-     "text": "WTI 原油 91.07 上漲（+0.07%）"
+     "text": "WTI 原油 91.06 上漲（+0.05%）"
     }
    ],
    "subtitle": "台灣早上看到的美股是前一個交易日的收盤；比特幣則是 24 小時連續交易。"
@@ -114,13 +114,13 @@
      "priceLabel": "本行賣出",
      "price": 4535.0,
      "priceText": "4,535",
-     "change": 91.0,
-     "changeText": "91",
-     "changePct": 2.0477,
-     "changePctText": "+2.05%",
+     "change": 86.0,
+     "changeText": "86",
+     "changePct": 1.933,
+     "changePctText": "+1.93%",
      "dir": "up",
      "date": "2026-09-03",
-     "text": "黃金存摺（台幣） 4,535 上漲（+2.05%）",
+     "text": "黃金存摺（台幣） 4,535 上漲（+1.93%）",
      "extra": [
       {
        "k": "本行買入",
@@ -175,42 +175,42 @@
      "bars": [
       {
        "spec": "1 公斤",
-       "sell": 4483634.0,
-       "sellText": "4,483,634",
-       "perGram": 4483.634,
-       "perGramText": "4,483.6"
+       "sell": 4569608.0,
+       "sellText": "4,569,608",
+       "perGram": 4569.608,
+       "perGramText": "4,569.6"
       },
       {
        "spec": "500 公克",
-       "sell": 2245589.0,
-       "sellText": "2,245,589",
-       "perGram": 4491.178,
-       "perGramText": "4,491.2"
+       "sell": 2288616.0,
+       "sellText": "2,288,616",
+       "perGram": 4577.232,
+       "perGramText": "4,577.2"
       },
       {
        "spec": "250 公克",
-       "sell": 1124940.0,
-       "sellText": "1,124,940",
-       "perGram": 4499.76,
-       "perGramText": "4,499.8"
+       "sell": 1146473.0,
+       "sellText": "1,146,473",
+       "perGram": 4585.892,
+       "perGramText": "4,585.9"
       },
       {
        "spec": "100 公克",
-       "sell": 451276.0,
-       "sellText": "451,276",
-       "perGram": 4512.76,
-       "perGramText": "4,512.8"
+       "sell": 459897.0,
+       "sellText": "459,897",
+       "perGram": 4598.97,
+       "perGramText": "4,599.0"
       },
       {
        "spec": "金鑽 1 台兩",
-       "sell": 169417.0,
-       "sellText": "169,417",
-       "perGram": 4517.786666666667,
-       "perGramText": "4,517.8"
+       "sell": 172650.0,
+       "sellText": "172,650",
+       "perGram": 4604.0,
+       "perGramText": "4,604.0"
       }
      ],
-     "quoteTime": "2026/09/02 15:19",
-     "text": "台銀實體金條塊今日掛牌：1 公斤 4,483,634 元（每公克 4,483.6 元）。"
+     "quoteTime": "2026/09/03 11:10",
+     "text": "台銀實體金條塊今日掛牌：1 公斤 4,569,608 元（每公克 4,569.6 元）。"
     },
     {
      "id": "fx_usd",
@@ -369,11 +369,6 @@
    "items": [
     {
      "level": "up",
-     "id": "gold_twd",
-     "text": "黃金存摺（台幣） 今天上漲 2.05%，變動幅度較大。"
-    },
-    {
-     "level": "up",
      "id": "gold_cny",
      "text": "黃金存摺（人民幣） 今天上漲 2.20%，變動幅度較大。"
     },
@@ -434,8 +429,8 @@
   "tw00679b": 25.74,
   "nvda": 224.41,
   "gspc": 7666.6,
-  "btc": 77737.55,
-  "wti": 91.07,
+  "btc": 77764.51,
+  "wti": 91.06,
   "fx_usd": 31.775,
   "fx_cny": 4.747
  },
