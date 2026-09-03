@@ -1,17 +1,17 @@
 {
- "updatedAt": "2026-09-03T20:00:15+08:00",
+ "updatedAt": "2026-09-03T20:00:27+08:00",
  "updatedAtText": "2026-09-03 20:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
- "mode": "light",
+ "mode": "full",
  "summary": {
   "total": 13,
   "ok": 13,
   "error": 0,
   "errorIds": []
  },
- "requests": 9,
+ "requests": 14,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -72,7 +72,7 @@
     4449.0,
     4561.0
    ],
-   "fetchedAt": "2026-09-03T20:00:06+08:00",
+   "fetchedAt": "2026-09-03T20:00:09+08:00",
    "error": null,
    "buy": 4507.0,
    "sell": 4561.0,
@@ -138,7 +138,7 @@
     940.1,
     960.75
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:11+08:00",
    "error": null,
    "buy": 950.6,
    "sell": 960.75,
@@ -160,63 +160,61 @@
    "bars": [
     {
      "spec": "1 公斤",
-     "sell": 4569608.0,
+     "sell": 4583723.0,
      "buy": null,
      "grams": 1000.0,
-     "perGram": 4569.61,
-     "premiumPct": 0.763
+     "perGram": 4583.72,
+     "premiumPct": 0.498
     },
     {
      "spec": "500 公克",
-     "sell": 2288616.0,
+     "sell": 2295684.0,
      "buy": null,
      "grams": 500.0,
-     "perGram": 4577.23,
-     "premiumPct": 0.931
+     "perGram": 4591.37,
+     "premiumPct": 0.666
     },
     {
      "spec": "250 公克",
-     "sell": 1146473.0,
+     "sell": 1150012.0,
      "buy": null,
      "grams": 250.0,
-     "perGram": 4585.89,
-     "premiumPct": 1.122
+     "perGram": 4600.05,
+     "premiumPct": 0.856
     },
     {
      "spec": "100 公克",
-     "sell": 459897.0,
+     "sell": 461316.0,
      "buy": null,
      "grams": 100.0,
-     "perGram": 4598.97,
-     "premiumPct": 1.411
+     "perGram": 4613.16,
+     "premiumPct": 1.144
     },
     {
      "spec": "金鑽 1 台兩",
-     "sell": 172650.0,
-     "buy": 168225.0,
+     "sell": 173183.0,
+     "buy": 168750.0,
      "grams": 37.5,
-     "perGram": 4604.0,
-     "premiumPct": 1.521
+     "perGram": 4618.21,
+     "premiumPct": 1.254
     }
    ],
-   "quoteTime": "2026/09/03 11:10",
+   "quoteTime": "2026/09/03 15:10",
    "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
    "points": 4,
-   "goldSell": 4535.0,
+   "goldSell": 4561.0,
    "spark": [
     4592.501,
     4569.963,
     4483.634,
-    4569.608
+    4583.723
    ],
    "date": "2026-09-03",
-   "fetchedAt": "2026-09-03T11:17:48+08:00",
-   "error": null,
-   "carriedOver": true,
-   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
+   "fetchedAt": "2026-09-03T20:00:14+08:00",
+   "error": null
   },
   "twii": {
    "id": "twii",
@@ -277,7 +275,7 @@
     46164.72,
     45857.66
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:14+08:00",
    "error": null,
    "open": 46325.48,
    "high": 46517.45,
@@ -344,7 +342,7 @@
     2385.0,
     2390.0
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:17+08:00",
    "error": null,
    "open": 2385.0,
    "high": 2400.0,
@@ -411,7 +409,7 @@
     76.25,
     76.5
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:21+08:00",
    "error": null,
    "open": 76.55,
    "high": 76.7,
@@ -478,7 +476,7 @@
     25.65,
     25.77
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:21+08:00",
    "error": null,
    "open": 25.71,
    "high": 25.78,
@@ -545,7 +543,7 @@
     217.440002,
     224.41
    ],
-   "fetchedAt": "2026-09-03T20:00:09+08:00",
+   "fetchedAt": "2026-09-03T20:00:21+08:00",
    "error": null
   },
   "gspc": {
@@ -607,7 +605,7 @@
     7631.470215,
     7666.6
    ],
-   "fetchedAt": "2026-09-03T20:00:11+08:00",
+   "fetchedAt": "2026-09-03T20:00:23+08:00",
    "error": null
   },
   "btc": {
@@ -621,10 +619,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 77897.17,
+   "price": 77897.91,
    "prevClose": 77300.476562,
-   "change": 596.693438,
-   "changePct": 0.7719,
+   "change": 597.433438,
+   "changePct": 0.7729,
    "date": "2026-09-03",
    "points": 369,
    "spark": [
@@ -667,9 +665,9 @@
     78548.632812,
     77403.625,
     77300.476562,
-    77897.17
+    77897.91
    ],
-   "fetchedAt": "2026-09-03T20:00:13+08:00",
+   "fetchedAt": "2026-09-03T20:00:25+08:00",
    "error": null
   },
   "wti": {
@@ -731,7 +729,7 @@
     91.010002,
     93.01
    ],
-   "fetchedAt": "2026-09-03T20:00:15+08:00",
+   "fetchedAt": "2026-09-03T20:00:27+08:00",
    "error": null
   },
   "fx_usd": {
@@ -793,7 +791,7 @@
     31.805,
     31.83
    ],
-   "fetchedAt": "2026-09-03T20:00:15+08:00",
+   "fetchedAt": "2026-09-03T20:00:27+08:00",
    "error": null,
    "spotBuy": 31.68,
    "spotSell": 31.83,
@@ -859,7 +857,7 @@
     4.754,
     4.758
    ],
-   "fetchedAt": "2026-09-03T20:00:15+08:00",
+   "fetchedAt": "2026-09-03T20:00:27+08:00",
    "error": null,
    "spotBuy": 4.698,
    "spotSell": 4.758,
