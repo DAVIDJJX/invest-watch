@@ -1,5 +1,5 @@
 {
- "updatedAt": "2026-09-04T19:51:14+08:00",
+ "updatedAt": "2026-09-04T20:10:10+08:00",
  "count": 5,
  "days": [
   {
@@ -7,22 +7,30 @@
    "slots": [
     "morning",
     "midday",
-    "close"
+    "close",
+    "manual"
    ],
    "slotTimes": {
     "close": "19:51",
     "midday": "19:51",
-    "morning": "19:51"
+    "morning": "19:51",
+    "manual": "20:10"
    },
    "twTradingDay": true,
    "weekday": "五",
    "dataStatus": {
     "total": 13,
-    "ok": 13,
-    "error": 0,
-    "errorNames": []
+    "ok": 8,
+    "error": 5,
+    "errorNames": [
+     "黃金存摺（台幣）",
+     "黃金存摺（人民幣）",
+     "台銀實體黃金條塊",
+     "美元 / 台幣",
+     "人民幣 / 台幣"
+    ]
    },
-   "updatedAt": "2026-09-04T19:51:14+08:00"
+   "updatedAt": "2026-09-04T20:10:10+08:00"
   },
   {
    "date": "2026-09-03",
