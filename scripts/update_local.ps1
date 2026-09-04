@@ -28,7 +28,11 @@ param(
 
     # 輕量更新：只更新現價，不重抓一年份歷史、不重產報告。
     # 給盤中每半小時的密集更新用（請求數 10 次、約 15 秒，完整版是 14 次、25 秒）。
-    [switch]$Light
+    [switch]$Light,
+
+    # 這台電腦負責哪一邊。本機一律是 local；留這個參數是為了讓錯誤的呼叫
+    # （例如手滑打成 all）能被下面的防呆擋下來，而不是靜靜地跑成全抓。
+    [string]$Source = "local"
 )
 
 $ErrorActionPreference = "Continue"
@@ -38,6 +42,21 @@ try {
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
     $OutputEncoding = [System.Text.Encoding]::UTF8
 } catch { }
+
+# --- 防呆：本機絕對不可以跑 --source all -----------------------------------
+# all 會連雲端負責的 8 項一起抓，並寫出 data/sources/cloud.json，
+# 等於本機又去蓋掉雲端的分片——那正是這次改架構要消滅的問題。
+# all 只留給手動測試，這支腳本與排程一律拒絕。
+if ($Source -ne "local") {
+    if ($Source -eq "all") {
+        Write-Output "錯誤：update_local.ps1 不接受 -Source all。"
+        Write-Output "      all 會寫出 data/sources/cloud.json，等於本機去覆蓋雲端的分片。"
+    } else {
+        Write-Output "錯誤：-Source 只接受 local（收到的是「$Source」）。"
+    }
+    Write-Output "      本機請用 -Source local（預設值）；要測 all 請直接跑 python 指令。"
+    exit 2
+}
 $env:PYTHONIOENCODING = "utf-8"
 
 $RepoDir = Split-Path -Parent $PSScriptRoot
@@ -77,12 +96,12 @@ if ([string]::IsNullOrWhiteSpace($dirty)) {
 }
 
 # --- 2. 抓資料 -----------------------------------------------------------
-$args = @("scripts\fetch_data.py")
-if ($Slot -ne "") { $args += @("--slot", $Slot) }
-if ($Light)       { $args += "--light" }
+$pyArgs = @("scripts\fetch_data.py", "--source", $Source)
+if ($Slot -ne "") { $pyArgs += @("--slot", $Slot) }
+if ($Light)       { $pyArgs += "--light" }
 
-Write-Log "執行：python $($args -join ' ')"
-$output = & $Python $args 2>&1
+Write-Log "執行：python $($pyArgs -join ' ')"
+$output = & $Python $pyArgs 2>&1
 $output | ForEach-Object { Write-Log "  $_" }
 
 if ($LASTEXITCODE -ne 0) {
