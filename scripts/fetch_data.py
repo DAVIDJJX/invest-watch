@@ -128,6 +128,32 @@ def roc_to_date(s):
     return "%04d-%02d-%02d" % (y, mo, d)
 
 
+# 歷史點的 dateSource：這一天的日期是從哪裡來的。
+# 每一個寫進 data/history/<id>.json 的點都要帶這個欄位，以後任何人都能一眼看出
+# 哪些點是有來源依據的。絕對不可以出現「用現在的日期蓋上去」這種點——
+# 那等於憑空造出一天，走勢圖會多一根不存在的 K 線（2026-09-05 週六就發生過）。
+DATE_SOURCE = {
+    "quote":    "台銀網頁上的掛牌時間",
+    "chart":    "台銀黃金走勢表自己的日期欄",
+    "csv":      "台銀匯率 CSV 的資料日期欄",
+    "official": "證交所官方月檔的日期欄",
+    "realtime": "證交所即時報價自己回傳的日期",
+    "yahoo":    "Yahoo 日線 K 棒自己的時間戳",
+}
+
+
+def date_of_bot_quote(qt):
+    """台銀掛牌時間 '2026/09/04 19:52' → '2026-09-04'；讀不出來回 None。
+
+    回 None 時呼叫端一律【不要寫歷史】。台銀週末不掛牌，這時抓到的還是
+    週五那一筆；用「現在」當日期就會憑空生出一個週六的點，值跟週五一模一樣。
+    """
+    m = re.match(r"\s*(\d{4})/(\d{1,2})/(\d{1,2})", str(qt or ""))
+    if not m:
+        return None
+    return "%04d-%02d-%02d" % (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+
+
 def strip_tags(html):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
 
@@ -258,7 +284,8 @@ def parse_gold_chart(html):
         buy, sell = to_float(nums[0]), to_float(nums[1])
         if buy is None or sell is None:
             continue
-        out.append({"d": m.group(1), "buy": buy, "sell": sell, "c": sell})
+        out.append({"d": m.group(1), "buy": buy, "sell": sell, "c": sell,
+                    "dateSource": "chart"})
     # 台銀這張表是「新到舊」排列，統一轉成由舊到新，最後一筆才是最新牌價
     out.sort(key=lambda p: p["d"])
     return out
@@ -427,6 +454,7 @@ def fetch_bot_fx_history(f, code):
             "spotBuy": buy,
             "spotSell": sell,
             "c": sell,          # 主價＝即期賣出（你要換外幣時付的價）
+            "dateSource": "csv",
         })
     if not pts:
         raise FetchError("%s 歷史匯率 CSV 解析不到資料" % code)
@@ -505,7 +533,7 @@ def fetch_twse_month(f, asset, yyyymm):
         d = roc_to_date(row[0])
         c = to_float(row[col])
         if d and c is not None:
-            pts.append({"d": d, "c": c})
+            pts.append({"d": d, "c": c, "dateSource": "official"})
     return pts
 
 
@@ -536,7 +564,7 @@ def fetch_yahoo(f, symbol, rng="1y"):
         if c is None:
             continue
         d = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
-        pts.append({"d": d, "c": round(float(c), 6)})
+        pts.append({"d": d, "c": round(float(c), 6), "dateSource": "yahoo"})
 
     price = meta.get("regularMarketPrice")
     if price is None and pts:
@@ -548,7 +576,8 @@ def fetch_yahoo(f, symbol, rng="1y"):
     if ts:
         last_d = datetime.fromtimestamp(ts[-1], timezone.utc).strftime("%Y-%m-%d")
         if not pts or pts[-1]["d"] != last_d:
-            pts.append({"d": last_d, "c": round(float(price), 6)})
+            pts.append({"d": last_d, "c": round(float(price), 6),
+                        "dateSource": "yahoo"})
         else:
             pts[-1]["c"] = round(float(price), 6)
 
@@ -666,13 +695,24 @@ def handle_bot_gold(f, asset, ctx):
     # 19:45 掛牌的 4,562，走勢表今天那一列還停在 14:54 的 4,558。
     # 所以只要主頁抓得到，今天這一點就以主頁為準。
     page_pt = None
+    history_note = None
     if asset["symbol"] == "TWD" and ctx.get("goldPageSell") is not None:
-        page_pt = {
-            "d": now_tpe().strftime("%Y-%m-%d"),
-            "buy": ctx.get("goldPageBuy"),
-            "sell": ctx["goldPageSell"],
-            "c": ctx["goldPageSell"],
-        }
+        # 日期一定要取自掛牌時間，不能用「現在」。台銀週末不掛牌，週六抓到的
+        # 還是週五 19:52 那一筆；用現在當日期就會憑空生出一個週六的點，
+        # 值跟週五一模一樣（2026-09-05 實際發生過）。
+        page_day = date_of_bot_quote(ctx.get("goldQuoteTime"))
+        if page_day:
+            page_pt = {
+                "d": page_day,
+                "buy": ctx.get("goldPageBuy"),
+                "sell": ctx["goldPageSell"],
+                "c": ctx["goldPageSell"],
+                "dateSource": "quote",
+            }
+        else:
+            # 讀不到掛牌時間就不知道這筆牌價是哪一天的，寧可不寫歷史。
+            # 走勢表那一路（fetch_bot_gold）自己帶日期，歷史還是會前進。
+            history_note = "主頁讀不到掛牌時間，這一筆牌價沒有寫進歷史（不確定它屬於哪一天）"
 
     if light and page_pt:
         # 盤中輕量更新：主頁已經給了今天的牌價，不必再抓一年份走勢表，
@@ -693,6 +733,7 @@ def handle_bot_gold(f, asset, ctx):
         "sell": latest.get("sell"),
         "quoteTime": ctx.get("goldQuoteTime"),
         "quoteTimeError": ctx.get("goldQuoteTimeError"),
+        "historyNote": history_note,
     }
     return merged, build_quote(asset, merged, latest.get("sell"), extra)
 
@@ -718,12 +759,16 @@ def handle_bot_gold_bar(f, asset, ctx):
         raise SkipAsset("實體條塊一天只更新一次，盤中的輕量更新不重抓")
 
     bars, bar_quote_time = fetch_gold_bars(f)
-    today = now_tpe().strftime("%Y-%m-%d")
+
+    # 日期取自條塊頁自己的掛牌時間，不是「現在」。台銀週末不掛牌，
+    # 週六抓到的還是週五那一筆，用現在當日期會憑空多一個週六的點。
+    quote_day = date_of_bot_quote(bar_quote_time)
+    history_note = None
 
     # 台銀不公布條塊的歷史牌價，所以本站從第一次執行那天起自己累積。
     # 主序列 c ＝ 1 公斤條塊的「每公克單價」，才能跟黃金存摺的每公克牌價比較。
     by_spec = {b["spec"]: b for b in bars}
-    point = {"d": today}
+    point = {"d": quote_day, "dateSource": "quote"}
     for spec, key, grams in BAR_SPECS:
         b = by_spec.get(spec) or {}
         if b.get("sell") is not None:
@@ -732,7 +777,20 @@ def handle_bot_gold_bar(f, asset, ctx):
             point["taelBuy"] = b["buy"]
     if point.get("g1000") is not None:
         point["c"] = round(point["g1000"] / 1000.0, 4)
-    merged = merge_points(load_history(asset["id"]), [point]) if "c" in point else None
+
+    # 分成兩件事：merged 是「卡片上要顯示的走勢」，to_save 是「要不要寫檔」。
+    # 沒有掛牌時間時照樣顯示既有的歷史，但【不寫檔】——不知道日期的牌價
+    # 沒有資格變成某一天的紀錄。
+    old_pts = load_history(asset["id"])
+    if quote_day and "c" in point:
+        merged = merge_points(old_pts, [point])
+        to_save = merged
+    else:
+        merged = old_pts
+        to_save = None
+        if not quote_day:
+            history_note = ("條塊頁讀不到掛牌時間，這一批牌價沒有寫進歷史"
+                            "（不確定它屬於哪一天）")
 
     # 每公克單價與「比黃金存摺賣出價貴多少」——今天就看得到，不用等歷史
     gold = ctx.get("goldSell")
@@ -765,15 +823,17 @@ def handle_bot_gold_bar(f, asset, ctx):
         "goldSell": gold,          # 同日的黃金存摺賣出價，供前端說明價差
         "spark": [p.get("c") for p in (merged or [])[-SPARK_POINTS:]
                   if p.get("c") is not None],
-        "date": today,
+        "date": quote_day,
+        "historyNote": history_note,
         "fetchedAt": iso(now_tpe()),
         "error": None,
     }
-    return merged, q
+    return to_save, q
 
 
 def handle_bot_fx(f, asset, ctx):
     code = asset["symbol"]
+    light = ctx.get("light")
     day = ctx.get("fxDay")
     if day is None:
         day = fetch_bot_fx_day(f)
@@ -782,19 +842,22 @@ def handle_bot_fx(f, asset, ctx):
         raise FetchError("當日匯率 CSV 沒有 %s 這個幣別" % code)
     today = day[code]
 
+    # 歷史一律取自 L6M 檔，因為【只有它有「資料日期」欄】。
+    # 當日 CSV（/xrt/flcsv/0/day）的表頭是「幣別,匯率,現金,即期,...」，
+    # 整份檔案裡沒有任何日期（2026-09-05 實測確認），所以它只能拿來當「現價」，
+    # 不能拿來當某一天的歷史紀錄——那樣等於用「現在」當日期，
+    # 週末就會憑空生出一個值跟週五一樣的點。
     old = load_history(asset["id"])
+    history_note = None
     new_pts = []
-    if len(old) < 60:                     # 首次執行才回補半年歷史
+    if not light or not old:
+        # 輕量更新不重抓歷史（本來就是這樣設計的）；但如果連一筆歷史都還沒有，
+        # 就算是輕量模式也要補一次，否則卡片畫不出走勢。
         new_pts = fetch_bot_fx_history(f, code)
+    else:
+        history_note = ("盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，"
+                        "不能拿它當某一天的歷史紀錄")
 
-    # 今天這一筆用當日 CSV 蓋上去（比 L6M 檔更即時）
-    if today.get("spotSell") is not None:
-        new_pts = new_pts + [{
-            "d": now_tpe().strftime("%Y-%m-%d"),
-            "spotBuy": today.get("spotBuy"),
-            "spotSell": today.get("spotSell"),
-            "c": today.get("spotSell"),
-        }]
     merged = merge_points(old, new_pts)
     if not merged:
         raise FetchError("合併後沒有任何匯率歷史點")
@@ -803,6 +866,7 @@ def handle_bot_fx(f, asset, ctx):
         "spotSell": today.get("spotSell"),
         "cashBuy": today.get("cashBuy"),
         "cashSell": today.get("cashSell"),
+        "historyNote": history_note,
     }
     return merged, build_quote(asset, merged, today.get("spotSell"), extra)
 
@@ -848,7 +912,8 @@ def handle_twse(f, asset, ctx):
     if row and row.get("price") is not None:
         price = row["price"]
         if row.get("date"):
-            new_pts.append({"d": row["date"], "c": price})
+            new_pts.append({"d": row["date"], "c": price,
+                            "dateSource": "realtime"})
         extra = {
             "open": row.get("open"), "high": row.get("high"), "low": row.get("low"),
             "quoteTime": row.get("time"), "sourceNote": row.get("note"),
