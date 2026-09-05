@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-09-04T23:51:03+08:00",
- "runAtText": "2026-09-04 23:51",
+ "runAt": "2026-09-05T09:53:28+08:00",
+ "runAtText": "2026-09-05 09:53",
  "timezone": "Asia/Taipei (UTC+8)",
- "slot": "close",
- "slotLabel": "收盤（檢討與分析）",
- "mode": "light",
- "requests": 4,
+ "slot": "morning",
+ "slotLabel": "晨報（了解今天狀況）",
+ "mode": "full",
+ "requests": 6,
  "count": 5,
  "assets": {
   "gold_twd": {
@@ -21,13 +21,12 @@
    "priceLabel": "本行賣出",
    "status": "ok",
    "price": 4570.0,
-   "prevClose": 4549.0,
-   "change": 21.0,
-   "changePct": 0.4616,
-   "date": "2026-09-04",
-   "points": 248,
+   "prevClose": 4570.0,
+   "change": 0.0,
+   "changePct": 0.0,
+   "date": "2026-09-05",
+   "points": 249,
    "spark": [
-    4228.0,
     4194.0,
     4190.0,
     4202.0,
@@ -66,17 +65,18 @@
     4536.0,
     4449.0,
     4549.0,
+    4570.0,
     4570.0
    ],
-   "fetchedAt": "2026-09-04T23:50:59+08:00",
+   "fetchedAt": "2026-09-05T09:53:21+08:00",
    "error": null,
    "buy": 4517.0,
    "sell": 4570.0,
    "quoteTime": "2026/09/04 19:52",
    "quoteTimeError": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-04T23:50:59+08:00",
-   "lastSuccessAt": "2026-09-04T23:50:59+08:00"
+   "lastAttemptAt": "2026-09-05T09:53:21+08:00",
+   "lastSuccessAt": "2026-09-05T09:53:21+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -137,15 +137,15 @@
     960.75,
     969.15
    ],
-   "fetchedAt": "2026-09-04T23:51:01+08:00",
+   "fetchedAt": "2026-09-05T09:53:23+08:00",
    "error": null,
    "buy": 958.9,
    "sell": 969.15,
    "quoteTime": "2026/09/04 19:52",
    "quoteTimeError": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-04T23:51:01+08:00",
-   "lastSuccessAt": "2026-09-04T23:51:01+08:00"
+   "lastAttemptAt": "2026-09-05T09:53:23+08:00",
+   "lastSuccessAt": "2026-09-05T09:53:23+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -206,23 +206,22 @@
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
-   "points": 5,
+   "points": 6,
    "goldSell": 4570.0,
    "spark": [
     4592.501,
     4569.963,
     4483.634,
     4583.723,
+    4604.07,
     4604.07
    ],
-   "date": "2026-09-04",
-   "fetchedAt": "2026-09-04T23:11:30+08:00",
+   "date": "2026-09-05",
+   "fetchedAt": "2026-09-05T09:53:26+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-04T23:11:30+08:00",
-   "lastSuccessAt": "2026-09-04T23:11:30+08:00",
-   "carriedOver": true,
-   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
+   "lastAttemptAt": "2026-09-05T09:53:26+08:00",
+   "lastSuccessAt": "2026-09-05T09:53:26+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -236,13 +235,12 @@
    "priceLabel": "即期賣出",
    "status": "ok",
    "price": 31.705,
-   "prevClose": 31.83,
-   "change": -0.125,
-   "changePct": -0.3927,
-   "date": "2026-09-04",
-   "points": 131,
+   "prevClose": 31.705,
+   "change": 0.0,
+   "changePct": 0.0,
+   "date": "2026-09-05",
+   "points": 132,
    "spark": [
-    32.22,
     32.24,
     32.265,
     32.305,
@@ -281,17 +279,18 @@
     31.745,
     31.805,
     31.83,
+    31.705,
     31.705
    ],
-   "fetchedAt": "2026-09-04T23:51:03+08:00",
+   "fetchedAt": "2026-09-05T09:53:28+08:00",
    "error": null,
    "spotBuy": 31.555,
    "spotSell": 31.705,
    "cashBuy": 31.23,
    "cashSell": 31.9,
    "source": "local",
-   "lastAttemptAt": "2026-09-04T23:51:03+08:00",
-   "lastSuccessAt": "2026-09-04T23:51:03+08:00"
+   "lastAttemptAt": "2026-09-05T09:53:28+08:00",
+   "lastSuccessAt": "2026-09-05T09:53:28+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -304,14 +303,13 @@
    "decimals": 3,
    "priceLabel": "即期賣出",
    "status": "ok",
-   "price": 4.746,
-   "prevClose": 4.758,
-   "change": -0.012,
-   "changePct": -0.2522,
-   "date": "2026-09-04",
-   "points": 131,
+   "price": 4.747,
+   "prevClose": 4.746,
+   "change": 0.001,
+   "changePct": 0.0211,
+   "date": "2026-09-05",
+   "points": 132,
    "spark": [
-    4.767,
     4.772,
     4.781,
     4.79,
@@ -350,17 +348,18 @@
     4.742,
     4.754,
     4.758,
-    4.746
+    4.746,
+    4.747
    ],
-   "fetchedAt": "2026-09-04T23:51:03+08:00",
+   "fetchedAt": "2026-09-05T09:53:28+08:00",
    "error": null,
-   "spotBuy": 4.686,
-   "spotSell": 4.746,
-   "cashBuy": 4.619,
-   "cashSell": 4.781,
+   "spotBuy": 4.687,
+   "spotSell": 4.747,
+   "cashBuy": 4.62,
+   "cashSell": 4.782,
    "source": "local",
-   "lastAttemptAt": "2026-09-04T23:51:03+08:00",
-   "lastSuccessAt": "2026-09-04T23:51:03+08:00"
+   "lastAttemptAt": "2026-09-05T09:53:28+08:00",
+   "lastSuccessAt": "2026-09-05T09:53:28+08:00"
   }
  }
 }
