@@ -3,7 +3,8 @@
 """
 report.py — 三時段報告產生器
 
-由 fetch_data.py 在每次更新完資料後呼叫。依 slot 產生一份**結構化 JSON**：
+由 GitHub Actions 在合併出 data/latest.json 之後呼叫（家用電腦不產報告，
+兩邊都產會互相覆蓋同一份 data/report-latest.json）。依 slot 產生一份**結構化 JSON**：
   morning 晨報「了解今天狀況」
   midday  午盤「盤中整理」
   close   收盤「檢討與分析」

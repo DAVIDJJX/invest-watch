@@ -115,14 +115,27 @@ invest-watch/
 # 安裝套件（只需要一次）
 pip install requests
 
-# 抓一次資料
-python scripts/fetch_data.py --slot manual
+# 抓一次資料。--source 是必填的：
+#   cloud = 雲端負責的 8 項、local = 家用電腦負責的台銀 5 項
+# 各自只寫自己的 data/sources/<source>.json，不會碰到對方的
+python scripts/fetch_data.py --source cloud --slot manual
+python scripts/fetch_data.py --source local --slot manual
 
-# 盤中輕量更新（只更新現價，不重抓歷史、不重產報告）
-python scripts/fetch_data.py --light
+# 把兩邊的分片合成前端要看的 data/latest.json
+python scripts/merge_latest.py
 
-# 只抓其中幾項（測試用，其他項會沿用上次結果）
-python scripts/fetch_data.py --only gold_twd,fx_cny
+# 產生這個時段的報告（要先跑過上面的合併）
+python scripts/report.py --slot manual
+
+# 盤中輕量更新（只更新現價，不重抓歷史）
+python scripts/fetch_data.py --source local --light
+
+# 只抓其中幾項（測試用，同一個 owner 底下沒選到的會沿用上次結果）
+python scripts/fetch_data.py --source local --only gold_twd,fx_cny
+
+# 跑測試
+python -m unittest discover -s scripts -p "test_*.py"
+python scripts/test_race_recovery.py     # 競態實測，不會碰到 GitHub
 
 # 本機開網站看看
 python -m http.server 8765
@@ -371,8 +384,30 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
     - 分片不見或損毀時，該 owner 的標的**仍然留在 `latest.json` 裡**並標成失敗，
       而且 `merge_latest.py` 照樣產出檔案、結束碼 0——標的整項消失比顯示失敗更糟，
       而且合併失敗會連帶讓後面的 commit 不跑，網站就完全拿不到資料
-  - 停點 3～5（下一步）：推送重試改用 `reset --mixed` + 從遠端取回對方的分片、
-    報告改成只有雲端產、雲端加盤中輕量排程
+  - 停點 3（完成）：把 `merge_latest.py` 接進兩邊的流程，並修掉推送競態的既有 bug
+    - **既有 bug**：推送被拒時舊做法是 `git reset --soft` 後重新 commit。
+      `--soft` 不動索引也不動工作區，所以重新 commit 出來的樹會把對方剛推上去的
+      分片與歷史檔**還原回舊版**；而 `latest.json` 是從分片算出來的，用舊分片重算
+      等於把對方的新價格洗掉，檔案卻結構完整、還寫著「13 項全部成功」，
+      完全看不出資料被吃掉了
+    - 新增 `scripts/publish.py`，雲端與家用電腦**共用同一份**競態處理：
+      保留自己這一輪產生的檔案 → `reset --mixed` 對齊索引 → `checkout` 讓
+      **工作區**也拿到對方的最新檔案（合併程式讀的是工作區，這步不能省）→
+      把自己的放回去 → 重跑衍生步驟 → 重新 commit → 再推。最多 3 次，間隔隨機 5～15 秒
+    - 列舉的是「**我自己產生的檔案**」而不是「對方的檔案」：對方會寫哪些檔案是
+      開放集合（哪天多寫一個就漏了），自己這一輪寫了什麼才是封閉集合
+    - `--rebuild` 只重跑這一輪真的跑過的步驟：雲端 `merge,report:<slot>`、
+      家用電腦只有 `merge`（本機不產報告，也絕不碰 `report-latest.json`）
+    - 報告改由 workflow 的獨立步驟產生。改成分片之後 `fetch_data.py` 不再呼叫它，
+      有一段時間報告其實完全沒有在產生
+    - `fetch_data.py` 的 `--source` 改成**必填**。workflow 少寫這個參數就等於
+      `--source all`，雲端會去抓台銀 5 項（一定失敗）並覆寫家用電腦的分片
+    - `update_local.ps1` 加分支保險：不在 `main` 上、或落後遠端又快轉不了就直接中止，
+      不自作主張切分支
+    - 測試：`scripts/test_race_recovery.py` 在暫存目錄自建 bare repo 當遠端，
+      實測兩邊互推。把 `publish.py` 改回舊做法（`reset --soft`）時，
+      這支測試會抓到雲端價格被還原、雲端剛產生的報告檔被刪掉
+  - 停點 4～5（下一步）：報告的時段判定與手動報告分離、雲端加盤中輕量排程
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---

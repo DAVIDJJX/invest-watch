@@ -27,7 +27,7 @@ InvestWatch 資料抓取腳本
     python scripts/fetch_data.py --source local --light        # 盤中輕量更新
     python scripts/fetch_data.py --only gold_twd --source local  # 只抓部分（測試用）
 
-⚠ --source 不給的話預設是 all（兩邊都抓、寫出兩個分片），那只給手動測試用。
+⚠ --source 是必填的。all 會兩邊都抓、寫出兩個分片，只給手動測試用；
   正式排程一定要指明 cloud 或 local，否則會寫到不屬於自己的分片。
 
 只依賴 requests，不用 pandas。
@@ -1048,7 +1048,10 @@ def main():
     ap.add_argument("--light", action="store_true",
                     help="輕量更新：只更新現價，不重抓一年份歷史。"
                          "給盤中每半小時的密集更新用。")
-    ap.add_argument("--source", choices=["cloud", "local", "all"], default="all",
+    # 必填，沒有預設值。曾經預設 all，結果 workflow 少寫一個參數就變成
+    # 「雲端去抓台銀那 5 項並覆寫 data/sources/local.json」——正是分片架構要防的事，
+    # 卻只靠「記得加參數」在維持。改成必填，忘了帶就直接報錯，不會安靜地做錯事。
+    ap.add_argument("--source", choices=["cloud", "local", "all"], required=True,
                     help="這一輪由誰負責：cloud=GitHub Actions、local=家用電腦。"
                          "只會處理 assets.json 裡 owner 相符的標的，"
                          "其餘標的完全不碰。all 只給手動測試用，會寫出兩個分片。")
