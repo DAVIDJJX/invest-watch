@@ -350,7 +350,30 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
   - 資產配置新增「債券」分類
   - **密碼鎖**（`js/lock.js`）：把存在裝置上的紀錄與同步金鑰用 AES-GCM 加密
     （密碼經 PBKDF2-SHA256 推導 25 萬次），沒有密碼連開發者工具都讀不出來
-- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA（下一步）
+- [ ] **資料來源分片化 — 雲端與家用電腦不再互相覆蓋**（2026-09-05 進行中）
+  - **問題**：兩邊都整檔覆寫 `data/latest.json`，最後寫的人贏。雲端固定比本機晚
+    12 分鐘，所以 2026-09-03 20:00 家用電腦抓到的台銀黃金與匯率，20:07 就被雲端
+    「抓不到台銀」的錯誤蓋掉，網站顯示「5 項更新失敗」——但那 5 項七分鐘前才剛成功
+  - **做法**：每個標的在 `data/assets.json` 指定 `owner`（cloud／local），
+    各自只寫自己的 `data/sources/<owner>.json`。不是自己 owner 的完全不碰。
+    `data/latest.json` 改成由 `scripts/merge_latest.py` 從兩個分片算出來，
+    每個檔案都只有一個寫入者
+  - 停點 1（完成）：`fetch_data.py` 加 `--source`、寫分片、每項補上
+    `lastAttemptAt` / `lastSuccessAt` / `source`；抓失敗時 `lastSuccessAt`
+    沿用上次成功的時間，不清空也不假造。`update_local.ps1` 拒絕 `-Source all`
+  - 停點 2（完成）：`data/schedule.json` 成為排程的唯一真相來源；
+    新增 `scripts/schedule_util.py` 與 `scripts/merge_latest.py`
+    - **過期判定改成比「上一個排定的更新時間」**，不比「距今多久」。
+      實體金條塊在盤中輕量更新會被刻意跳過，一天只前進 3 次，
+      用固定分鐘數去比每天都會被誤判成過期
+    - 每一項多出 `freshness` / `lastDueAt` / `nextDueAt`，外層多出 `sources` 區塊；
+      原有欄位一個都沒動，前端這一輪一行都不用改
+    - 分片不見或損毀時，該 owner 的標的**仍然留在 `latest.json` 裡**並標成失敗，
+      而且 `merge_latest.py` 照樣產出檔案、結束碼 0——標的整項消失比顯示失敗更糟，
+      而且合併失敗會連帶讓後面的 commit 不跑，網站就完全拿不到資料
+  - 停點 3～5（下一步）：推送重試改用 `reset --mixed` + 從遠端取回對方的分片、
+    報告改成只有雲端產、雲端加盤中輕量排程
+- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---
 

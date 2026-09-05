@@ -10,7 +10,7 @@
     "bot_fx": "台銀即期匯率（PLAN 7.3），symbol 填幣別代碼",
     "market": "台股專用：tse=上市、otc=上櫃（不填視為上市）。前綴錯了證交所會回一筆空資料不報錯，而且上櫃股沒有官方月檔，歷史走 Yahoo。",
     "owner": "誰負責抓這一項：cloud=GitHub Actions、local=家用電腦。不是自己的 owner 就完全不碰（不抓、不寫 history、不寫進分片）。台銀那 5 項只有家用電腦抓得到（雲端的資料中心 IP 被擋），所以歸 local。",
-    "freshnessMinutes": "選填，覆寫 data/schedule.json 裡該 owner 的預設值。只有更新頻率跟同組其他標的明顯不同的標的才需要寫。"
+    "cadence": "選填，這一項走 data/schedule.json 裡的哪一種排程：full=只算完整更新那幾個時間點、light=完整更新加上盤中每半小時。不寫的話預設是『該 owner 有 light 排程就用 light，沒有就用 full』。只有跟同組其他標的節奏不同的才需要寫。"
   },
   "assets": [
     {
@@ -54,7 +54,7 @@
       "decimals": 0,
       "priceLabel": "本行賣出",
       "enabled": true,
-      "freshnessMinutes": 1200
+      "cadence": "full"
     },
     {
       "id": "twii",

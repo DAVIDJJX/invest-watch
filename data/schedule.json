@@ -1,36 +1,41 @@
 {
-  "version": 1,
-  "note": "排程與『活躍時窗』的唯一真相來源。時間一律台北時間（UTC+8）。scripts/merge_latest.py 讀這個檔來判斷每一項資料算不算過期。改排程時這個檔要跟著改，否則 freshness 會誤判。",
+  "version": 2,
+  "note": "排程的唯一真相來源。時間一律台北時間。scripts/schedule_util.py 讀這個檔算出每一項『上一個應該更新完成的時間點』，scripts/merge_latest.py 再拿它判斷資料算不算過期。改排程（Windows 工作排程器或 GitHub Actions 的 cron）時這個檔要跟著改，否則過期判定會失準。",
 
   "howFreshnessWorks": [
-    "問題：本機排程 17:00 就收工，如果直接拿『現在』去比，每天晚上和整個週末，黃金那 5 項都會被判成過期——那是排程本來就不會跑的時間，不是故障。",
-    "做法：判定用的『現在』先做一次校正——",
-    "  在該 owner 的 activeWindow 內 → 就用現在",
-    "  不在時窗內（晚上、週末、假日）→ 改用『上一個時窗的結束時間』",
-    "然後 stale = (校正後的現在 - lastSuccessAt) > freshnessMinutes。",
-    "效果：週六晚上看網站，基準是週五 17:30，黃金週五 17:00 抓到 → fresh（正確，沒有故障）；",
-    "      週一早上 10:30 但筆電從週五就沒醒過，基準是現在，差了三天 → stale（正確，抓到失效）。"
+    "不要比『距今多久』，要比『上一個排定的更新時間』。",
+    "理由：實體金條塊在輕量更新時會被刻意跳過（fetch_data.py 的 handle_bot_gold_bar 會 raise SkipAsset），",
+    "一天只有 3 次完整更新會讓它前進。用固定的『幾分鐘內算新』去比，它每天都會被誤判成過期。",
+    "",
+    "算法：",
+    "  lastDue = 依這一項的排程，現在之前最後一個『應該更新完成』的時間點（最多往回找 7 天）",
+    "  lastSuccessAt 不存在            → error（從來沒抓成功過，不是過期，是壞掉）",
+    "  lastDue 不存在                  → fresh（還沒有任何排定時間過去，沒有理由說它舊）",
+    "  lastSuccessAt >= lastDue - 30分 → fresh",
+    "  其餘                            → stale",
+    "",
+    "graceMinutes 是寬限：排程 10:05 觸發，抓完寫檔要幾十秒，雲端合併又晚一點，",
+    "不給寬限的話每次都會在邊界上閃一下過期。"
   ],
 
   "fieldNotes": {
-    "full": "完整更新的時間點（會重抓歷史）",
-    "light": "盤中輕量更新（只更新現價）。days 用 1-5 表示週一到週五（1=週一，7=週日）",
-    "activeWindow": "這個 owner『應該要有人在跑』的時窗。只在這個區間內才用真正的現在當基準",
-    "freshnessMinutes": "這個 owner 的預設過期門檻。個別標的可在 data/assets.json 覆寫（目前只有 gold_bar）"
+    "days": "用 cron 的星期寫法，0=週日、1=週一 … 6=週六。可以寫 0-6、1-5、或 1,3,5。",
+    "full": "完整更新：會重抓一年份歷史，實體金條塊也只有這時候會更新。目前雲端與本機都是每天跑（含週末），跟實際排程一致。",
+    "light": "盤中輕量更新：只更新現價。只有平日跑。時間是 from 到 to（含 to）之間每 everyMinutes 一個點。",
+    "reports": "報告產生時間，供 report.py 與前端參考；不參與過期判定。",
+    "cadence": "每個標的走哪一種排程，寫在 data/assets.json。預設是『該 owner 有 light 就用 light，沒有就用 full』；full 表示只算 full.at 那幾個時間點。"
   },
 
+  "timezone": "Asia/Taipei",
+  "graceMinutes": 30,
+
   "cloud": {
-    "full": ["10:17", "13:17", "15:17"],
-    "light": { "days": "1-5", "from": "09:07", "to": "14:37", "everyMinutes": 30 },
-    "activeWindow": { "days": "1-5", "from": "09:00", "to": "15:30" },
-    "freshnessMinutes": 45
+    "full": { "days": "0-6", "at": ["10:17", "13:17", "15:17"] }
   },
 
   "local": {
-    "full": ["10:05", "13:05", "15:05"],
-    "light": { "days": "1-5", "from": "09:00", "to": "17:00", "everyMinutes": 30 },
-    "activeWindow": { "days": "1-5", "from": "09:00", "to": "17:30" },
-    "freshnessMinutes": 60
+    "full":  { "days": "0-6", "at": ["10:05", "13:05", "15:05"] },
+    "light": { "days": "1-5", "from": "09:00", "to": "17:00", "everyMinutes": 30 }
   },
 
   "reports": { "morning": "10:35", "midday": "13:35", "close": "15:35" }
