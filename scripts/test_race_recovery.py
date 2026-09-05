@@ -127,7 +127,9 @@ def build_world(tmp):
     git(seed, "checkout", "--quiet", "-B", "main")
     git(seed, "remote", "set-url", "origin", origin.replace("\\", "/"))
     git(seed, "add", "-A")
-    git(seed, "commit", "--quiet", "-m", "測試用種子")
+    # --allow-empty：工作區已經全部 commit 過時，複製過來的內容跟 HEAD 一樣，
+    # 沒有 --allow-empty 的話 git 會以「沒有東西可以提交」失敗。
+    git(seed, "commit", "--quiet", "--allow-empty", "-m", "測試用種子")
     git(seed, "push", "--quiet", "-u", "origin", "main")
 
     cloudside = os.path.join(tmp, "cloudside")
