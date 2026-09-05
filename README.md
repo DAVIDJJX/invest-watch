@@ -314,6 +314,12 @@ git push
 `-m 1` 的意思是「回到 merge 之前 main 那一邊的狀態」。
 編號可以用 `git log --oneline --merges -5` 找。
 
+各次上線的 merge commit：
+
+| 日期 | 內容 | 回滾指令 |
+|---|---|---|
+| 2026-09-05 | 分片來源架構 + `latest.json` 改為衍生檔（停點 1-3） | `git revert -m 1 4f3d1b0 && git push` |
+
 ### 排錯：某天起每天固定某個時段，8 項雲端資料全部標示過期
 
 **代表 GitHub Actions 的觸發時間漂移了**，不是資料真的壞掉。
