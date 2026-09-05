@@ -1,10 +1,10 @@
 {
  "source": "local",
- "runAt": "2026-09-05T14:50:24+08:00",
- "runAtText": "2026-09-05 14:50",
+ "runAt": "2026-09-05T22:22:57+08:00",
+ "runAtText": "2026-09-05 22:22",
  "timezone": "Asia/Taipei (UTC+8)",
- "slot": "close",
- "slotLabel": "收盤（檢討與分析）",
+ "slot": "manual",
+ "slotLabel": "手動更新",
  "mode": "full",
  "requests": 6,
  "count": 5,
@@ -68,15 +68,15 @@
     4570.0,
     4570.0
    ],
-   "fetchedAt": "2026-09-05T14:50:16+08:00",
+   "fetchedAt": "2026-09-05T22:22:50+08:00",
    "error": null,
    "buy": 4517.0,
    "sell": 4570.0,
    "quoteTime": "2026/09/04 19:52",
    "quoteTimeError": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-05T14:50:16+08:00",
-   "lastSuccessAt": "2026-09-05T14:50:16+08:00"
+   "lastAttemptAt": "2026-09-05T22:22:50+08:00",
+   "lastSuccessAt": "2026-09-05T22:22:50+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -137,15 +137,15 @@
     960.75,
     969.15
    ],
-   "fetchedAt": "2026-09-05T14:50:19+08:00",
+   "fetchedAt": "2026-09-05T22:22:53+08:00",
    "error": null,
    "buy": 958.9,
    "sell": 969.15,
    "quoteTime": "2026/09/04 19:52",
    "quoteTimeError": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-05T14:50:19+08:00",
-   "lastSuccessAt": "2026-09-05T14:50:19+08:00"
+   "lastAttemptAt": "2026-09-05T22:22:53+08:00",
+   "lastSuccessAt": "2026-09-05T22:22:53+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -217,11 +217,11 @@
     4604.07
    ],
    "date": "2026-09-05",
-   "fetchedAt": "2026-09-05T14:50:21+08:00",
+   "fetchedAt": "2026-09-05T22:22:56+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-05T14:50:21+08:00",
-   "lastSuccessAt": "2026-09-05T14:50:21+08:00"
+   "lastAttemptAt": "2026-09-05T22:22:56+08:00",
+   "lastSuccessAt": "2026-09-05T22:22:56+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -282,15 +282,15 @@
     31.705,
     31.705
    ],
-   "fetchedAt": "2026-09-05T14:50:24+08:00",
+   "fetchedAt": "2026-09-05T22:22:57+08:00",
    "error": null,
    "spotBuy": 31.555,
    "spotSell": 31.705,
    "cashBuy": 31.23,
    "cashSell": 31.9,
    "source": "local",
-   "lastAttemptAt": "2026-09-05T14:50:24+08:00",
-   "lastSuccessAt": "2026-09-05T14:50:24+08:00"
+   "lastAttemptAt": "2026-09-05T22:22:57+08:00",
+   "lastSuccessAt": "2026-09-05T22:22:57+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -351,15 +351,15 @@
     4.746,
     4.747
    ],
-   "fetchedAt": "2026-09-05T14:50:24+08:00",
+   "fetchedAt": "2026-09-05T22:22:57+08:00",
    "error": null,
    "spotBuy": 4.687,
    "spotSell": 4.747,
    "cashBuy": 4.62,
    "cashSell": 4.782,
    "source": "local",
-   "lastAttemptAt": "2026-09-05T14:50:24+08:00",
-   "lastSuccessAt": "2026-09-05T14:50:24+08:00"
+   "lastAttemptAt": "2026-09-05T22:22:57+08:00",
+   "lastSuccessAt": "2026-09-05T22:22:57+08:00"
   }
  }
 }
