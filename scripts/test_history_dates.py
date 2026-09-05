@@ -231,6 +231,49 @@ class TestFxHistoryDate(HistDirSandbox):
         self.assertEqual([p["d"] for p in pts], [d1])
 
 
+class TestBankOfTaiwanRequestRestraint(HistDirSandbox):
+    """對台銀的請求要克制：盤中每 30 分鐘的輕量更新絕對不可以多敲台銀。
+
+    台銀有機器人防護（雲端的資料中心 IP 就是這樣被擋掉的，本機用 curl 也會被擋）。
+    輕量更新一天會跑十幾次，如果它也去抓 L6M 歷史檔，就是每半小時多敲兩次；
+    一旦被擋，本機負責的那 5 項會整個失效——那是這個專案最脆弱的一環。
+    """
+
+    DAY = {"USD": {"cashBuy": 31.23, "spotBuy": 31.555,
+                   "cashSell": 31.9, "spotSell": 31.705}}
+
+    def count_l6m_calls(self, light, seeded):
+        asset = {"id": "fx_usd", "name": "美元 / 台幣", "symbol": "USD",
+                 "type": "bot_fx", "currency": "TWD", "unit": "台幣 / 1 美元",
+                 "decimals": 3, "priceLabel": "即期賣出"}
+        self.seed("fx_usd", seeded)
+        calls = []
+        orig = fd.fetch_bot_fx_history
+        fd.fetch_bot_fx_history = lambda f, code: (calls.append(code) or [])
+        try:
+            pts, q = fd.handle_bot_fx(None, asset,
+                                      {"light": light, "fxDay": dict(self.DAY)})
+            return len(calls), pts, q
+        finally:
+            fd.fetch_bot_fx_history = orig
+
+    def test_light_never_touches_the_history_csv(self):
+        seeded = [{"d": ymd(fd.now_tpe() - timedelta(days=i)), "c": 31.6,
+                   "dateSource": "csv"} for i in range(5, 0, -1)]
+        n, pts, q = self.count_l6m_calls(light=True, seeded=seeded)
+        self.assertEqual(n, 0, "輕量更新不可以去抓 L6M 歷史檔")
+        self.assertEqual(len(pts), len(seeded), "輕量更新不可以增減歷史點")
+        self.assertTrue(q.get("historyNote"), "要說明為什麼這一輪沒寫歷史")
+        self.assertEqual(q["price"], 31.705, "但現價還是要更新")
+
+    def test_full_fetches_it_once_per_currency(self):
+        seeded = [{"d": ymd(fd.now_tpe() - timedelta(days=1)), "c": 31.6,
+                   "dateSource": "csv"}]
+        n, _, _ = self.count_l6m_calls(light=False, seeded=seeded)
+        self.assertEqual(n, 1, "完整更新每個幣別只抓一次，不要重複敲")
+
+
+
 class TestMergePoints(unittest.TestCase):
 
     def test_same_day_is_updated_not_appended(self):
