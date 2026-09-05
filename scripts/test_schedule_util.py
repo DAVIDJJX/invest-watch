@@ -29,7 +29,8 @@ SCHEDULE = {
     "timezone": "Asia/Taipei",
     "graceMinutes": 30,
     "cloud": {
-        "full": {"days": "0-6", "at": ["10:17", "13:17", "15:17"]}
+        # 跟 data/schedule.json 一樣用【實際觀測到的到貨時間】，不是 cron 上寫的
+        "full": {"days": "0-6", "at": ["15:20"]}
     },
     "local": {
         "full": {"days": "0-6", "at": ["10:05", "13:05", "15:05"]},
@@ -97,8 +98,7 @@ class TestExpectedTimes(unittest.TestCase):
         full = su.expected_times("cloud", "full", t(FRI + " 00:00").date(), SCHEDULE)
         light = su.expected_times("cloud", "light", t(FRI + " 00:00").date(), SCHEDULE)
         self.assertEqual(full, light)
-        self.assertEqual([hhmm(x) for x in full],
-                         [FRI + " 10:17", FRI + " 13:17", FRI + " 15:17"])
+        self.assertEqual([hhmm(x) for x in full], [FRI + " 15:20"])
 
 
 class TestCadence(unittest.TestCase):
@@ -366,6 +366,52 @@ class TestCadenceValidation(unittest.TestCase):
         typo = {"id": "x", "owner": "local", "cadence": "Light"}
         cad = su.cadence_of(typo, SCHEDULE)
         self.assertEqual(su.freshness(stamp, now, "local", cad, SCHEDULE)[0], "stale")
+
+
+
+class TestRealScheduleFile(unittest.TestCase):
+    """對【真實的 data/schedule.json】做健檢。
+
+    上面所有測試都用自己帶的假排程（那是刻意的，測邏輯不測設定），
+    結果就是真檔案打錯字完全不會被抓到。這一組補上那個缺口：
+    只檢查「這個檔案能不能算出時間」，不檢查具體時間是幾點——
+    排程本來就會改，把時間寫死在測試裡只會變成每次改排程都要改測試。
+    """
+
+    def setUp(self):
+        self.sch = su.load_schedule()
+
+    def test_every_owner_has_a_usable_schedule(self):
+        for owner in ("cloud", "local"):
+            self.assertTrue(su.has_schedule(owner, self.sch),
+                            "%s 沒有排程區塊，它的標的會全部算不出過期" % owner)
+
+    def test_every_enabled_asset_can_be_judged(self):
+        """每一個啟用中的標的都要算得出 lastDue，否則 freshness 會失去意義。"""
+        import json
+        with open(os.path.join(su.ROOT, "data", "assets.json"), encoding="utf-8") as fh:
+            assets = [a for a in json.load(fh)["assets"] if a.get("enabled", True)]
+        now = t("2026-09-09 16:00")          # 平日下午，一個普通的時間點
+        for a in assets:
+            owner = a.get("owner") or "cloud"
+            cad = su.cadence_of(a, self.sch)
+            last = su.last_expected(owner, cad, now, self.sch)
+            nxt = su.next_expected(owner, cad, now, self.sch)
+            self.assertIsNotNone(last, "%s 算不出上一個排定點" % a["id"])
+            self.assertIsNotNone(nxt, "%s 算不出下一個排定點" % a["id"])
+            self.assertTrue(su.cadence_is_valid(a), "%s 的 cadence 寫錯了" % a["id"])
+
+    def test_times_parse_and_are_sorted(self):
+        for owner in ("cloud", "local"):
+            times = su.expected_times(owner, su.default_cadence(owner, self.sch),
+                                      t("2026-09-09 00:00").date(), self.sch)
+            self.assertTrue(times, "%s 平日居然一個排定點都沒有" % owner)
+            self.assertEqual(times, sorted(times))
+            self.assertEqual(len(times), len(set(times)), "有重複的時間點")
+
+    def test_grace_is_sane(self):
+        g = su.grace_minutes(self.sch)
+        self.assertTrue(0 < g <= 120, "寬限 %d 分鐘不合理" % g)
 
 
 if __name__ == "__main__":
