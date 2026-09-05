@@ -68,10 +68,32 @@ jobs:
           echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
           echo "本次時段：$SLOT"
 
-      - name: 抓取行情資料
-        run: python scripts/fetch_data.py --slot "${{ steps.slot.outputs.slot }}"
+      # --- 步驟 1：只抓雲端負責的 8 項 -----------------------------------
+      # --source cloud 一定要帶。台銀那 5 項（黃金存摺、實體金條塊、兩個匯率）
+      # 的網站會擋掉資料中心 IP，雲端抓不到；而且雲端一旦去抓，就會寫出
+      # data/sources/local.json 把家用電腦抓到的資料蓋成「更新失敗」——
+      # 2026-09-03 20:07 就是這樣把 20:00 剛抓到的黃金價格洗掉的。
+      # fetch_data.py 的 --source 已經改成必填，忘了帶會直接報錯，不會安靜地做錯事。
+      - name: 抓取行情資料（雲端負責的 8 項）
+        run: python scripts/fetch_data.py --source cloud --slot "${{ steps.slot.outputs.slot }}"
 
-      - name: 把抓到的結果寫進執行摘要
+      # --- 步驟 2：把兩邊的分片合成 latest.json ---------------------------
+      # fetch_data.py 現在只寫自己的分片，不寫 latest.json。
+      # 這一步把 data/sources/cloud.json 與 data/sources/local.json
+      #（家用電腦上次推上來的）合成前端要看的 data/latest.json。
+      # 分片壞掉或不見時這支照樣會產出檔案並回 0，只在輸出印 ::warning::。
+      - name: 合併成 latest.json
+        run: python scripts/merge_latest.py
+
+      # --- 步驟 3：產生這個時段的報告 -------------------------------------
+      # 報告只有雲端會產（家用電腦不產）。report.py 讀的是上一步剛合出來的
+      # latest.json，所以順序不能顛倒。
+      - name: 產生時段報告
+        run: python scripts/report.py --slot "${{ steps.slot.outputs.slot }}"
+
+      # 摘要一定要排在合併之後：它讀的是 data/latest.json，
+      # 而那個檔案現在是第 2 步才產生的。
+      - name: 把這次的結果寫進執行摘要
         if: always()
         continue-on-error: true
         run: |
@@ -86,47 +108,35 @@ jobs:
           print(f"- 時段：**{d['slotLabel']}**")
           print(f"- 成功 {s['ok']} 項 / 失敗 {s['error']} 項（共 {s['total']} 項）")
           print("")
-          print("| 標的 | 狀態 | 價格 |")
-          print("|---|---|---|")
+          for name, info in (d.get("sources") or {}).items():
+              age = info.get("ageMinutes")
+              age = "—" if age is None else f"{age} 分鐘前"
+              print(f"- 來源 `{name}`：{info.get('status')}，"
+                    f"成功 {info.get('ok')} / 失敗 {info.get('error')}，資料是 {age}")
+          print("")
+          print("| 標的 | 狀態 | 新舊 | 價格 |")
+          print("|---|---|---|---|")
           for a in d["assets"].values():
               price = a.get("price")
               price = "—" if price is None else f"{price:,}"
               mark = "OK" if a.get("status") == "ok" else "更新失敗"
-              print(f"| {a['name']} | {mark} | {price} |")
+              print(f"| {a['name']} | {mark} | {a.get('freshness')} | {price} |")
           PY
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # --- 步驟 4：提交並推上來 -------------------------------------------
+      # 競態處理全部在 scripts/publish.py 裡（雲端和家用電腦共用同一份）。
+      # 推不上去時它會：保留自己這一輪產生的檔案 → 索引與 data/ 工作區
+      # 整個回到遠端狀態（拿到對方剛推上來的分片）→ 把自己的放回去 →
+      # 重跑 merge 與 report → 重新 commit → 再推。最多 3 次。
+      # 這樣才不會像舊做法那樣用 reset --soft 把對方剛推上去的資料還原掉。
       - name: 有變動就存檔並推上來
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/
-          if git diff --cached --quiet; then
-            echo "資料沒有變動，這次不用 commit。"
-            exit 0
-          fi
           DATE=$(TZ=Asia/Taipei date +%Y-%m-%d)
-          MSG="data: $DATE ${{ steps.slot.outputs.slot }} 更新"
-          git commit -m "$MSG"
-
-          # 推不上去＝這期間有別的 commit 進來。這時「絕對不要」用 merge/rebase 去
-          # 逐行合併 data/ 的 JSON——那會產生自相矛盾的檔案（summary 說失敗、
-          # 各標的卻是成功）。正確做法是：把 HEAD 移到最新的遠端，工作區保持
-          # 這次剛抓到的檔案，再重新 commit 一次。
-          for i in 1 2 3; do
-            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
-              echo "推送成功。"
-              exit 0
-            fi
-            echo "遠端有新的 commit，改以這次抓到的資料重新提交（第 $i 次）"
-            git fetch origin "${GITHUB_REF_NAME}"
-            git reset --soft "origin/${GITHUB_REF_NAME}"
-            git add data/
-            if git diff --cached --quiet; then
-              echo "和遠端內容一樣，不用再 commit。"
-              exit 0
-            fi
-            git commit -m "$MSG"
-          done
-          echo "連續三次都推不上去，這次先跳過（下一個時段會再更新）。"
-          exit 1
+          SLOT="${{ steps.slot.outputs.slot }}"
+          python scripts/publish.py \
+            --source cloud \
+            --rebuild "merge,report:$SLOT" \
+            --message "data: $DATE $SLOT 更新（雲端）"

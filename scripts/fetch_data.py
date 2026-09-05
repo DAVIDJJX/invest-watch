@@ -5,8 +5,14 @@ InvestWatch 資料抓取腳本
 ========================
 
 用途：讀 data/assets.json 的監控清單，依 PLAN.md 第 7 章的實測規格逐一抓取行情，
-      更新 data/history/<id>.json（各標的日線歷史，最多 400 點）與 data/latest.json
-      （所有標的最新報價與狀態）。
+      更新 data/history/<id>.json（各標的日線歷史，最多 400 點）
+      與自己那一邊的分片 data/sources/<cloud|local>.json。
+
+**這支程式不寫 data/latest.json，也不產生報告。**
+      latest.json 由 scripts/merge_latest.py 從兩個分片算出來；
+      報告由 scripts/report.py 產生，而且只有雲端會跑。
+      這樣每個檔案都只有一個寫入者，兩邊才不會互相覆蓋
+      （2026-09-03 20:00 本機抓到黃金、20:07 雲端抓不到就把它蓋成 error）。
 
 設計原則（對應 PLAN.md 第 3 章）：
   * 誠實：任一來源失敗 → 保留舊歷史不動、在 latest.json 標 status="error" 與錯誤訊息，
@@ -16,9 +22,13 @@ InvestWatch 資料抓取腳本
   * 隱私：本檔只處理公開市場資料，不碰任何個人持倉資訊。
 
 用法：
-    python scripts/fetch_data.py                        # 依台北時間自動判斷時段
-    python scripts/fetch_data.py --slot close           # 指定時段
-    python scripts/fetch_data.py --only gold_twd,nvda   # 只抓部分標的（測試用）
+    python scripts/fetch_data.py --source cloud --slot close   # 雲端負責的 8 項
+    python scripts/fetch_data.py --source local --slot close   # 本機負責的 5 項
+    python scripts/fetch_data.py --source local --light        # 盤中輕量更新
+    python scripts/fetch_data.py --only gold_twd --source local  # 只抓部分（測試用）
+
+⚠ --source 是必填的。all 會兩邊都抓、寫出兩個分片，只給手動測試用；
+  正式排程一定要指明 cloud 或 local，否則會寫到不屬於自己的分片。
 
 只依賴 requests，不用 pandas。
 """
@@ -47,6 +57,11 @@ DATA_DIR = os.path.join(ROOT, "data")
 HIST_DIR = os.path.join(DATA_DIR, "history")
 ASSETS_FILE = os.path.join(DATA_DIR, "assets.json")
 LATEST_FILE = os.path.join(DATA_DIR, "latest.json")
+
+# 分片：每一邊只寫自己的那一個檔，兩邊永遠不會寫到同一個檔案。
+# data/latest.json 改由 scripts/merge_latest.py 從這兩個分片算出來，
+# 這支程式從此不再直接寫 latest.json。
+SOURCES_DIR = os.path.join(DATA_DIR, "sources")
 
 TPE = timezone(timedelta(hours=8))          # 台北時間
 MAX_POINTS = 400                            # 每個標的最多保留幾個歷史點
@@ -920,12 +935,79 @@ SLOT_LABEL = {
 }
 
 
-def load_prev_latest():
+def owner_of(asset):
+    """這個標的歸誰抓。assets.json 沒寫的話當成 cloud（保守值：雲端一定跑得到）。"""
+    return asset.get("owner") or "cloud"
+
+
+def shard_path(source):
+    return os.path.join(SOURCES_DIR, "%s.json" % source)
+
+
+def read_json_file(path):
     try:
-        with open(LATEST_FILE, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             return json.load(fh) or {}
     except Exception:
         return {}
+
+
+def load_prev_shard(source, enabled):
+    """讀「自己這一邊」上一次的結果。
+
+    為什麼一定要讀自己的分片而不是 latest.json？
+    latest.json 是兩邊合併出來的，裡面有對方的標的。如果從那裡拿上一次結果，
+    雲端跑 --light 時就會把本機那 5 項抄進 cloud.json，等於又碰了不該碰的東西。
+
+    分片還不存在時（第一次部署、或還沒跑過 migrate_to_shards.py），
+    退回讀 latest.json，但**只取自己 owner 的標的**。
+    """
+    d = read_json_file(shard_path(source))
+    if d.get("assets"):
+        return d["assets"]
+
+    mine = {a["id"] for a in enabled if owner_of(a) == source}
+    latest = read_json_file(LATEST_FILE)
+    return {k: v for k, v in (latest.get("assets") or {}).items() if k in mine}
+
+
+def write_shard(source, slot, mode, assets_map, run_at, requests_count):
+    """寫出這一邊的分片。整檔覆蓋，但只覆蓋自己那一個檔。"""
+    os.makedirs(SOURCES_DIR, exist_ok=True)
+    payload = {
+        "source": source,
+        "runAt": iso(run_at),
+        "runAtText": run_at.strftime("%Y-%m-%d %H:%M"),
+        "timezone": "Asia/Taipei (UTC+8)",
+        "slot": slot,
+        "slotLabel": SLOT_LABEL.get(slot, slot),
+        "mode": mode,
+        "requests": requests_count,
+        "count": len(assets_map),
+        "assets": assets_map,
+    }
+    with open(shard_path(source), "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=1)
+        fh.write("\n")
+    return payload
+
+
+def stamp_times(quote, source, now, prev_entry):
+    """補上三個時間欄位（這是分片格式的重點，merge 與 freshness 都靠它）。
+
+    lastAttemptAt：這次嘗試抓取的時間，不管成敗都寫。
+    lastSuccessAt：最後一次「真的抓成功」的時間。這次失敗就沿用上一次的值；
+                   從來沒成功過就是 None——merge 會據此判成 error 而不是過期。
+    source       ：哪一邊抓的，方便前端與除錯時一眼看出責任歸屬。
+    """
+    prev_entry = prev_entry or {}
+    quote["source"] = source
+    quote["lastAttemptAt"] = iso(now)
+    if quote.get("status") == "ok":
+        quote["lastSuccessAt"] = iso(now)
+    else:
+        quote["lastSuccessAt"] = prev_entry.get("lastSuccessAt")
+    return quote
 
 
 def error_quote(asset, message, prev_assets):
@@ -964,19 +1046,52 @@ def main():
                     default=None, help="更新時段；不給就依台北時間自動判斷")
     ap.add_argument("--only", default=None, help="只抓這些 id（逗號分隔），測試用")
     ap.add_argument("--light", action="store_true",
-                    help="輕量更新：只更新現價，不重抓一年份歷史、不重產報告。"
+                    help="輕量更新：只更新現價，不重抓一年份歷史。"
                          "給盤中每半小時的密集更新用。")
+    # 必填，沒有預設值。曾經預設 all，結果 workflow 少寫一個參數就變成
+    # 「雲端去抓台銀那 5 項並覆寫 data/sources/local.json」——正是分片架構要防的事，
+    # 卻只靠「記得加參數」在維持。改成必填，忘了帶就直接報錯，不會安靜地做錯事。
+    ap.add_argument("--source", choices=["cloud", "local", "all"], required=True,
+                    help="這一輪由誰負責：cloud=GitHub Actions、local=家用電腦。"
+                         "只會處理 assets.json 裡 owner 相符的標的，"
+                         "其餘標的完全不碰。all 只給手動測試用，會寫出兩個分片。")
     args = ap.parse_args()
 
     slot = args.slot or guess_slot()
     only = set(x.strip() for x in args.only.split(",")) if args.only else None
     light = args.light
+    source = args.source
 
     with open(ASSETS_FILE, encoding="utf-8") as fh:
         cfg = json.load(fh)
     enabled = [a for a in cfg["assets"] if a.get("enabled", True)]
-    assets = [a for a in enabled if a["id"] in only] if only else enabled
-    skipped = [a for a in enabled if a not in assets]
+
+    # --- 依 owner 縮到「這一輪該我管的標的」---------------------------------
+    # 這是整個分片設計的核心：不是自己 owner 的標的，從這裡就被排除，
+    # 後面完全不會被抓、不會寫 history、也不會出現在自己的分片裡。
+    scoped = [a for a in enabled if owner_of(a) == source] if source != "all" else enabled
+    if not scoped:
+        print("assets.json 裡沒有任何 owner=%s 的標的，沒事可做。" % source)
+        return 1
+
+    # --- --only 在 owner 範圍「內」再過濾 ------------------------------------
+    # 指定到範圍外的 id 要直接報錯中止，不能默默忽略——
+    # 這樣之後若有別的程式誤用（例如 watchdog 拿錯清單）會立刻被發現。
+    if only:
+        outside = sorted(only - {a["id"] for a in scoped})
+        if outside:
+            print("錯誤：--only 指定的 %s 不屬於 --source %s。"
+                  % ("、".join(outside), source))
+            print("      這一輪負責的標的是：%s"
+                  % "、".join(a["id"] for a in scoped))
+            return 2
+        assets = [a for a in scoped if a["id"] in only]
+    else:
+        assets = scoped
+
+    # 同一個 owner 底下沒被 --only 選到的標的：沿用上次結果並標 carriedOver。
+    # 分片對它自己的 owner 必須永遠是完整的，不能因為 --only 就少幾項。
+    skipped = [a for a in scoped if a not in assets]
 
     started = now_tpe()
     print("=" * 62)
@@ -987,8 +1102,13 @@ def main():
 
     f = Fetcher()
     ctx = {"light": light}
-    prev = load_prev_latest()
-    prev_assets = prev.get("assets") or {}
+    # 上一次的結果一律讀「自己的分片」。--source all 時兩邊都要讀進來。
+    if source == "all":
+        prev_assets = {}
+        for s in ("cloud", "local"):
+            prev_assets.update(load_prev_shard(s, enabled))
+    else:
+        prev_assets = load_prev_shard(source, enabled)
     ctx["prevAssets"] = prev_assets      # 讓 handler 能判斷上次是否成功
 
     # --- 先抓多個標的共用的來源，抓一次大家一起用 ---
@@ -1026,8 +1146,10 @@ def main():
         print("\n[%s] %s" % (a["id"], a["name"]))
         handler = HANDLERS.get(a["type"])
         if handler is None:
-            results[a["id"]] = error_quote(
-                a, "assets.json 的 type=%s 沒有對應的抓取方式" % a["type"], prev_assets)
+            results[a["id"]] = stamp_times(
+                error_quote(a, "assets.json 的 type=%s 沒有對應的抓取方式" % a["type"],
+                            prev_assets),
+                owner_of(a), now_tpe(), prev_assets.get(a["id"]))
             err_ids.append(a["id"])
             print("    x 未知的 type")
             continue
@@ -1043,7 +1165,8 @@ def main():
                 print("    OK 條塊 %d 種規格" % len(quote["bars"]))
             for w in quote.get("warnings") or []:
                 print("    . 注意：%s" % w)
-            results[a["id"]] = quote
+            results[a["id"]] = stamp_times(
+                quote, owner_of(a), now_tpe(), prev_assets.get(a["id"]))
             ok_ids.append(a["id"])
         except SkipAsset as e:
             # 刻意不更新：沿用上次結果並標明原因，不算失敗
@@ -1052,6 +1175,7 @@ def main():
                 carried = dict(old)
                 carried["carriedOver"] = True
                 carried["carriedReason"] = str(e)
+                carried["source"] = owner_of(a)   # 舊資料可能沒有這欄，補上
                 results[a["id"]] = carried
                 if carried.get("status") == "ok":
                     ok_ids.append(a["id"])
@@ -1063,7 +1187,9 @@ def main():
             if not isinstance(e, FetchError):
                 msg = "%s: %s" % (e.__class__.__name__, msg)
                 traceback.print_exc(limit=2)
-            results[a["id"]] = error_quote(a, msg, prev_assets)
+            results[a["id"]] = stamp_times(
+                error_quote(a, msg, prev_assets),
+                owner_of(a), now_tpe(), prev_assets.get(a["id"]))
             err_ids.append(a["id"])
             print("    x 失敗：%s（保留舊歷史不動）" % msg)
 
@@ -1077,6 +1203,7 @@ def main():
             continue
         carried = dict(old)
         carried["carriedOver"] = True
+        carried["source"] = owner_of(a)           # 同上
         results[a["id"]] = carried
         if carried.get("status") == "ok":
             ok_ids.append(a["id"])
@@ -1084,54 +1211,26 @@ def main():
             err_ids.append(a["id"])
 
     finished = now_tpe()
-    latest = {
-        "updatedAt": iso(finished),
-        "updatedAtText": finished.strftime("%Y-%m-%d %H:%M"),
-        "timezone": "Asia/Taipei (UTC+8)",
-        "slot": slot,
-        "slotLabel": SLOT_LABEL.get(slot, slot),
-        "mode": "light" if light else "full",
-        "summary": {
-            "total": len(results),
-            "ok": len(ok_ids),
-            "error": len(err_ids),
-            "errorIds": err_ids,
-        },
-        "requests": f.count,
-        "assets": results,
-    }
-    os.makedirs(DATA_DIR, exist_ok=True)
-    with open(LATEST_FILE, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(latest, fh, ensure_ascii=False, indent=1)
-        fh.write("\n")
+    mode = "light" if light else "full"
 
-    # --- 產生並封存這個時段的報告（Phase 2）---
-    # 輕量更新原則上不重產報告：報告代表的是「那個時段的整理」，
-    # 用 11:30 的資料去改寫早上 10 點的晨報並不合理，也會讓封存一直變動。
+    # --- 寫出分片 -----------------------------------------------------------
+    # 這支程式不再寫 data/latest.json。理由：兩邊都寫同一個檔就是災情的來源
+    #（2026-09-03 20:00 本機抓到黃金、20:07 雲端抓不到就把它蓋成 error）。
+    # 現在各自只寫自己的分片，latest.json 交給 scripts/merge_latest.py 算。
     #
-    # 但有一種例外一定要補：那個時段**根本還沒有任何報告**。
-    # 2026-09-01 就發生過——10:05 的完整更新因為筆電在待機沒跑到，
-    # 等 12:10 醒來補跑時已經被判定成「午盤」，早報就永遠消失了。
-    report_path = os.path.join(
-        DATA_DIR, "archive", finished.strftime("%Y-%m-%d"), "%s.json" % slot)
-    if light and os.path.exists(report_path):
-        print("\n. 輕量更新，不重新產生報告（%s 報告已經存在）" % slot)
-    else:
-        if light:
-            print("\n. 輕量更新，但 %s 時段還沒有報告 → 補產一份" % slot)
-        try:
-            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-            import report as report_mod
-            rep = report_mod.generate(slot, latest)
-            print("\n. 已產生 %s 報告並封存到 data/archive/%s/"
-                  % (rep["slot"], rep["date"]))
-            for s in rep["sections"]:
-                n = len(s.get("items") or s.get("rows") or s.get("paragraphs") or [])
-                print("    - %s（%d 項）" % (s["title"], n))
-        except Exception as e:
-            # 報告失敗不能拖垮行情更新——行情資料已經寫進去了
-            print("\n! 報告產生失敗（行情資料已更新，不受影響）：%s" % e)
-            traceback.print_exc(limit=3)
+    # --source all 會處理全部 13 項，所以要依 owner 拆成兩個分片分別寫出去。
+    # all 只給手動測試用；正式排程一定要指定 cloud 或 local。
+    # 歸屬一律以 assets.json 的 owner 為準，不看結果裡的 source 欄位——
+    # 遷移前的舊資料沒有 source，用它判斷會把本機的標的錯放進雲端分片。
+    owner_map = {a["id"]: owner_of(a) for a in enabled}
+    targets = ["cloud", "local"] if source == "all" else [source]
+    for s in targets:
+        mine = {aid: q for aid, q in results.items()
+                if owner_map.get(aid) == s}
+        if source == "all" and not mine:
+            continue
+        write_shard(s, slot, mode, mine, finished, f.count)
+        print("\n. 已寫出分片 data/sources/%s.json（%d 項）" % (s, len(mine)))
 
     print("\n" + "=" * 62)
     print("完成：成功 %d / 失敗 %d（共發出 %d 次請求，耗時 %d 秒）"

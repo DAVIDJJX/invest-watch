@@ -115,14 +115,27 @@ invest-watch/
 # 安裝套件（只需要一次）
 pip install requests
 
-# 抓一次資料
-python scripts/fetch_data.py --slot manual
+# 抓一次資料。--source 是必填的：
+#   cloud = 雲端負責的 8 項、local = 家用電腦負責的台銀 5 項
+# 各自只寫自己的 data/sources/<source>.json，不會碰到對方的
+python scripts/fetch_data.py --source cloud --slot manual
+python scripts/fetch_data.py --source local --slot manual
 
-# 盤中輕量更新（只更新現價，不重抓歷史、不重產報告）
-python scripts/fetch_data.py --light
+# 把兩邊的分片合成前端要看的 data/latest.json
+python scripts/merge_latest.py
 
-# 只抓其中幾項（測試用，其他項會沿用上次結果）
-python scripts/fetch_data.py --only gold_twd,fx_cny
+# 產生這個時段的報告（要先跑過上面的合併）
+python scripts/report.py --slot manual
+
+# 盤中輕量更新（只更新現價，不重抓歷史）
+python scripts/fetch_data.py --source local --light
+
+# 只抓其中幾項（測試用，同一個 owner 底下沒選到的會沿用上次結果）
+python scripts/fetch_data.py --source local --only gold_twd,fx_cny
+
+# 跑測試
+python -m unittest discover -s scripts -p "test_*.py"
+python scripts/test_race_recovery.py     # 競態實測，不會碰到 GitHub
 
 # 本機開網站看看
 python -m http.server 8765
@@ -286,6 +299,87 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
 
 ---
 
+## 維運：出事的時候怎麼處理
+
+### 回滾一次上線
+
+`main` 已經推上去了，所以**不要用 `git reset`**（那會弄亂已經公開的歷史）。
+用 `revert` 把整個 merge 反轉成一筆新的 commit：
+
+```bash
+git revert -m 1 <merge commit 的編號>
+git push
+```
+
+`-m 1` 的意思是「回到 merge 之前 main 那一邊的狀態」。
+編號可以用 `git log --oneline --merges -5` 找。
+
+### 排錯：某天起每天固定某個時段，8 項雲端資料全部標示過期
+
+**代表 GitHub Actions 的觸發時間漂移了**，不是資料真的壞掉。
+`data/schedule.json` 裡 `cloud.full.at` 寫的是「雲端資料實際到貨的時間」，
+那個值是量出來的，不是照 cron 填的（原因寫在該檔案的註解裡）。
+
+處理步驟：
+
+```bash
+# 1. 重新量最近 5 天排程實際觸發的時間（UTC 原值）
+gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_page=15"   --jq '.workflow_runs[] | select(.event=="schedule") | .created_at'
+```
+
+2. 把每個時間 +8 小時換成台北時間，看它們分成幾群。
+3. 每一群算出可以宣告的區間：
+   `最晚到貨時間 <= 宣告時間 <= 最早到貨時間 + graceMinutes`
+4. 區間有效的那幾群，把宣告時間填進 `cloud.full.at`；
+   **區間是空的（那一群的跨距大於寬限）就不要填那一群** —— 填了一定會有某幾天誤報。
+5. 改完把日期與量測結果一併寫進 `data/schedule.json` 的註解，再跑一次
+   `python -m unittest discover -s scripts -p "test_*.py"`。
+
+⚠ **不要用放寬 `graceMinutes` 的方式解決。** 那是在調參數追一個會漂移的外部排程，
+下次漂了不會有人知道要再調，只會看到網站又開始亂報。
+
+### 排錯：家用電腦的排程每次都中止
+
+看 `scripts/update_local.log` 最後幾行：
+
+| 結束碼 | 訊息 | 處理 |
+|---|---|---|
+| 2 | `-Source` 不是 local | 排程的參數被改壞了，改回 `-Source local` 或拿掉 |
+| 3 | 目前不在 `main` 分支 | `git switch main && git pull` |
+| 4 | 落後遠端且無法快轉 | 有未提交的變動擋住，`git status` 看一下先處理掉 |
+| 5 | 合併失敗 | 跑 `python scripts/merge_latest.py` 看錯誤訊息 |
+
+---
+
+## 設計筆記：之後可能要改的方向（尚未實作）
+
+### 雲端與家用電腦的排程性質不同，應該用不同的模型
+
+- **家用電腦**跑在 Windows 工作排程器上，時間可信 → 用「上一個排定時間」判斷過期很準。
+- **雲端**跑在 GitHub 的共用排程上，時間會漂、還會漏跑 → 對它宣告固定的時鐘時間，
+  這個模型本身就是錯的（2026-09-05 實測：cron 宣告的三個時間點沒有一次準時發生）。
+
+比較誠實的做法是讓 `data/schedule.json` 每個 owner 選一種模型：
+
+```jsonc
+"local": { "full": { "at": ["10:05", "13:05", "15:05"] } },   // 維持現狀
+"cloud": { "maxAgeHours": 20 }                                 // 上次成功超過 20 小時才算過期
+```
+
+這**不是**回到停點 2 砍掉的 `freshnessMinutes`。那條被砍，是因為實體金條塊的更新節奏
+是「設計上」一天三次，用「距今多久」一定會誤判；而雲端的不規律是「外部系統的不確定性」，
+年齡門檻正好是為這種情況存在的。兩者的成因不同，適用的模型也不同。
+
+### 兩件事、兩個機制，不要擠在同一個參數
+
+- **per-asset 的 `freshness`** 管「這個數字新不新」
+- **per-source 的 `runAt` 年齡** 管「這台機器還活著嗎」
+
+「雲端停擺最慢隔天 15:20 才發現」這個空窗，補法是後者（watchdog 直接看
+`sources.<owner>.runAt` 的年齡，超過 N 小時就開 Issue），不是放寬前者的寬限。
+
+---
+
 ## 進度
 
 - [x] **Phase 1 — 骨架 + 自動抓資料 + 儀表板 + 上線**（2026-08-31 完成）
@@ -350,7 +444,52 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
   - 資產配置新增「債券」分類
   - **密碼鎖**（`js/lock.js`）：把存在裝置上的紀錄與同步金鑰用 AES-GCM 加密
     （密碼經 PBKDF2-SHA256 推導 25 萬次），沒有密碼連開發者工具都讀不出來
-- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA（下一步）
+- [ ] **資料來源分片化 — 雲端與家用電腦不再互相覆蓋**（2026-09-05 進行中）
+  - **問題**：兩邊都整檔覆寫 `data/latest.json`，最後寫的人贏。雲端固定比本機晚
+    12 分鐘，所以 2026-09-03 20:00 家用電腦抓到的台銀黃金與匯率，20:07 就被雲端
+    「抓不到台銀」的錯誤蓋掉，網站顯示「5 項更新失敗」——但那 5 項七分鐘前才剛成功
+  - **做法**：每個標的在 `data/assets.json` 指定 `owner`（cloud／local），
+    各自只寫自己的 `data/sources/<owner>.json`。不是自己 owner 的完全不碰。
+    `data/latest.json` 改成由 `scripts/merge_latest.py` 從兩個分片算出來，
+    每個檔案都只有一個寫入者
+  - 停點 1（完成）：`fetch_data.py` 加 `--source`、寫分片、每項補上
+    `lastAttemptAt` / `lastSuccessAt` / `source`；抓失敗時 `lastSuccessAt`
+    沿用上次成功的時間，不清空也不假造。`update_local.ps1` 拒絕 `-Source all`
+  - 停點 2（完成）：`data/schedule.json` 成為排程的唯一真相來源；
+    新增 `scripts/schedule_util.py` 與 `scripts/merge_latest.py`
+    - **過期判定改成比「上一個排定的更新時間」**，不比「距今多久」。
+      實體金條塊在盤中輕量更新會被刻意跳過，一天只前進 3 次，
+      用固定分鐘數去比每天都會被誤判成過期
+    - 每一項多出 `freshness` / `lastDueAt` / `nextDueAt`，外層多出 `sources` 區塊；
+      原有欄位一個都沒動，前端這一輪一行都不用改
+    - 分片不見或損毀時，該 owner 的標的**仍然留在 `latest.json` 裡**並標成失敗，
+      而且 `merge_latest.py` 照樣產出檔案、結束碼 0——標的整項消失比顯示失敗更糟，
+      而且合併失敗會連帶讓後面的 commit 不跑，網站就完全拿不到資料
+  - 停點 3（完成）：把 `merge_latest.py` 接進兩邊的流程，並修掉推送競態的既有 bug
+    - **既有 bug**：推送被拒時舊做法是 `git reset --soft` 後重新 commit。
+      `--soft` 不動索引也不動工作區，所以重新 commit 出來的樹會把對方剛推上去的
+      分片與歷史檔**還原回舊版**；而 `latest.json` 是從分片算出來的，用舊分片重算
+      等於把對方的新價格洗掉，檔案卻結構完整、還寫著「13 項全部成功」，
+      完全看不出資料被吃掉了
+    - 新增 `scripts/publish.py`，雲端與家用電腦**共用同一份**競態處理：
+      保留自己這一輪產生的檔案 → `reset --mixed` 對齊索引 → `checkout` 讓
+      **工作區**也拿到對方的最新檔案（合併程式讀的是工作區，這步不能省）→
+      把自己的放回去 → 重跑衍生步驟 → 重新 commit → 再推。最多 3 次，間隔隨機 5～15 秒
+    - 列舉的是「**我自己產生的檔案**」而不是「對方的檔案」：對方會寫哪些檔案是
+      開放集合（哪天多寫一個就漏了），自己這一輪寫了什麼才是封閉集合
+    - `--rebuild` 只重跑這一輪真的跑過的步驟：雲端 `merge,report:<slot>`、
+      家用電腦只有 `merge`（本機不產報告，也絕不碰 `report-latest.json`）
+    - 報告改由 workflow 的獨立步驟產生。改成分片之後 `fetch_data.py` 不再呼叫它，
+      有一段時間報告其實完全沒有在產生
+    - `fetch_data.py` 的 `--source` 改成**必填**。workflow 少寫這個參數就等於
+      `--source all`，雲端會去抓台銀 5 項（一定失敗）並覆寫家用電腦的分片
+    - `update_local.ps1` 加分支保險：不在 `main` 上、或落後遠端又快轉不了就直接中止，
+      不自作主張切分支
+    - 測試：`scripts/test_race_recovery.py` 在暫存目錄自建 bare repo 當遠端，
+      實測兩邊互推。把 `publish.py` 改回舊做法（`reset --soft`）時，
+      這支測試會抓到雲端價格被還原、雲端剛產生的報告檔被刪掉
+  - 停點 4～5（下一步）：報告的時段判定與手動報告分離、雲端加盤中輕量排程
+- [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---
 
