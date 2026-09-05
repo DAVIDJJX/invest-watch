@@ -299,6 +299,87 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
 
 ---
 
+## 維運：出事的時候怎麼處理
+
+### 回滾一次上線
+
+`main` 已經推上去了，所以**不要用 `git reset`**（那會弄亂已經公開的歷史）。
+用 `revert` 把整個 merge 反轉成一筆新的 commit：
+
+```bash
+git revert -m 1 <merge commit 的編號>
+git push
+```
+
+`-m 1` 的意思是「回到 merge 之前 main 那一邊的狀態」。
+編號可以用 `git log --oneline --merges -5` 找。
+
+### 排錯：某天起每天固定某個時段，8 項雲端資料全部標示過期
+
+**代表 GitHub Actions 的觸發時間漂移了**，不是資料真的壞掉。
+`data/schedule.json` 裡 `cloud.full.at` 寫的是「雲端資料實際到貨的時間」，
+那個值是量出來的，不是照 cron 填的（原因寫在該檔案的註解裡）。
+
+處理步驟：
+
+```bash
+# 1. 重新量最近 5 天排程實際觸發的時間（UTC 原值）
+gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_page=15"   --jq '.workflow_runs[] | select(.event=="schedule") | .created_at'
+```
+
+2. 把每個時間 +8 小時換成台北時間，看它們分成幾群。
+3. 每一群算出可以宣告的區間：
+   `最晚到貨時間 <= 宣告時間 <= 最早到貨時間 + graceMinutes`
+4. 區間有效的那幾群，把宣告時間填進 `cloud.full.at`；
+   **區間是空的（那一群的跨距大於寬限）就不要填那一群** —— 填了一定會有某幾天誤報。
+5. 改完把日期與量測結果一併寫進 `data/schedule.json` 的註解，再跑一次
+   `python -m unittest discover -s scripts -p "test_*.py"`。
+
+⚠ **不要用放寬 `graceMinutes` 的方式解決。** 那是在調參數追一個會漂移的外部排程，
+下次漂了不會有人知道要再調，只會看到網站又開始亂報。
+
+### 排錯：家用電腦的排程每次都中止
+
+看 `scripts/update_local.log` 最後幾行：
+
+| 結束碼 | 訊息 | 處理 |
+|---|---|---|
+| 2 | `-Source` 不是 local | 排程的參數被改壞了，改回 `-Source local` 或拿掉 |
+| 3 | 目前不在 `main` 分支 | `git switch main && git pull` |
+| 4 | 落後遠端且無法快轉 | 有未提交的變動擋住，`git status` 看一下先處理掉 |
+| 5 | 合併失敗 | 跑 `python scripts/merge_latest.py` 看錯誤訊息 |
+
+---
+
+## 設計筆記：之後可能要改的方向（尚未實作）
+
+### 雲端與家用電腦的排程性質不同，應該用不同的模型
+
+- **家用電腦**跑在 Windows 工作排程器上，時間可信 → 用「上一個排定時間」判斷過期很準。
+- **雲端**跑在 GitHub 的共用排程上，時間會漂、還會漏跑 → 對它宣告固定的時鐘時間，
+  這個模型本身就是錯的（2026-09-05 實測：cron 宣告的三個時間點沒有一次準時發生）。
+
+比較誠實的做法是讓 `data/schedule.json` 每個 owner 選一種模型：
+
+```jsonc
+"local": { "full": { "at": ["10:05", "13:05", "15:05"] } },   // 維持現狀
+"cloud": { "maxAgeHours": 20 }                                 // 上次成功超過 20 小時才算過期
+```
+
+這**不是**回到停點 2 砍掉的 `freshnessMinutes`。那條被砍，是因為實體金條塊的更新節奏
+是「設計上」一天三次，用「距今多久」一定會誤判；而雲端的不規律是「外部系統的不確定性」，
+年齡門檻正好是為這種情況存在的。兩者的成因不同，適用的模型也不同。
+
+### 兩件事、兩個機制，不要擠在同一個參數
+
+- **per-asset 的 `freshness`** 管「這個數字新不新」
+- **per-source 的 `runAt` 年齡** 管「這台機器還活著嗎」
+
+「雲端停擺最慢隔天 15:20 才發現」這個空窗，補法是後者（watchdog 直接看
+`sources.<owner>.runAt` 的年齡，超過 N 小時就開 Issue），不是放寬前者的寬限。
+
+---
+
 ## 進度
 
 - [x] **Phase 1 — 骨架 + 自動抓資料 + 儀表板 + 上線**（2026-08-31 完成）
