@@ -1,7 +1,7 @@
 {
  "source": "local",
- "runAt": "2026-09-07T22:42:58+08:00",
- "runAtText": "2026-09-07 22:42",
+ "runAt": "2026-09-07T23:12:52+08:00",
+ "runAtText": "2026-09-07 23:12",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "close",
  "slotLabel": "收盤（檢討與分析）",
@@ -68,7 +68,7 @@
     4570.0,
     4478.0
    ],
-   "fetchedAt": "2026-09-07T22:42:53+08:00",
+   "fetchedAt": "2026-09-07T23:12:47+08:00",
    "error": null,
    "buy": 4425.0,
    "sell": 4478.0,
@@ -76,8 +76,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-07T22:42:53+08:00",
-   "lastSuccessAt": "2026-09-07T22:42:53+08:00"
+   "lastAttemptAt": "2026-09-07T23:12:47+08:00",
+   "lastSuccessAt": "2026-09-07T23:12:47+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,7 +138,7 @@
     969.15,
     954.1
    ],
-   "fetchedAt": "2026-09-07T22:42:55+08:00",
+   "fetchedAt": "2026-09-07T23:12:50+08:00",
    "error": null,
    "buy": 944.0,
    "sell": 954.1,
@@ -146,8 +146,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-07T22:42:55+08:00",
-   "lastSuccessAt": "2026-09-07T22:42:55+08:00"
+   "lastAttemptAt": "2026-09-07T23:12:50+08:00",
+   "lastSuccessAt": "2026-09-07T23:12:50+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -286,7 +286,7 @@
     31.805,
     31.68
    ],
-   "fetchedAt": "2026-09-07T22:42:58+08:00",
+   "fetchedAt": "2026-09-07T23:12:52+08:00",
    "error": null,
    "spotBuy": 31.47,
    "spotSell": 31.62,
@@ -294,8 +294,8 @@
    "cashSell": 31.815,
    "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-07T22:42:58+08:00",
-   "lastSuccessAt": "2026-09-07T22:42:58+08:00"
+   "lastAttemptAt": "2026-09-07T23:12:52+08:00",
+   "lastSuccessAt": "2026-09-07T23:12:52+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -356,7 +356,7 @@
     4.751,
     4.739
    ],
-   "fetchedAt": "2026-09-07T22:42:58+08:00",
+   "fetchedAt": "2026-09-07T23:12:52+08:00",
    "error": null,
    "spotBuy": 4.674,
    "spotSell": 4.734,
@@ -364,8 +364,8 @@
    "cashSell": 4.769,
    "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-07T22:42:58+08:00",
-   "lastSuccessAt": "2026-09-07T22:42:58+08:00"
+   "lastAttemptAt": "2026-09-07T23:12:52+08:00",
+   "lastSuccessAt": "2026-09-07T23:12:52+08:00"
   }
  }
 }
