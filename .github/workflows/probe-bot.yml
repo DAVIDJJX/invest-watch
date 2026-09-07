@@ -1,0 +1,81 @@
+name: 量測台銀抓取（probe）
+
+# 這個 workflow 只做一件事：用跟正式抓取一模一樣的 Fetcher 與標頭，
+# 對臺灣銀行的五個頁面各抓一次，記錄「有沒有被擋、內容有沒有真的解析成功」。
+# 它【不寫任何資料檔、不 commit 任何東西】，結果只在 job summary 與 log 裡。
+#
+# 為什麼要量？筆電存在的唯一理由是 2026-09-03 那次雲端抓台銀被擋，
+# 但那可能只是暫時的、也可能只擋某幾頁。停點 8 要決定哪些標的可以改由雲端抓，
+# 需要的是樣本，不是一次的印象。
+#
+# 為什麼有 cron？GitHub 每次 run 的出口 IP 都不同，手動按 4 次樣本太少。
+# 每 3 小時跑一次、跑兩天，約 16 個樣本，涵蓋不同時段與不同 IP，
+# 對台銀的總請求量仍低於筆電一天的正常流量。
+# ★ 結束日期寫死在下面的 PROBE_UNTIL；過了那天排程就直接結束、不發任何請求。
+#   手動觸發不受這個限制（之後想再量隨時可以按）。
+#   兩天後彙整完，請把 schedule 那兩行拿掉，保留 workflow_dispatch。
+#
+# 23 分不是整點：GitHub 的免費排程在整點負載最重，會直接把工作丟掉。
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 */3 * * *"      # UTC 每 3 小時 → 台北 02:23 / 05:23 / 08:23 / 11:23 / 14:23 / 17:23 / 20:23 / 23:23
+
+# 連寫入權限都不給：這個 workflow 從結構上就不可能 commit 任何東西
+permissions:
+  contents: read
+
+env:
+  # 建立日 2026-09-08 + 2 天。台北時間超過這一天，排程觸發的 run 會直接結束。
+  PROBE_UNTIL: "2026-09-10"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 檢查量測期間是否已過（只擋排程，不擋手動）
+        id: expiry
+        run: |
+          TODAY=$(TZ=Asia/Taipei date +%Y-%m-%d)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$TODAY" \> "$PROBE_UNTIL" ]; then
+            echo "active=false" >> "$GITHUB_OUTPUT"
+            echo "量測期間已於 $PROBE_UNTIL 結束（今天台北 $TODAY），這次排程不發任何請求。" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "active=true" >> "$GITHUB_OUTPUT"
+            echo "台北 $TODAY，量測期間到 $PROBE_UNTIL，繼續。"
+          fi
+
+      - name: 取出倉庫
+        if: steps.expiry.outputs.active == 'true'
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python 3.12
+        if: steps.expiry.outputs.active == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝套件
+        if: steps.expiry.outputs.active == 'true'
+        run: pip install requests
+
+      # 直接呼叫 scripts/fetch_data.py 裡的 Fetcher 與 BROWSER_HEADERS，
+      # 不另外用 curl——測試條件要跟正式抓取一模一樣，結果才有意義。
+      # 每個網址用全新的 Fetcher（見 probe_bot.py 檔頭的理由），網址之間隔 3 秒。
+      - name: 量測五個台銀頁面
+        if: steps.expiry.outputs.active == 'true'
+        run: python scripts/probe_bot.py --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 確認這次 run 沒有改到任何檔案（保險）
+        if: steps.expiry.outputs.active == 'true'
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::量測不應該改任何檔案，但工作區有變動："
+            git status --porcelain
+            exit 1
+          fi
+          echo "工作區乾淨，沒有寫任何檔。"
