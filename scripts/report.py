@@ -46,12 +46,18 @@ DISCLAIMER = ("本報告是把公開市場數據依固定規則整理成白話�
               "所有描述都是客觀指標的陳述，未經歷史回測驗證，"
               "不構成投資建議，也不保證未來走勢。")
 
+# 四個排定時段＋手動。時間表的唯一真相來源是 data/schedule.json。
+# 舊名字 midday（2026-09-08 以前的 archive）不改名、不重寫歷史，
+# 讀舊檔的地方（歷史頁、previous_close_report、update_index 排序）要同時認得新舊名。
 SLOT_TITLE = {
     "morning": "晨報：了解今天狀況",
-    "midday": "午盤：盤中整理",
-    "close": "收盤：檢討與分析",
+    "midmorning": "午前：盤中整理",
+    "close": "收盤：台股收盤快報",
+    "review": "盤後：檢討與分析",
     "manual": "手動更新：全覽",
 }
+REPORT_SLOTS = ("morning", "midmorning", "close", "review")
+REPORT_MANUAL = os.path.join(DATA_DIR, "report-manual.json")
 
 # 報告裡的分組
 TW_IDS = ["twii", "tw2330", "tw00646"]
@@ -492,6 +498,25 @@ def quotes_section(latest, ids, sid, title, subtitle=None, compares=None):
     return s
 
 
+def build_tonight_section(latest):
+    """盤後報告的「今晚觀察」：只列客觀事實——美股幾點開、國際行情現在是多少。
+
+    不寫「預期會漲／跌」那種句子；規則說得很清楚，這個網站不給建議。
+    """
+    assets = latest.get("assets") or {}
+    paras = ["美股開盤時間：台北 21:30（美國夏令時間）／22:30（冬令時間）。"
+             "台北下午看到的美股是前一個交易日的收盤；比特幣 24 小時連續交易，"
+             "原油期貨近全天交易。"]
+    for aid in INTL_IDS:
+        a = assets.get(aid) or {}
+        if a.get("status") == "ok" and a.get("price") is not None:
+            dec = a.get("decimals", 2)
+            paras.append("%s：%s %s（資料日期 %s）" % (
+                a.get("name", aid), format(a["price"], ",.%df" % dec),
+                a.get("currency") or "", a.get("date") or "—"))
+    return {"type": "text", "id": "tonight", "title": "今晚觀察", "paragraphs": paras}
+
+
 def build_sections(slot, latest, hist, market, today_dir, prev_close_report):
     sections = []
     simplified = market["simplified"]
@@ -518,7 +543,8 @@ def build_sections(slot, latest, hist, market, today_dir, prev_close_report):
             sections.append({"type": "text", "id": "tw", "title": "台股",
                              "paragraphs": [market["twNote"] or "台股今日休市。"]})
 
-    elif slot == "midday":
+    elif slot == "midmorning":
+        # 11:30 午前「盤中整理」：沿用以前 midday 的內容（改名，不改內容）
         morning = read_json(os.path.join(today_dir, "morning.json"), {}) or {}
         prev_q = morning.get("quoteSnapshot") or {}
         compares = {aid: ("今早", prev_q.get(aid)) for aid in TW_IDS if prev_q.get(aid)}
@@ -535,6 +561,23 @@ def build_sections(slot, latest, hist, market, today_dir, prev_close_report):
             compares=bot_cmp))
 
     elif slot == "close":
+        # 13:35「台股收盤快報」：短。只有收盤價與跟晨報的比較。
+        # 13:30 整是收盤時刻，晚 5 分鐘才拿得到真正的收盤價；深入的分析留給 15:30 盤後。
+        morning = read_json(os.path.join(today_dir, "morning.json"), {}) or {}
+        prev_q = morning.get("quoteSnapshot") or {}
+        compares = {aid: ("今早", prev_q.get(aid)) for aid in TW_IDS if prev_q.get(aid)}
+        if not simplified:
+            sections.append(quotes_section(
+                latest, TW_IDS, "tw", "台股收盤快報",
+                tw_sub + ("　（已和今早的晨報做比較）" if compares else ""),
+                compares=compares))
+        else:
+            sections.append({"type": "text", "id": "tw", "title": "台股",
+                             "paragraphs": [market["twNote"] or "台股今日休市。"]})
+
+    elif slot == "review":
+        # 15:30「盤後檢討與分析」：最深的一份。沿用以前 close 的骨架再加深：
+        # 燈號一覽（指標在這裡重算）、漲跌排行、今日變化提醒，再加「今晚觀察」。
         if not simplified:
             sections.append(quotes_section(latest, TW_IDS, "tw", "台股收盤總結", tw_sub))
         else:
@@ -544,6 +587,7 @@ def build_sections(slot, latest, hist, market, today_dir, prev_close_report):
         sections.append(quotes_section(latest, INTL_IDS, "intl", "國際行情"))
         sections.append(build_rank_table(latest, market))
         sections.append(build_signal_table(latest, hist, market))
+        sections.append(build_tonight_section(latest))
 
     else:  # manual：全覽
         sections.append(quotes_section(latest, TW_IDS, "tw", "台股", tw_sub))
@@ -551,8 +595,8 @@ def build_sections(slot, latest, hist, market, today_dir, prev_close_report):
         sections.append(quotes_section(latest, INTL_IDS, "intl", "國際行情"))
         sections.append(build_signal_table(latest, hist, market))
 
-    title = {"morning": "今日觀察", "midday": "盤中觀察",
-             "close": "今日變化提醒", "manual": "觀察"}[slot]
+    title = {"morning": "今日觀察", "midmorning": "盤中觀察", "close": "收盤觀察",
+             "review": "今日變化提醒", "manual": "觀察"}.get(slot, "觀察")
     sections.append({
         "type": "notes", "id": "observations", "title": title,
         "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
@@ -572,7 +616,8 @@ def previous_close_report(date_str):
         d = day.get("date")
         if not d or d >= date_str:
             continue
-        for slot in ("close", "manual", "midday", "morning"):
+        # 新舊名字都要認得：review/close 是新的收盤報告，midday 是 2026-09-08 以前的舊名
+        for slot in ("review", "close", "manual", "midmorning", "midday", "morning"):
             if slot in (day.get("slots") or []):
                 r = read_json(os.path.join(ARCHIVE_DIR, d, "%s.json" % slot))
                 if r:
@@ -594,8 +639,9 @@ def update_index(date_str, slot, report, market):
 
     if slot not in entry["slots"]:
         entry["slots"].append(slot)
-    entry["slots"].sort(key=lambda s: ["morning", "midday", "close", "manual"].index(s)
-                        if s in ("morning", "midday", "close", "manual") else 9)
+    # 排序表同時含新舊名字：舊的日子有 midday，新的日子有 midmorning/review
+    order = ["morning", "midmorning", "midday", "close", "review", "manual"]
+    entry["slots"].sort(key=lambda s: order.index(s) if s in order else 9)
 
     # 記下每份報告的產生時間，歷史頁才知道當天哪一份最新、要預設打開哪一份
     times = entry.get("slotTimes") or {}
@@ -660,11 +706,19 @@ def generate(slot, latest=None):
             and len(hist.get(aid) or []) >= 2
         },
         "disclaimer": DISCLAIMER,
+        # 誰產的、哪一次 run：以後任何一份報告都追得回去
+        "producedBy": {
+            "host": "github-actions" if os.environ.get("GITHUB_ACTIONS") else "local",
+            "event": os.environ.get("GITHUB_EVENT_NAME"),
+            "runId": os.environ.get("GITHUB_RUN_ID"),
+        },
     }
 
     write_json(os.path.join(today_dir, "%s.json" % slot), report)
     write_json(os.path.join(today_dir, "snapshot.json"), latest)
-    write_json(REPORT_LATEST, report)
+    # 首頁讀的是 report-latest.json，只由四個排定時段更新。
+    # 手動跑一次不該把首頁的「最新報告」換掉，所以 manual 另外寫 report-manual.json。
+    write_json(REPORT_MANUAL if slot == "manual" else REPORT_LATEST, report)
     update_index(date_str, slot, report, market)
     return report
 
@@ -678,7 +732,7 @@ if __name__ == "__main__":
         pass
     ap = argparse.ArgumentParser(description="產生某個時段的報告（用現有的 latest.json）")
     ap.add_argument("--slot", required=True,
-                    choices=["morning", "midday", "close", "manual"])
+                    choices=list(REPORT_SLOTS) + ["manual"])
     args = ap.parse_args()
     r = generate(args.slot)
     print("已產生 %s 報告：%s %s" % (r["slot"], r["date"], r["generatedAtText"]))

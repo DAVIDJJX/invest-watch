@@ -103,10 +103,44 @@ class TestOwnedPaths(unittest.TestCase):
         self.assertIn("data/archive/2026-09-05/snapshot.json", with_report)
         self.assertIn("data/archive/index.json", with_report)
 
+    def test_report_paths_cover_a_run_that_straddles_midnight(self):
+        """report.py 在 23:59 寫了 archive/<昨天>/，publish 在 00:00 才算擁有清單。
+
+        只列今天會漏掉剛寫的那份 → 工作區留下未提交的檔案 → 結束碼 3。
+        2026-09-09 00:00 的競態實測就這樣紅過一次。
+        """
+        just_after_midnight = datetime(2026, 9, 9, 0, 0, 30, tzinfo=TPE)
+        p = publish.owned_paths("cloud", ["merge", "report:morning"], just_after_midnight)
+        self.assertIn("data/archive/2026-09-09/morning.json", p)
+        self.assertIn("data/archive/2026-09-08/morning.json", p, "昨天的路徑也要列")
+        self.assertIn("data/archive/2026-09-08/snapshot.json", p)
+
     def test_report_path_uses_the_given_slot(self):
-        for slot in ("morning", "midday", "close", "manual"):
+        for slot in ("morning", "midmorning", "close", "review", "manual"):
             p = publish.owned_paths("cloud", ["report:" + slot], NOW)
             self.assertIn("data/archive/2026-09-05/%s.json" % slot, p)
+
+    def test_manual_report_never_claims_report_latest(self):
+        """手動報告寫 report-manual.json，絕不能把首頁那份 report-latest.json 列成自己的。
+
+        列進去的話，重試時就會用手動那份把首頁的最新報告蓋掉。
+        """
+        manual = publish.owned_paths("cloud", ["merge", "report:manual"], NOW)
+        self.assertIn("data/report-manual.json", manual)
+        self.assertNotIn("data/report-latest.json", manual)
+        for slot in ("morning", "midmorning", "close", "review"):
+            p = publish.owned_paths("cloud", ["merge", "report:" + slot], NOW)
+            self.assertIn("data/report-latest.json", p)
+            self.assertNotIn("data/report-manual.json", p)
+
+    def test_old_slot_name_is_rejected(self):
+        """midday 已經改名成 midmorning；舊名字不該再被接受。"""
+        with self.assertRaises(SystemExit):
+            publish.parse_rebuild("merge,report:midday")
+        self.assertEqual(publish.parse_rebuild("merge,report:midmorning"),
+                         ["merge", "report:midmorning"])
+        self.assertEqual(publish.parse_rebuild("merge,report:review"),
+                         ["merge", "report:review"])
 
     def test_paths_are_repo_relative_with_forward_slashes(self):
         """一律用倉庫相對路徑加正斜線：git 指令在 Windows 上也吃這種寫法。"""

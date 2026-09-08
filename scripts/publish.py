@@ -179,16 +179,26 @@ def owned_paths(source, rebuild_steps, now=None):
 
     paths.append("data/latest.json")
 
-    # 報告檔只有真的跑了報告那一輪才算是我的
+    # 報告檔只有真的跑了報告那一輪才算是我的。
+    # 四個排定時段更新 report-latest.json（首頁讀的那份）；
+    # manual 另外寫 report-manual.json，不碰 report-latest——手動跑一次不該把
+    # 首頁的「最新報告」換掉。
     for step in rebuild_steps:
         if step.startswith("report:"):
             slot = step.split(":", 1)[1]
-            day = now.strftime("%Y-%m-%d")
+            # 今天和昨天的路徑都列：report.py 是在「它自己跑的那一刻」決定日期，
+            # 一個跨午夜的 run 會在 23:59 產報告、00:00 才走到這裡算擁有清單——
+            # 只列今天就會漏掉剛寫的那份，工作區留下沒提交的檔案（2026-09-09 00:00
+            # 的競態實測就這樣紅了一次）。不存在的路徑會被 stage() 過濾掉，列多不會出錯。
+            for day in (now.strftime("%Y-%m-%d"),
+                        (now - timedelta(days=1)).strftime("%Y-%m-%d")):
+                paths += [
+                    "data/archive/%s/%s.json" % (day, slot),
+                    "data/archive/%s/snapshot.json" % day,
+                ]
             paths += [
-                "data/archive/%s/%s.json" % (day, slot),
-                "data/archive/%s/snapshot.json" % day,
                 "data/archive/index.json",
-                "data/report-latest.json",
+                "data/report-manual.json" if slot == "manual" else "data/report-latest.json",
             ]
     return sorted(set(paths))
 
@@ -200,7 +210,7 @@ def parse_rebuild(spec):
         if s == "merge":
             continue
         if s.startswith("report:") and s.split(":", 1)[1] in (
-                "morning", "midday", "close", "manual"):
+                "morning", "midmorning", "close", "review", "manual"):
             continue
         raise SystemExit("--rebuild 不認得「%s」；只接受 merge 或 report:<slot>" % s)
     return steps

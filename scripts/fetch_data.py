@@ -547,6 +547,22 @@ def fetch_yahoo(f, symbol, rng="1y"):
            "?range=%s&interval=1d" % (quote(symbol, safe=""), rng))
     j = f.get(url, delay=2.0, expect_json=True,
               headers={"Accept": "application/json, text/plain, */*"})
+    return parse_yahoo_chart(j)
+
+
+def parse_yahoo_chart(j, now_epoch=None):
+    """把 Yahoo chart 回應解析成 (現價, 幣別, [{d, c, dateSource[, provisional]}])。
+
+    兩條誠實規則：
+    1. 每一根 K 棒的日期用【該交易所當地日期】，不是 UTC、更不是台北的今天。
+       Yahoo 的 meta 有 gmtoffset（該交易所相對 UTC 的秒數），用它換算。
+       台北白天抓到的 NVDA 是「前一個美股交易日」的完成 bar，日期就該是那一天。
+    2. 只有「交易所還沒收盤、這根 bar 還在動」的那一根才標 provisional。
+       判斷用 meta.currentTradingPeriod.regular.end（該日常規盤的收盤時刻）：
+       最後一根的當地日期等於當地今天、而且現在還沒到收盤 → 進行中。
+       比特幣 24 小時交易，Yahoo 把它的「一天」定成 UTC 00:00~23:59，
+       所以它今天那一根會一直是 provisional，直到 UTC 午夜（台北 08:00）才定案。
+    """
     err = (j.get("chart") or {}).get("error")
     if err:
         raise FetchError("Yahoo 回應錯誤：%s" % err)
@@ -559,12 +575,18 @@ def fetch_yahoo(f, symbol, rng="1y"):
     quotes = (res.get("indicators") or {}).get("quote") or [{}]
     closes = quotes[0].get("close") or []
 
+    off = meta.get("gmtoffset")
+    tz = timezone(timedelta(seconds=int(off))) if isinstance(off, (int, float)) \
+        else timezone.utc
+
+    def local_day(epoch):
+        return datetime.fromtimestamp(epoch, tz).strftime("%Y-%m-%d")
+
     pts = []
     for t, c in zip(ts, closes):
         if c is None:
             continue
-        d = datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%d")
-        pts.append({"d": d, "c": round(float(c), 6), "dateSource": "yahoo"})
+        pts.append({"d": local_day(t), "c": round(float(c), 6), "dateSource": "yahoo"})
 
     price = meta.get("regularMarketPrice")
     if price is None and pts:
@@ -572,14 +594,24 @@ def fetch_yahoo(f, symbol, rng="1y"):
     if price is None:
         raise FetchError("Yahoo 沒有回傳現價，也沒有可用的收盤資料")
 
-    # 最新一根可能還在進行中（close=null）：用現價補上那一天
+    # 最新一根：用現價補上／覆蓋，並判斷它是不是還在進行中
     if ts:
-        last_d = datetime.fromtimestamp(ts[-1], timezone.utc).strftime("%Y-%m-%d")
-        if not pts or pts[-1]["d"] != last_d:
-            pts.append({"d": last_d, "c": round(float(price), 6),
-                        "dateSource": "yahoo"})
+        now_epoch = time.time() if now_epoch is None else now_epoch
+        reg = (meta.get("currentTradingPeriod") or {}).get("regular") or {}
+        session_end = reg.get("end")
+        last_d = local_day(ts[-1])
+        in_progress = (last_d == local_day(now_epoch)) and (
+            session_end is None or now_epoch < float(session_end))
+        last = {"d": last_d, "c": round(float(price), 6)}
+        if in_progress:
+            last["dateSource"] = "intraday"
+            last["provisional"] = True
         else:
-            pts[-1]["c"] = round(float(price), 6)
+            last["dateSource"] = "yahoo"
+        if not pts or pts[-1]["d"] != last_d:
+            pts.append(last)
+        else:
+            pts[-1] = last
 
     return float(price), meta.get("currency"), pts
 
@@ -602,8 +634,28 @@ def load_history(asset_id):
         return []
 
 
+# 同一天可能先後收到「盤中價」「收盤後即時價」「官方月檔」三種不同等級的點。
+# 等級低的絕對不能蓋掉等級高的：15:30 已經用官方月檔定案，16:10 的盤中輕量更新
+# 再送一個即時價進來，若照「新的蓋舊的」就把官方值洗掉了——圖表看起來完全正常，
+# 沒人看得出來。所以合併時先比等級，等級相同才由新的蓋舊的。
+DATE_SOURCE_GRADE = {
+    "official": 3,        # 證交所官方月檔
+    "csv": 3,             # 台銀匯率 CSV 的資料日期
+    "chart": 3,           # 台銀黃金走勢表
+    "quote": 3,           # 台銀掛牌時間（當日最新掛牌，同等級由新的蓋舊的）
+    "close-realtime": 2,  # 收盤後的即時價（PLAN 7.4：收盤後 z 即收盤價），等官方月檔來蓋
+    "yahoo": 2,           # Yahoo 已完成的日 K
+    "realtime": 2,        # 舊資料的標法（改版前寫的即時價），視同已定案的即時價
+    "intraday": 1,        # 盤中價，provisional，之後一定會被覆蓋
+}
+
+
 def merge_points(old, new):
-    """以日期為鍵合併、去重（新的蓋舊的）、依日期排序、只留最近 MAX_POINTS 點。"""
+    """以日期為鍵合併、依日期排序、只留最近 MAX_POINTS 點。
+
+    同一天：先比 dateSource 的等級，低的不能蓋高的；等級相同由新的蓋舊的。
+    定案的點（沒有 provisional）進來時，會把舊的 provisional 標記拿掉。
+    """
     table = {}
     for p in old:
         if p.get("d"):
@@ -612,6 +664,12 @@ def merge_points(old, new):
         if not p.get("d"):
             continue
         base = table.get(p["d"], {})
+        old_grade = DATE_SOURCE_GRADE.get(base.get("dateSource"), 0)
+        new_grade = DATE_SOURCE_GRADE.get(p.get("dateSource"), 0)
+        if base and new_grade < old_grade:
+            continue                       # 低等級不准蓋高等級
+        if not p.get("provisional"):
+            base.pop("provisional", None)  # 定案了，拿掉「暫定」標記
         base.update({k: v for k, v in p.items() if v is not None})
         table[p["d"]] = base
     merged = [table[k] for k in sorted(table)]
@@ -890,7 +948,14 @@ def handle_twse(f, asset, ctx):
     #       那些標的的歷史一律走 Yahoo（PLAN 7.6 允許的來源）。
     is_otc = (asset.get("market") or "tse") == "otc"
     if is_otc:
-        pass
+        # 上櫃沒有官方月檔，定案來源只能是 Yahoo 的「已完成」日 K（PLAN 7.6 允許的來源）。
+        # 完整更新才抓（輕量更新只要即時價），range=5d 就足夠把今天／昨天定案。
+        if not ctx.get("light") and asset.get("yahooSymbol") and len(old) >= 60:
+            try:
+                _, _, ypts = fetch_yahoo(f, asset["yahooSymbol"], "5d")
+                new_pts += ypts
+            except FetchError as e:
+                notes.append("Yahoo 定案失敗：%s" % e)
     elif not (ctx.get("light") and len(old) >= 60):
         months = [now_tpe().strftime("%Y%m")]
         if len(old) + len(new_pts) < 60:
@@ -912,8 +977,19 @@ def handle_twse(f, asset, ctx):
     if row and row.get("price") is not None:
         price = row["price"]
         if row.get("date"):
-            new_pts.append({"d": row["date"], "c": price,
-                            "dateSource": "realtime"})
+            # 即時價寫進歷史時要誠實標示它是不是定案：
+            #   13:30 收盤前 → 盤中價，provisional，之後一定會被覆蓋
+            #   13:30 之後   → PLAN 7.4「收盤後 z 即收盤價」，標 close-realtime
+            #                  （已定案但不是官方月檔；月檔有了會再蓋成 official）
+            # 判斷用的是報價自己的成交時間 t，不是「現在」——報價說幾點就是幾點。
+            closed = str(row.get("time") or "") >= "13:30:00"
+            pt = {"d": row["date"], "c": price}
+            if closed:
+                pt["dateSource"] = "close-realtime"
+            else:
+                pt["dateSource"] = "intraday"
+                pt["provisional"] = True
+            new_pts.append(pt)
         extra = {
             "open": row.get("open"), "high": row.get("high"), "low": row.get("low"),
             "quoteTime": row.get("time"), "sourceNote": row.get("note"),
@@ -981,21 +1057,21 @@ HANDLERS = {
 # ---------------------------------------------------------------- 主流程
 
 
-def guess_slot():
-    """沒指定 --slot 時，依台北時間猜：12 點前晨報 / 14:30 前午盤 / 之後收盤。"""
-    n = now_tpe()
-    mins = n.hour * 60 + n.minute
-    if mins < 12 * 60:
-        return "morning"
-    if mins < 14 * 60 + 30:
-        return "midday"
-    return "close"
-
+# 時段由【觸發者】告知，程式不猜。
+# 以前有一個用台北時間猜時段的函式；雲端 workflow 也用 UTC 小時猜。
+# 結果 GitHub 排程晚 5 小時才跑，20:10 的那次被猜成「manual」，而筆電晚上補跑
+# 13:05 的工作，把整份 latest.json 標成「午盤」。猜就會錯，所以整個拿掉：
+# --slot 改成必填，雲端由 cron-job.org 的 dispatch 直接告訴 workflow，
+# 本機一律 light（本機不產報告，沒有資格宣告時段）。
+REPORT_SLOTS = ("morning", "midmorning", "close", "review")
+ALL_SLOTS = ("light",) + REPORT_SLOTS + ("manual",)
 
 SLOT_LABEL = {
+    "light": "盤中更新（只更新現價）",
     "morning": "晨報（了解今天狀況）",
-    "midday": "午盤（盤中整理）",
-    "close": "收盤（檢討與分析）",
+    "midmorning": "午前（盤中整理）",
+    "close": "收盤（台股收盤快報）",
+    "review": "盤後（檢討與分析）",
     "manual": "手動更新",
 }
 
@@ -1107,8 +1183,10 @@ def error_quote(asset, message, prev_assets):
 
 def main():
     ap = argparse.ArgumentParser(description="InvestWatch 行情抓取")
-    ap.add_argument("--slot", choices=["morning", "midday", "close", "manual"],
-                    default=None, help="更新時段；不給就依台北時間自動判斷")
+    # 必填、不猜。雲端由 cron-job.org 的 dispatch 告知；本機一律 light。
+    ap.add_argument("--slot", choices=list(ALL_SLOTS), required=True,
+                    help="這一輪的時段標籤。light=盤中更新（本機只能用這個）；"
+                         "morning/midmorning/close/review=四個報告時段；manual=手動")
     ap.add_argument("--only", default=None, help="只抓這些 id（逗號分隔），測試用")
     ap.add_argument("--light", action="store_true",
                     help="輕量更新：只更新現價，不重抓一年份歷史。"
@@ -1122,10 +1200,18 @@ def main():
                          "其餘標的完全不碰。all 只給手動測試用，會寫出兩個分片。")
     args = ap.parse_args()
 
-    slot = args.slot or guess_slot()
+    slot = args.slot
     only = set(x.strip() for x in args.only.split(",")) if args.only else None
     light = args.light
     source = args.source
+
+    # 本機只能用 slot=light。本機不產報告，沒有資格宣告「這是晨報／收盤」；
+    # 以前 Windows 排程晚上補跑 13:05 的工作，就把整份 latest.json 標成了午盤。
+    # 注意 mode 不受此限：本機的完整更新照樣 --source local --slot light（不帶 --light）。
+    if source == "local" and slot != "light":
+        print("錯誤：--source local 只接受 --slot light（本機不宣告時段，時段由雲端決定）。")
+        print("      收到的是 --slot %s。" % slot)
+        return 2
 
     with open(ASSETS_FILE, encoding="utf-8") as fh:
         cfg = json.load(fh)
@@ -1305,6 +1391,16 @@ def main():
     if err_ids:
         print("失敗標的：%s" % ", ".join(err_ids))
     print("=" * 62)
+
+    # 結束碼要說實話：
+    #   0 = 全部成功
+    #   2 = 有標的失敗，但分片已經寫出去、失敗已標示（附 ::warning:: 讓 Actions 摘要亮黃燈）
+    #   1 = 程式本身壞掉（沒接到的例外會自然變成 1）
+    # 以前不管幾項失敗都回 0，13 項全失敗也是綠燈，等於失敗被藏起來。
+    if err_ids:
+        print("::warning::這一輪有 %d 項抓取失敗：%s（分片已寫出、已標示為失敗）"
+              % (len(err_ids), "、".join(err_ids)))
+        return 2
     return 0
 
 

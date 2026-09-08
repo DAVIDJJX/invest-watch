@@ -53,14 +53,21 @@ DATA_DIR = os.path.join(ROOT, "data")
 ASSETS_FILE = os.path.join(DATA_DIR, "assets.json")
 LATEST_FILE = os.path.join(DATA_DIR, "latest.json")
 SOURCES_DIR = os.path.join(DATA_DIR, "sources")
+HIST_DIR = os.path.join(DATA_DIR, "history")
 
 SOURCES = ("cloud", "local")
 
+# 台銀來源不套「暫定點」規則（掛牌價本來就是當天最新的定案值），停點 8 再處理
+BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx")
+
 SLOT_LABEL = {
+    "light": "盤中更新（只更新現價）",
     "morning": "晨報（了解今天狀況）",
-    "midday": "午盤（盤中整理）",
-    "close": "收盤（檢討與分析）",
+    "midmorning": "午前（盤中整理）",
+    "close": "收盤（台股收盤快報）",
+    "review": "盤後（檢討與分析）",
     "manual": "手動更新",
+    "unknown": "（雲端尚未回報時段）",
 }
 
 SOURCE_LABEL = {"cloud": "雲端排程", "local": "家用電腦"}
@@ -154,6 +161,33 @@ def stub_quote(asset, message, when):
 # --------------------------------------------------------------------------
 # 合併
 # --------------------------------------------------------------------------
+
+def overdue_provisional_points(enabled, now):
+    """找出「留過夜」的暫定點：provisional 點的日期 <= 前天。
+
+    盤中寫進歷史的今日點是暫定的（provisional），照設計會被同一天的收盤價或
+    隔天早上的完成 bar 覆蓋。如果前天的點還是暫定，代表定案的那一輪沒有跑到，
+    走勢圖上就有一根「不是真收盤價」的 K 線——這要講出來，不能安靜地留著。
+    只看非台銀的標的（台銀的掛牌價本來就是定案值，沒有暫定這回事）。
+    """
+    cutoff = (now - timedelta(days=2)).strftime("%Y-%m-%d")
+    found = []
+    for a in enabled:
+        if a.get("type") in BOT_TYPES:
+            continue
+        path = os.path.join(HIST_DIR, "%s.json" % a["id"])
+        try:
+            with open(path, encoding="utf-8") as fh:
+                pts = (json.load(fh) or {}).get("points") or []
+        except Exception:
+            continue                       # 歷史檔讀不到是另一個問題，不在這裡報
+        stale = [p["d"] for p in pts
+                 if p.get("provisional") and p.get("d") and p["d"] <= cutoff]
+        if stale:
+            found.append("%s 有 %d 個暫定點留過夜沒被定案：%s（定案的那一輪沒跑到？）"
+                         % (a["id"], len(stale), "、".join(stale)))
+    return found
+
 
 def merge(now=None, schedule=None, warn=None):
     """把兩個分片合成 latest.json 的內容。回傳 (latest, warnings)。"""
@@ -277,6 +311,10 @@ def merge(now=None, schedule=None, warn=None):
         if bucket:
             bucket["ok" if good else "error"] += 1
 
+    # --- 暫定點留過夜？ -----------------------------------------------------
+    for msg in overdue_provisional_points(enabled, now):
+        add_warning(msg)
+
     # --- 分片裡有、assets.json 沒有的孤兒標的：跳過 -------------------------
     known = {a["id"] for a in enabled}
     for s in SOURCES:
@@ -288,21 +326,27 @@ def merge(now=None, schedule=None, warn=None):
                   % (s, "、".join(orphans)))
 
     # --- 外層欄位 ----------------------------------------------------------
-    # updatedAt 取兩邊 runAt 的較新者；slot / mode 也整組取自那一邊，
-    # 不能一個欄位取這邊、另一個取那邊，否則會出現「時間是 15:17 但時段寫早報」。
-    live = [(su.parse_iso((shards[s] or {}).get("runAt")), s)
+    # updatedAt 取兩邊 runAt 的較新者——「資料多新」是兩邊一起決定的事實。
+    # 但 slot / slotLabel / mode【只聽雲端】：時段標籤是「產報告的那一方」才有資格
+    # 宣告的。以前取 runAt 較新者，結果筆電晚上補跑 13:05 的工作，把整份
+    # latest.json 標成了「午盤」（2026-09-08 22:02 實際發生）。
+    live = [su.parse_iso((shards[s] or {}).get("runAt"))
             for s in SOURCES if shards.get(s)]
-    live = [(t, s) for t, s in live if t]
+    live = [t for t in live if t]
     if live:
-        newest_at, newest_src = max(live, key=lambda x: x[0])
-        head = shards[newest_src]
+        newest_at = max(live)
     else:
         # 兩邊都不見或都壞掉。還是要產出一份 latest.json，
         # 讓前端有東西可讀、看得到 13 張標著失敗的卡片。
-        newest_at, head = now, {}
+        newest_at = now
         add_warning("兩個分片都讀不到，latest.json 用現在時間產出，13 項全部標成失敗。")
 
-    slot = head.get("slot") or "manual"
+    head = shards.get("cloud") or {}
+    if head:
+        slot = head.get("slot") or "unknown"
+    else:
+        # 雲端分片不見：誠實地說「不知道時段」，不要拿本機的 light 或猜一個。
+        slot = "unknown"
     latest = {
         "updatedAt": iso(newest_at),
         "updatedAtText": newest_at.strftime("%Y-%m-%d %H:%M"),

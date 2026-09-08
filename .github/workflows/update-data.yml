@@ -1,37 +1,48 @@
 name: 更新市場資料
 
-# GitHub 的排程用的是 UTC 時間，台北時間要減 8 小時：
-#   台北 10:17 -> UTC 02:17   （晨報 morning）
-#   台北 13:17 -> UTC 05:17   （午盤 midday）
-#   台北 15:17 -> UTC 07:17   （收盤 close）
+# ──────────────────────────────────────────────────────────────────────────
+# 時段由【觸發者】告知，workflow 不猜。
 #
-# 為什麼是 17 分而不是整點？2026-09-01 實測：原本設整點，當天三次排程
-# 只有一次真的觸發。GitHub 的免費排程在整點負載最重，會直接把工作丟掉，
-# 官方也建議避開整點。改成 17 分可以明顯提高觸發率。
-# 另外排程本來就可能延遲 5～15 分鐘，屬正常現象。
+# 正式的排程在 cron-job.org（外部、準時），它用 workflow_dispatch API 打進來，
+# 並用 inputs.mode / inputs.slot 直接說「這一次是什麼」：
+#   平日 08:10～17:40 每 30 分         mode=light  slot=light      只更新現價
+#   09:30  mode=full  slot=morning     晨報「了解今天狀況」
+#   11:30  mode=full  slot=midmorning  午前「盤中整理」
+#   13:35  mode=full  slot=close       收盤「台股收盤快報」（13:30 收盤、晚 5 分才拿得到真正收盤價）
+#   15:30  mode=full  slot=review      盤後「檢討與分析」
+#   週末 08:10～20:10 每 2 小時         mode=light  slot=light
+# 時間表的唯一真相來源是 data/schedule.json；cron-job.org 的設定方式見 docs/scheduler-setup.md。
+#
+# 下面那一行 GitHub 自己的 cron 只是【備援】。量過它從來不準時（晚 2～5 小時、
+# 還會漏跑），所以備援只做 light 的資料更新、永遠不產報告——不管它幾點才觸發，
+# 都不會產生一份時間標籤錯的報告。cron-job.org 掛掉時資料靠它撐著，
+# 報告缺席會被 freshness 與之後的 watchdog 抓到，那才是正確的補救。
+# 41 分避開整點（GitHub 整點負載最重，會直接丟掉工作）。
+# ──────────────────────────────────────────────────────────────────────────
 on:
-  schedule:
-    - cron: "17 2,5,7 * * *"
   workflow_dispatch:
     inputs:
-      slot:
-        description: "要記成哪個時段"
-        required: false
-        default: "manual"
+      mode:
+        description: "light=只更新現價；full=完整資料＋報告"
+        required: true
         type: choice
-        options:
-          - manual
-          - morning
-          - midday
-          - close
+        options: [light, full]
+      slot:
+        description: "時段標籤。light 只能配 mode=light；其餘只能配 mode=full"
+        required: true
+        type: choice
+        options: [light, morning, midmorning, close, review, manual]
+  schedule:
+    - cron: "41 */3 * * *"      # 備援：每 3 小時一次 light，永遠不產報告
 
-# 同一時間只跑一份，避免兩次執行互相蓋掉對方的 commit
+# 同一時間只跑一份，後到的排隊不取消——兩個 dispatch 相隔幾秒也都會完成
 concurrency:
   group: update-data
   cancel-in-progress: false
 
 permissions:
   contents: write
+  actions: read        # 讀這一次 run 的 created_at，算「dispatch → 開跑」延遲
 
 jobs:
   update:
@@ -50,62 +61,78 @@ jobs:
       - name: 安裝套件
         run: pip install requests
 
-      - name: 決定這次的時段名稱
-        id: slot
+      # 第一步就把 mode / slot 定下來；組合不合法直接結束碼 2，後面什麼都不跑。
+      # 排程觸發（備援）一律 light/light。
+      - name: 決定模式與時段（不猜，由觸發者告知）
+        id: args
         run: |
-          if [ -n "${{ github.event.inputs.slot }}" ]; then
-            SLOT="${{ github.event.inputs.slot }}"
-          else
-            # 依 UTC 小時判斷；排程延遲一兩個小時也還是對得上
-            H=$(date -u +%H)
-            H=$((10#$H))
-            if   [ "$H" -ge 1 ] && [ "$H" -le 3 ]; then SLOT=morning
-            elif [ "$H" -ge 4 ] && [ "$H" -le 6 ]; then SLOT=midday
-            elif [ "$H" -ge 7 ] && [ "$H" -le 9 ]; then SLOT=close
-            else SLOT=manual
-            fi
-          fi
-          echo "slot=$SLOT" >> "$GITHUB_OUTPUT"
-          echo "本次時段：$SLOT"
+          python scripts/dispatch_args.py \
+            --event "${{ github.event_name }}" \
+            --mode  "${{ github.event.inputs.mode }}" \
+            --slot  "${{ github.event.inputs.slot }}" | tee -a "$GITHUB_OUTPUT"
+          echo "本次：mode=${{ github.event.inputs.mode || 'light' }} / slot=${{ github.event.inputs.slot || 'light' }}（${{ github.event_name }}）"
 
-      # --- 步驟 1：只抓雲端負責的 8 項 -----------------------------------
-      # --source cloud 一定要帶。台銀那 5 項（黃金存摺、實體金條塊、兩個匯率）
-      # 的網站會擋掉資料中心 IP，雲端抓不到；而且雲端一旦去抓，就會寫出
-      # data/sources/local.json 把家用電腦抓到的資料蓋成「更新失敗」——
-      # 2026-09-03 20:07 就是這樣把 20:00 剛抓到的黃金價格洗掉的。
-      # fetch_data.py 的 --source 已經改成必填，忘了帶會直接報錯，不會安靜地做錯事。
+      # dispatch 送出到真的開跑之間的延遲。7-I 若失敗，靠這個分清楚是排程沒發、
+      # 還是 GitHub 排隊太久。
+      - name: 記錄 dispatch → 開跑 的延遲
+        id: latency
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CREATED=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq .created_at)
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LAT=$(( $(date -u -d "$NOW" +%s) - $(date -u -d "$CREATED" +%s) ))
+          echo "seconds=$LAT" >> "$GITHUB_OUTPUT"
+          echo "dispatch 於 $CREATED，開跑於 $NOW，延遲 ${LAT} 秒（台北 $(TZ=Asia/Taipei date +%H:%M:%S) 開跑）"
+
+      # --- 步驟 1：只抓雲端負責的 8 項 ------------------------------------
+      # 結束碼：0 全部成功；2 部分失敗（分片已寫出、已標示，不紅燈）；其他＝程式壞掉，紅燈。
       - name: 抓取行情資料（雲端負責的 8 項）
-        run: python scripts/fetch_data.py --source cloud --slot "${{ steps.slot.outputs.slot }}"
+        run: |
+          MODE="${{ steps.args.outputs.mode }}"
+          SLOT="${{ steps.args.outputs.slot }}"
+          LIGHT=""; [ "$MODE" = "light" ] && LIGHT="--light"
+          set +e
+          python scripts/fetch_data.py --source cloud --slot "$SLOT" $LIGHT
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "部分標的失敗（結束碼 2）；分片已寫出、失敗已標示，繼續合併。"
+          elif [ "$rc" -ne 0 ]; then
+            echo "::error::抓取腳本壞掉（結束碼 $rc）"
+            exit "$rc"
+          fi
 
-      # --- 步驟 2：把兩邊的分片合成 latest.json ---------------------------
-      # fetch_data.py 現在只寫自己的分片，不寫 latest.json。
-      # 這一步把 data/sources/cloud.json 與 data/sources/local.json
-      #（家用電腦上次推上來的）合成前端要看的 data/latest.json。
-      # 分片壞掉或不見時這支照樣會產出檔案並回 0，只在輸出印 ::warning::。
+      # --- 步驟 2：把兩邊的分片合成 latest.json -------------------------
       - name: 合併成 latest.json
         run: python scripts/merge_latest.py
 
-      # --- 步驟 3：產生這個時段的報告 -------------------------------------
-      # 報告只有雲端會產（家用電腦不產）。report.py 讀的是上一步剛合出來的
-      # latest.json，所以順序不能顛倒。
+      # --- 步驟 3：產報告（只有 mode=full；light 與備援絕不產報告）------------
+      # report.py 讀的是上一步剛合出來的 latest.json，順序不能顛倒。
+      # 任何例外都直接讓這一步紅燈，不接、不吞。
       - name: 產生時段報告
-        run: python scripts/report.py --slot "${{ steps.slot.outputs.slot }}"
+        if: steps.args.outputs.mode == 'full'
+        run: python scripts/report.py --slot "${{ steps.args.outputs.slot }}"
 
-      # 摘要一定要排在合併之後：它讀的是 data/latest.json，
-      # 而那個檔案現在是第 2 步才產生的。
       - name: 把這次的結果寫進執行摘要
         if: always()
         continue-on-error: true
+        env:
+          MODE: ${{ steps.args.outputs.mode }}
+          SLOT: ${{ steps.args.outputs.slot }}
+          LATENCY: ${{ steps.latency.outputs.seconds }}
+          EVENT: ${{ github.event_name }}
         run: |
           {
             echo "### 本次更新結果"
             echo ""
+            echo "- 觸發：\`$EVENT\`　模式：\`$MODE\`　時段：\`$SLOT\`　dispatch→開跑延遲：${LATENCY:-—} 秒"
             python - <<'PY'
           import json
           d = json.load(open("data/latest.json", encoding="utf-8"))
           s = d["summary"]
           print(f"- 台北時間：**{d['updatedAtText']}**")
-          print(f"- 時段：**{d['slotLabel']}**")
+          print(f"- 時段標籤（來自雲端分片）：**{d['slotLabel']}**")
           print(f"- 成功 {s['ok']} 項 / 失敗 {s['error']} 項（共 {s['total']} 項）")
           print("")
           for name, info in (d.get("sources") or {}).items():
@@ -125,18 +152,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # --- 步驟 4：提交並推上來 -------------------------------------------
-      # 競態處理全部在 scripts/publish.py 裡（雲端和家用電腦共用同一份）。
-      # 推不上去時它會：保留自己這一輪產生的檔案 → 索引與 data/ 工作區
-      # 整個回到遠端狀態（拿到對方剛推上來的分片）→ 把自己的放回去 →
-      # 重跑 merge 與 report → 重新 commit → 再推。最多 3 次。
-      # 這樣才不會像舊做法那樣用 reset --soft 把對方剛推上去的資料還原掉。
+      # 競態處理全部在 scripts/publish.py（雲端和家用電腦共用）。
+      # light 只重跑 merge；full 重跑 merge + 這一輪的報告。
       - name: 有變動就存檔並推上來
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MODE="${{ steps.args.outputs.mode }}"
+          SLOT="${{ steps.args.outputs.slot }}"
           DATE=$(TZ=Asia/Taipei date +%Y-%m-%d)
-          SLOT="${{ steps.slot.outputs.slot }}"
-          python scripts/publish.py \
-            --source cloud \
-            --rebuild "merge,report:$SLOT" \
-            --message "data: $DATE $SLOT 更新（雲端）"
+          TIME=$(TZ=Asia/Taipei date +%H:%M)
+          if [ "$MODE" = "full" ]; then
+            REBUILD="merge,report:$SLOT"
+            MSG="data: $DATE $SLOT 更新（雲端，$TIME）"
+          else
+            REBUILD="merge"
+            MSG="data: $DATE $TIME 盤中更新（雲端）"
+          fi
+          python scripts/publish.py --source cloud --rebuild "$REBUILD" --message "$MSG"
