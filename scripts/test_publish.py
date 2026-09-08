@@ -103,6 +103,18 @@ class TestOwnedPaths(unittest.TestCase):
         self.assertIn("data/archive/2026-09-05/snapshot.json", with_report)
         self.assertIn("data/archive/index.json", with_report)
 
+    def test_report_paths_cover_a_run_that_straddles_midnight(self):
+        """report.py 在 23:59 寫了 archive/<昨天>/，publish 在 00:00 才算擁有清單。
+
+        只列今天會漏掉剛寫的那份 → 工作區留下未提交的檔案 → 結束碼 3。
+        2026-09-09 00:00 的競態實測就這樣紅過一次。
+        """
+        just_after_midnight = datetime(2026, 9, 9, 0, 0, 30, tzinfo=TPE)
+        p = publish.owned_paths("cloud", ["merge", "report:morning"], just_after_midnight)
+        self.assertIn("data/archive/2026-09-09/morning.json", p)
+        self.assertIn("data/archive/2026-09-08/morning.json", p, "昨天的路徑也要列")
+        self.assertIn("data/archive/2026-09-08/snapshot.json", p)
+
     def test_report_path_uses_the_given_slot(self):
         for slot in ("morning", "midmorning", "close", "review", "manual"):
             p = publish.owned_paths("cloud", ["report:" + slot], NOW)

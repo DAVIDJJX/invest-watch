@@ -12,13 +12,19 @@
 (function () {
   'use strict';
 
+  // 2026-09-09 起一天四份（morning / midmorning / close / review）；
+  // 之前是三份（morning / midday / close）。舊檔案不改名、不重寫歷史，
+  // 所以這兩張表同時認得新舊名字，midday 只會出現在舊的日子。
   var SLOT_NAME = {
     morning: '晨報',
+    midmorning: '午前',
     midday: '午盤',
     close: '收盤',
+    review: '盤後',
     manual: '手動更新'
   };
-  var SLOT_ORDER = ['morning', 'midday', 'close', 'manual'];
+  var SLOT_ORDER = ['morning', 'midmorning', 'midday', 'close', 'review', 'manual'];
+  var NEW_SLOTS_FROM = '2026-09-09';
 
   var state = { index: null, day: null, slot: null, month: null, cache: {} };
 
@@ -193,7 +199,14 @@
 
     // 缺少的時段也要顯示出來（灰色不可點），不要安靜地當作不存在——
     // 2026-09-01 就發生過整份晨報遺失，畫面上卻完全看不出來。
-    var missing = ['morning', 'midday', 'close'].filter(function (s) {
+    // 「這一天該有哪些時段」要看那一天用的是哪一套：
+    // 2026-09-09 之前是三份（有 midday），之後是四份。判斷錯了，舊的日子會被說成
+    // 缺「午前、盤後」——那不是缺，是那時候根本沒有這兩個時段。
+    var isOldDay = String(state.day || '') < NEW_SLOTS_FROM || slots.indexOf('midday') >= 0;
+    var expected = isOldDay
+      ? ['morning', 'midday', 'close']
+      : ['morning', 'midmorning', 'close', 'review'];
+    var missing = expected.filter(function (s) {
       return slots.indexOf(s) < 0;
     });
     if (entry && entry.twTradingDay !== false) {
