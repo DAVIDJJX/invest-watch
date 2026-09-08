@@ -130,8 +130,12 @@ if ($behind -ne "0") {
 }
 
 # --- 3. 抓資料（只抓本機負責的 5 項）------------------------------------
-$pyArgs = @("scripts\fetch_data.py", "--source", $Source)
-if ($Slot -ne "") { $pyArgs += @("--slot", $Slot) }
+# 本機一律 --slot light：本機不產報告，沒有資格宣告「這是晨報／收盤」。
+# 以前 Windows 排程晚上補跑 13:05 的工作，就把整份 latest.json 標成了「午盤」。
+# 時段標籤只由產報告的那一方（雲端）決定；Task Scheduler 傳來的 -Slot 只寫 log、不採用。
+# mode 不受影響：三個完整更新工作照樣 full（不帶 -Light），UpdateLight 照樣 light。
+if ($Slot -ne "") { Write-Log "  忽略 -Slot $Slot：本機一律用 light（時段由雲端決定）" }
+$pyArgs = @("scripts\fetch_data.py", "--source", $Source, "--slot", "light")
 if ($Light)       { $pyArgs += "--light" }
 
 Write-Log "執行：python $($pyArgs -join ' ')"

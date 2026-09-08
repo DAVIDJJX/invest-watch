@@ -179,7 +179,10 @@ def owned_paths(source, rebuild_steps, now=None):
 
     paths.append("data/latest.json")
 
-    # 報告檔只有真的跑了報告那一輪才算是我的
+    # 報告檔只有真的跑了報告那一輪才算是我的。
+    # 四個排定時段更新 report-latest.json（首頁讀的那份）；
+    # manual 另外寫 report-manual.json，不碰 report-latest——手動跑一次不該把
+    # 首頁的「最新報告」換掉。
     for step in rebuild_steps:
         if step.startswith("report:"):
             slot = step.split(":", 1)[1]
@@ -188,7 +191,7 @@ def owned_paths(source, rebuild_steps, now=None):
                 "data/archive/%s/%s.json" % (day, slot),
                 "data/archive/%s/snapshot.json" % day,
                 "data/archive/index.json",
-                "data/report-latest.json",
+                "data/report-manual.json" if slot == "manual" else "data/report-latest.json",
             ]
     return sorted(set(paths))
 
@@ -200,7 +203,7 @@ def parse_rebuild(spec):
         if s == "merge":
             continue
         if s.startswith("report:") and s.split(":", 1)[1] in (
-                "morning", "midday", "close", "manual"):
+                "morning", "midmorning", "close", "review", "manual"):
             continue
         raise SystemExit("--rebuild 不認得「%s」；只接受 merge 或 report:<slot>" % s)
     return steps
