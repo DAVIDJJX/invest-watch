@@ -4,7 +4,7 @@
   "currency": "TWD",
   "unit": "元",
   "count": 249,
-  "updatedAt": "2026-09-08T20:10:46+08:00",
+  "updatedAt": "2026-09-09T00:21:23+08:00",
   "points": [
     {"d":"2025-09-01","c":1165.0},
     {"d":"2025-09-02","c":1160.0},
@@ -254,6 +254,6 @@
     {"d":"2026-09-03","c":2390.0,"dateSource":"official"},
     {"d":"2026-09-04","c":2410.0,"dateSource":"official"},
     {"d":"2026-09-07","c":2460.0,"dateSource":"official"},
-    {"d":"2026-09-08","c":2470.0,"dateSource":"realtime"}
+    {"d":"2026-09-08","c":2470.0,"dateSource":"close-realtime"}
   ]
 }
