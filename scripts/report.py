@@ -667,7 +667,6 @@ def update_index(date_str, slot, report, market):
 def generate(slot, latest=None):
     """產生並封存一份報告。回傳報告 dict。"""
     now = now_tpe()
-    raise RuntimeError("7-D 對照組：故意讓報告壞掉")
     latest = latest or read_json(os.path.join(DATA_DIR, "latest.json"), {}) or {}
     assets = latest.get("assets") or {}
     if not assets:

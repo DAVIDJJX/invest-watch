@@ -115,26 +115,23 @@ invest-watch/
 # 安裝套件（只需要一次）
 pip install requests
 
-# 抓一次資料。--source 與 --slot 都是必填的：
-#   --source  cloud = 雲端負責的 8 項、local = 家用電腦負責的台銀 5 項
-#             各自只寫自己的 data/sources/<source>.json，不會碰到對方的
-#   --slot    時段標籤，由呼叫者告知、程式不猜。本機只能用 light（本機不產報告）；
-#             雲端由 cron-job.org 告知 morning / midmorning / close / review / manual
+# 抓一次資料。--source 是必填的：
+#   cloud = 雲端負責的 8 項、local = 家用電腦負責的台銀 5 項
+# 各自只寫自己的 data/sources/<source>.json，不會碰到對方的
 python scripts/fetch_data.py --source cloud --slot manual
-python scripts/fetch_data.py --source local --slot light
+python scripts/fetch_data.py --source local --slot manual
 
 # 把兩邊的分片合成前端要看的 data/latest.json
 python scripts/merge_latest.py
 
-# 產生這個時段的報告（要先跑過上面的合併）。manual 寫到 report-manual.json，
-# 不會動首頁讀的 report-latest.json
+# 產生這個時段的報告（要先跑過上面的合併）
 python scripts/report.py --slot manual
 
 # 盤中輕量更新（只更新現價，不重抓歷史）
-python scripts/fetch_data.py --source local --slot light --light
+python scripts/fetch_data.py --source local --light
 
 # 只抓其中幾項（測試用，同一個 owner 底下沒選到的會沿用上次結果）
-python scripts/fetch_data.py --source local --slot light --only gold_twd,fx_cny
+python scripts/fetch_data.py --source local --only gold_twd,fx_cny
 
 # 跑測試
 python -m unittest discover -s scripts -p "test_*.py"
@@ -347,20 +344,6 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 ⚠ **不要用放寬 `graceMinutes` 的方式解決。** 那是在調參數追一個會漂移的外部排程，
 下次漂了不會有人知道要再調，只會看到網站又開始亂報。
 
-### 排程在哪裡、怎麼確認它有在跑
-
-| 誰 | 在哪裡設定 | 怎麼確認 |
-|---|---|---|
-| 雲端（8 項＋四份報告） | **cron-job.org** 的六個 job（照 `docs/scheduler-setup.md` 建的），用 `workflow_dispatch` 打進 GitHub Actions | Actions 頁的 run 右邊寫 `workflow_dispatch`；Summary 有「模式／時段／dispatch→開跑延遲」；cron-job.org 每個 job 的 History 要是 HTTP 204 |
-| 雲端備援 | `.github/workflows/update-data.yml` 裡那一行 cron（每 3 小時） | run 右邊寫 `schedule`；**只做 light、永遠不產報告**，所以它跑了也不會生出時間錯的報告 |
-| 家用電腦（台銀 5 項） | Windows 工作排程器的四個工作 | `scripts\update_local.log`；本機一律 `--slot light`，時段標籤只由雲端決定 |
-
-手動跑一次雲端：Actions 頁 → **更新市場資料** → **Run workflow** → `mode` 與 `slot` 兩個都要選
-（`light`＋`light`，或 `full`＋某個報告時段／`manual`）。選錯組合第一步就會紅燈並說明。
-
-**如果 cron-job.org 掛了**：資料靠備援 cron 每 3 小時 light 撐著，`freshness` 會在 30 分鐘內開始標 stale，
-報告會缺席（歷史頁那一天會顯示「缺」）。處理：到 cron-job.org 看那個 job 的 History（401＝PAT 過期、404＝URL、422＝body）。
-
 ### 排錯：家用電腦的排程每次都中止
 
 看 `scripts/update_local.log` 最後幾行：
@@ -568,22 +551,6 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - 每個歷史點多存 `dateSource`（見上方設計筆記），以後一眼看得出哪些點有來源依據
   - 清掉 4 筆已經寫進去的假點（週末的點）；平日「值與前一筆相同」那 12 筆
     全在本站啟用前、來自官方帶日期的檔案，一筆都沒動
-- [x] **停點 7 — 外部精準觸發 ＋ 30 分鐘更新 ＋ 四時段報告**（2026-09-09 完成，取代原本規劃的停點 4 與 5）
-  - **問題**：GitHub 自己的 cron 從來不準時（量過：晚 2～5 小時、一天三次只跑兩次），
-    晨報與午盤四天沒出現過；時段又是用時間「猜」的，晚跑的被標成 manual，
-    筆電晚上補跑的把整份 latest.json 標成午盤
-  - **做法**：排程搬到 cron-job.org（外部、準時），用 `workflow_dispatch` 打進 Actions，
-    並用 `inputs.mode`／`inputs.slot` **直接告訴** workflow 這一次是什麼；猜時段的函式整個刪掉、
-    `--slot` 改必填；本機一律 `--slot light`，latest.json 的時段只聽雲端
-  - 平日 08:10～17:40 每 30 分鐘更新現價；09:30 晨報、11:30 午前、13:35 收盤快報、
-    15:30 盤後檢討各一份；週末每 2 小時更新、不產報告；manual 寫 `report-manual.json` 不動首頁
-  - light 只抓現價、不重抓歷史；盤中寫進歷史的今日點標 `provisional`，收盤後定案
-    （台股：13:30 後的即時價 → 官方月檔；美股／BTC：交易所收盤後的完成 bar）；
-    Yahoo 的 K 棒日期改用**交易所當地日期**，不是台北的今天
-  - GitHub 自己的 cron 留一行當備援：只做 light、永遠不產報告
-  - 結束碼說實話：0 全成功／2 部分失敗（黃燈）／1 程式壞掉（紅燈）
-  - 設定方式見 `docs/scheduler-setup.md`；每個子階段的改動與驗證見 `docs/CHANGELOG.md`
-    （標籤 `stop7-1`～`stop7-4` 可逐段退回）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---
