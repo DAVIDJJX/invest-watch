@@ -110,3 +110,40 @@ git revert --no-edit stop7-1..stop7-2   # 只反轉 7-2
 ```bash
 git revert --no-edit stop7-2..stop7-3   # 只反轉 7-3
 ```
+
+---
+
+## 2026-09-09 · 7-4 文件與線上驗證
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `docs/scheduler-setup.md` | 新增。cron-job.org 六個 job 的名稱／URL／方法／三個 header／body／時區／排程、點哪裡打什麼、怎麼驗證（單一 job、兩小時觀察 7-H、隔天四份 7-I）、怎麼停用。文件裡沒有真鑰匙 |
+| `README.md` | 「自己動手跑」的範例補上必填的 `--slot`（本機只能 light）；進度區加停點 7；維運區加「排程在哪裡、怎麼確認它有在跑」 |
+| `docs/CHANGELOG.md` | 這份 |
+
+**線上驗證（在分支 `feat/external-dispatch` 上用 `gh workflow run` 觸發）**
+
+| 條件 | 結果 |
+|---|---|
+| 7-A `mode=light slot=light` | ✅ dispatch 到結束 27 秒；「產生時段報告」步驟 skipped；`latest.json` 更新（slot=light）；`archive/2026-09-09/` 沒有新報告；新增的歷史點只有 NVDA／GSPC 的 2026-09-08（美股盤中），都是 `intraday`＋`provisional` |
+| 7-B `full/morning` | ✅ `archive/2026-09-09/morning.json` 產生；`report-latest.json` 換成晨報；`producedBy` 記了 host／event／runId |
+| 7-C `full/manual` | ✅ `report-latest.json` 仍是 7-B 那份晨報；手動報告在 `report-manual.json`；`archive/2026-09-09/manual.json` 也在 |
+| 7-D 加一行 raise | ✅ 紅燈：「產生時段報告」failure、「存檔並推上來」skipped、零資料推上去。拿掉之後 `full/review` 綠燈，`review.json` 產生、`report-latest` 換成盤後、含「今晚觀察」 |
+| 7-E 兩個 dispatch 相隔 10 秒 | ✅ 兩個 run（相隔 13 秒）都 success；第二個走了 `publish.py` 的重試路徑（commit 訊息「第 1 次重試」）；本機分片的 runAt 沒被動到 |
+| 7-F | ✅ 見 7-3 |
+| 7-G | ✅ 110 條全綠；對照組：時段改回用時間猜 → 紅、本機傳非 light 的 slot → 紅（見 7-1） |
+
+**一個自己造成的小事故，照實記**：7-D 注入 raise 時用了 `git commit -a`，把當時還沒 commit 的 README 修改一起掃進那個 commit；
+之後 `git revert` 整個 commit，README 的三處修改也被退掉了。已從那個 commit 把 README 撈回來（`git checkout e14930a -- README.md`），
+`report.py` 確認沒有 raise。分支歷史裡因此有一對「注入／反轉」的 commit，內容含 README 的來回，無害。
+
+**還沒做（要等你）**：7-H（cron-job.org 建好後觀察 2 小時）、7-I（隔天四份報告準時到）。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop7-3..stop7-4   # 只反轉 7-4（文件）
+git revert -m 1 <merge commit>          # 整個停點 7 從 main 退掉（見 README 維運區的回滾表）
+```
