@@ -3,8 +3,8 @@
   "name": "人民幣 / 台幣",
   "currency": "TWD",
   "unit": "台幣 / 1 人民幣",
-  "count": 131,
-  "updatedAt": "2026-09-08T11:19:10+08:00",
+  "count": 133,
+  "updatedAt": "2026-09-08T11:19:20+08:00",
   "points": [
     {"d":"2026-03-02","spotBuy":4.544,"spotSell":4.594,"c":4.594},
     {"d":"2026-03-03","spotBuy":4.559,"spotSell":4.609,"c":4.609},
@@ -136,6 +136,8 @@
     {"d":"2026-09-01","spotBuy":4.685,"spotSell":4.735,"c":4.735,"dateSource":"csv"},
     {"d":"2026-09-02","spotBuy":4.695,"spotSell":4.745,"c":4.745,"dateSource":"csv"},
     {"d":"2026-09-03","spotBuy":4.701,"spotSell":4.751,"c":4.751,"dateSource":"csv"},
-    {"d":"2026-09-04","spotBuy":4.689,"spotSell":4.739,"c":4.739,"dateSource":"csv"}
+    {"d":"2026-09-04","spotBuy":4.689,"spotSell":4.739,"c":4.739,"dateSource":"csv"},
+    {"d":"2026-09-07","spotBuy":4.676,"spotSell":4.726,"c":4.726,"dateSource":"csv"},
+    {"d":"2026-09-08","spotBuy":4.666,"spotSell":4.716,"c":4.716,"dateSource":"csv"}
   ]
 }
