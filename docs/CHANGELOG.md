@@ -83,3 +83,30 @@ git revert --no-edit stop7-1        # 反轉 7-1 這一個 commit
 ```bash
 git revert --no-edit stop7-1..stop7-2   # 只反轉 7-2
 ```
+
+---
+
+## 2026-09-09 · 7-3 schedule.json 與 freshness
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `data/schedule.json` | 回歸描述現實的排程（cron-job.org 的時間表）：`cloud.full` 平日 09:30／11:30／13:35／15:30；`cloud.light` 兩個時窗——平日 08:10～17:40 每 30 分（:10 與 :40）、週末 08:10～20:10 每 2 小時；`reports` 改成四個 slot；`graceMinutes` 30。原本「15:20 怎麼來的」那一大段改成「已改由外部精準觸發；量測資料見 git 歷史 dcf2ff4」。備援 cron 不在這張表裡（它只做 light、不產報告，不是正式排程） |
+| `scripts/schedule_util.py` | `light` 可以是一串時窗（舊的單一物件寫法仍相容）；雲端因此預設 cadence 變成 light |
+| `scripts/test_schedule_util.py` | 假排程對齊新現實；新增 7-F 四條：平日整天每 10 分鐘看一次零誤判、週末零誤判、外部觸發停 3 小時 → stale、單一報告 run 漏跑不算 freshness 問題（那是 watchdog 的事） |
+
+**怎麼驗證的**
+
+- 單元測試 **110 條全綠**
+- 7-F：模擬「每個排定時間點都真的跑到、資料 +40 秒落地」，平日與週末每 10 分鐘看一次，**零誤判**；模擬 11:00～14:00 沒有任何觸發，13:30 判 **stale**、14:10 那一輪跑到後恢復
+- 突變對照組（改壞 → 只跑 `test_schedule_util.py` → 必須紅 → 還原），四組全部抓到：只看第一個 light 時窗（2 紅）、light 不看自己的 days（8 紅）、舊寫法不再相容（10 紅）、寬限放大到 4 小時（7 紅）
+- 一條測試改過斷言：原本以為「09:30 報告 run 漏跑 → 09:35 會 stale」，實際上 09:10 的 light 已更新過現價、資料在寬限內，說 fresh 才是對的。改成釘住這個語意（報告缺席由 watchdog 抓，不是 freshness）
+- 競態實測全過、compat 合格、`import probe_bot` OK
+- 用新排程對真實資料合併一次（週三 00:13）：13 項 fresh，`lastDue` 週二 17:40、下一次週三 08:10，合理
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop7-2..stop7-3   # 只反轉 7-3
+```

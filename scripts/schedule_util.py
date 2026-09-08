@@ -186,17 +186,25 @@ def expected_times(owner, cadence, day, schedule=None):
             out.add(_at(day, hhmm))
 
     if cadence == "light":
-        light = conf.get("light") or {}
-        if light.get("from") and light.get("to") and day_matches(light.get("days"), day):
+        # light 可以是一個時窗，也可以是一串時窗——雲端平日每 30 分、週末每 2 小時，
+        # 天數不同、間隔不同，一個時窗寫不下。舊寫法（單一物件）仍然相容。
+        windows = conf.get("light") or []
+        if isinstance(windows, dict):
+            windows = [windows]
+        for light in windows:
+            if not (light.get("from") and light.get("to")
+                    and day_matches(light.get("days"), day)):
+                continue
             step = int(light.get("everyMinutes") or 30)
-            if step > 0:
-                t = _at(day, light["from"])
-                end = _at(day, light["to"])
-                # 含結束時間：Windows 排程「09:00 起每 30 分鐘、持續 8 小時」
-                # 最後一次就是落在 17:00，不含的話會少算一個點。
-                while t <= end:
-                    out.add(t)
-                    t += timedelta(minutes=step)
+            if step <= 0:
+                continue
+            t = _at(day, light["from"])
+            end = _at(day, light["to"])
+            # 含結束時間：Windows 排程「09:00 起每 30 分鐘、持續 8 小時」
+            # 最後一次就是落在 17:00，不含的話會少算一個點。
+            while t <= end:
+                out.add(t)
+                t += timedelta(minutes=step)
 
     return sorted(out)
 

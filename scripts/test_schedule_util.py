@@ -17,7 +17,7 @@ test_schedule_util.py — 過期判定的單元測試
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import schedule_util as su                                    # noqa: E402
@@ -29,8 +29,12 @@ SCHEDULE = {
     "timezone": "Asia/Taipei",
     "graceMinutes": 30,
     "cloud": {
-        # 跟 data/schedule.json 一樣用【實際觀測到的到貨時間】，不是 cron 上寫的
-        "full": {"days": "0-6", "at": ["15:20"]}
+        # 停點 7 起由 cron-job.org 準時觸發：平日四份報告＋每 30 分 light、週末每 2 小時 light
+        "full": {"days": "1-5", "at": ["09:30", "11:30", "13:35", "15:30"]},
+        "light": [
+            {"days": "1-5", "from": "08:10", "to": "17:40", "everyMinutes": 30},
+            {"days": "0,6", "from": "08:10", "to": "20:10", "everyMinutes": 120},
+        ],
     },
     "local": {
         "full": {"days": "0-6", "at": ["10:05", "13:05", "15:05"]},
@@ -93,20 +97,42 @@ class TestExpectedTimes(unittest.TestCase):
         self.assertEqual(hhmm(wk[0]), FRI + " 09:00")
         self.assertEqual(hhmm(wk[-1]), FRI + " 17:00")   # 含結束時間
 
-    def test_cloud_has_no_light_yet(self):
-        """雲端的盤中輕量排程要等停點 5 才加，現在 light 跟 full 應該一樣。"""
+    def test_cloud_weekday_has_four_reports_and_thirty_minute_light(self):
+        """平日：四個 full ＋ 08:10~17:40 每 30 分（:10 與 :40）。"""
         full = su.expected_times("cloud", "full", t(FRI + " 00:00").date(), SCHEDULE)
+        self.assertEqual([hhmm(x) for x in full],
+                         [FRI + " 09:30", FRI + " 11:30", FRI + " 13:35", FRI + " 15:30"])
         light = su.expected_times("cloud", "light", t(FRI + " 00:00").date(), SCHEDULE)
-        self.assertEqual(full, light)
-        self.assertEqual([hhmm(x) for x in full], [FRI + " 15:20"])
+        self.assertEqual(hhmm(light[0]), FRI + " 08:10")
+        self.assertEqual(hhmm(light[-1]), FRI + " 17:40")
+        # 20 個 light 點 + 4 個 full（13:35 不與 :10/:40 重疊，所以總共 24）
+        self.assertEqual(len(light), 24)
+        self.assertIn(t(FRI + " 13:35"), light)
+
+    def test_cloud_weekend_is_light_every_two_hours_and_no_reports(self):
+        """週末：不產報告（full 是 1-5），只有 08:10~20:10 每 2 小時的 light。"""
+        full = su.expected_times("cloud", "full", t(SAT + " 00:00").date(), SCHEDULE)
+        self.assertEqual(full, [])
+        light = su.expected_times("cloud", "light", t(SAT + " 00:00").date(), SCHEDULE)
+        self.assertEqual([hhmm(x) for x in light],
+                         [SAT + " " + h for h in ("08:10", "10:10", "12:10", "14:10",
+                                                  "16:10", "18:10", "20:10")])
+
+    def test_single_light_window_dict_is_still_accepted(self):
+        """舊寫法（light 是一個物件，不是清單）要繼續相容——本機那一段就是這樣寫的。"""
+        light = su.expected_times("local", "light", t(FRI + " 00:00").date(), SCHEDULE)
+        self.assertEqual(hhmm(light[0]), FRI + " 09:00")
+        self.assertEqual(hhmm(light[-1]), FRI + " 17:00")
 
 
 class TestCadence(unittest.TestCase):
 
     def test_default(self):
-        # local 有 light 排程 → 預設 light；cloud 目前沒有 → 預設 full
+        # 兩邊都有 light 排程 → 預設都是 light；沒有 light 的 owner 才會是 full
         self.assertEqual(su.default_cadence("local", SCHEDULE), "light")
-        self.assertEqual(su.default_cadence("cloud", SCHEDULE), "full")
+        self.assertEqual(su.default_cadence("cloud", SCHEDULE), "light")
+        self.assertEqual(su.default_cadence("cloud", {"cloud": {"full": {"at": ["09:30"]}}}),
+                         "full")
 
     def test_asset_override(self):
         gold_bar = {"id": "gold_bar", "owner": "local", "cadence": "full"}
@@ -114,7 +140,7 @@ class TestCadence(unittest.TestCase):
         nvda = {"id": "nvda", "owner": "cloud"}
         self.assertEqual(su.cadence_of(gold_bar, SCHEDULE), "full")
         self.assertEqual(su.cadence_of(gold_twd, SCHEDULE), "light")
-        self.assertEqual(su.cadence_of(nvda, SCHEDULE), "full")
+        self.assertEqual(su.cadence_of(nvda, SCHEDULE), "light")
 
     def test_real_assets_json_matches(self):
         """真實的 data/assets.json 只有 gold_bar 需要寫 cadence。"""
@@ -283,6 +309,74 @@ class TestFreshnessEdges(unittest.TestCase):
         """now 剛好落在排定點上時，那個點算「已到期」。"""
         self.assertEqual(hhmm(su.last_expected("local", "light", t(FRI + " 11:00"), SCHEDULE)),
                          FRI + " 11:00")
+
+
+class TestCloudFreshnessWithExternalDispatch(unittest.TestCase):
+    """7-F：外部準時觸發之下，正常的一天零誤判；觸發停 3 小時 → 雲端標的 stale。
+
+    模擬方式：每個排定時間點都「真的跑到」，資料在排定時間 +40 秒落地（GitHub 排隊＋
+    抓取），然後每 10 分鐘看一次網站。檢查點刻意放在 :05／:15…，避開排定時間那
+    40 秒的落地空窗——那不是誤判，是資料真的還沒到。
+    """
+
+    def runs_on(self, day):
+        return [x + timedelta(seconds=40)
+                for x in su.expected_times("cloud", "light", day, SCHEDULE)]
+
+    def sweep(self, start, end, runs):
+        bad = []
+        cur = start
+        while cur <= end:
+            done = [r for r in runs if r <= cur]
+            last = done[-1].isoformat() if done else None
+            verdict, ld, _ = su.freshness(last, cur, "cloud", "light", SCHEDULE)
+            if verdict != "fresh":
+                bad.append((hhmm(cur), verdict, hhmm(ld), last and last[11:16]))
+            cur += timedelta(minutes=10)
+        return bad
+
+    def test_normal_weekday_has_zero_false_stale(self):
+        thu = t("2026-09-03 00:00").date()
+        runs = self.runs_on(thu) + self.runs_on(t(FRI + " 00:00").date())
+        bad = self.sweep(t(FRI + " 00:05"), t(FRI + " 23:55"), runs)
+        self.assertEqual(bad, [], "平日正常排程不該有任何一刻被判成過期：%s" % bad[:5])
+
+    def test_normal_weekend_has_zero_false_stale(self):
+        runs = (self.runs_on(t(FRI + " 00:00").date()) +
+                self.runs_on(t(SAT + " 00:00").date()) +
+                self.runs_on(t(SUN + " 00:00").date()))
+        bad = self.sweep(t(SAT + " 00:05"), t(SUN + " 23:55"), runs)
+        self.assertEqual(bad, [], "週末每 2 小時的排程不該有任何一刻被判成過期：%s" % bad[:5])
+
+    def test_three_hour_outage_is_detected(self):
+        """cron-job.org 停 3 小時（11:00~14:00 沒有任何觸發）→ 那段時間要 stale。"""
+        runs = [r for r in self.runs_on(t(FRI + " 00:00").date())
+                if not (t(FRI + " 11:00") <= r <= t(FRI + " 14:00"))]
+        v_1330, _, ld = su.freshness(
+            max(r for r in runs if r <= t(FRI + " 13:30")).isoformat(),
+            t(FRI + " 13:30"), "cloud", "light", SCHEDULE)
+        self.assertEqual(v_1330, "stale", "停了 2.5 小時還說 fresh 就是誤判（lastDue=%s）" % hhmm(ld))
+        # 14:10 那一輪跑到之後要恢復 fresh
+        v_1420, _, _ = su.freshness(
+            max(r for r in runs if r <= t(FRI + " 14:20")).isoformat(),
+            t(FRI + " 14:20"), "cloud", "light", SCHEDULE)
+        self.assertEqual(v_1420, "fresh")
+
+    def test_single_missed_report_run_is_not_a_freshness_problem(self):
+        """只有 09:30 那一次沒跑（其餘 light 都有）→ freshness 仍是 fresh，這是【對的】。
+
+        freshness 管的是「這個數字新不新」：09:10 的 light 剛更新過現價，09:35 時
+        資料只有 25 分鐘舊、在寬限之內，說它過期才是誤報。
+        「報告缺席」是另一件事，由之後的 watchdog 看 archive 有沒有那份檔案來抓——
+        兩件事、兩個機制，不要擠在同一個參數（README 設計筆記）。
+        這條測試釘住這個語意，免得有人把它「修」成會誤報。
+        """
+        runs = [r for r in self.runs_on(t(FRI + " 00:00").date())
+                if hhmm(r)[-5:] != "09:30"]
+        for when in ("09:35", "09:45", "10:15"):
+            last = max(r for r in runs if r <= t(FRI + " " + when)).isoformat()
+            v, _, _ = su.freshness(last, t(FRI + " " + when), "cloud", "light", SCHEDULE)
+            self.assertEqual(v, "fresh", "%s 時資料明明才剛更新過，不該說過期" % when)
 
 
 class TestConfigIsActuallyRead(unittest.TestCase):
