@@ -46,7 +46,11 @@ git revert --no-edit stop7-1..HEAD  # 把 stop7-1 之後的全部改動反轉成
 - 相容性 `scripts/compat_check_latest.py`：合格
 - `import probe_bot`：OK（停點 6 的量測沒被弄壞）
 - 本機 light 路徑實跑 `fetch_data.py --source local --slot light --light` → 結束碼 0、分片 slot=light；接著 merge → latest.json 的 slot 取雲端分片的值（`manual`）
-- 一次沒有重現的觀察：某一次實跑後 latest.json 印出 `slot=morning`，雲端分片明明是 `manual`。之後重跑兩次都是 `manual`，程式碼裡找不到能產生 `morning` 的路徑，相關單元測試與突變都綠。照實記在這裡，不當作沒發生。
+- 一次沒有重現的觀察：某一次實跑後 latest.json 印出 `slot=morning`，雲端分片明明是 `manual`。之後重跑兩次都是 `manual`。
+  **2026-09-09 已查明原因（沙盒重現成功）**：突變對照組「把時段改回用時間猜」讓 `--slot` 變成選填、猜出 `morning`；
+  `test_slot_is_required` 那條測試是把 `fetch_data.py --source cloud` 當子程序跑的，檢查一被拿掉它就**真的去抓了一次雲端資料**，
+  把真實的 `data/sources/cloud.json` 寫成 `slot=morning`；之後 `git checkout -- data/` 才還原。不是 merge 的邏輯有問題，是測試在突變之下有副作用。
+  已修：那兩條子程序測試多帶一個不存在的 `--only`，就算前面的檢查被拿掉，「--only 指到範圍外」也會在連網前擋下來（見收尾 A）。
 
 **怎麼退回**
 
@@ -145,5 +149,54 @@ git revert --no-edit stop7-2..stop7-3   # 只反轉 7-3
 
 ```bash
 git revert --no-edit stop7-3..stop7-4   # 只反轉 7-4（文件）
-git revert -m 1 <merge commit>          # 整個停點 7 從 main 退掉（見 README 維運區的回滾表）
+git revert -m 1 56f96f6                 # 整個停點 7 從 main 退掉（見 README 維運區的回滾表）
 ```
+
+---
+
+## 2026-09-09 · 停點 7 收尾 A（cron-job.org 建好後的驗證）
+
+**cron-job.org 六個 job 各按一次 Execute now（21:10～21:17）**
+
+| created（台北） | event | mode | slot | 結果 | 耗時 | publish 重試 |
+|---|---|---|---|---|---|---|
+| 21:10:48 | workflow_dispatch | light | light | success | 22s | 無 |
+| 21:12:58 | workflow_dispatch | full | morning | success | 40s | 無 |
+| 21:14:13 | workflow_dispatch | full | midmorning | success | 32s | 無 |
+| 21:15:46 | workflow_dispatch | full | close | success | 31s | 無 |
+| 21:16:53 | workflow_dispatch | full | review | success | 28s | 無 |
+| 21:17:40 | workflow_dispatch | light | light | success | 23s | 無 |
+
+六筆 `workflow_dispatch`、mode/slot 與六個 job 一一對應、全部綠燈。**零重試**：每次相隔 1～2 分鐘、單次不到 40 秒，
+根本沒有撞上，所以這六次**不構成競態壓力測試**（真正的競態證據是 7-E 那兩個相隔 13 秒的 dispatch，第二個走了重試路徑）。
+另有四筆 `schedule`（備援 cron，light）：05:23、07:39、13:15、19:50。備援 cron 是 `41 */3 * * *`（台北 02:41、05:41 … 23:41，一天 8 次），停點 7 在 00:32 併進 main，整天都該照這張表跑；實際這四次若各自對應最近的前一個排定時刻，分別晚了 2 小時 42 分、1 小時 58 分、1 小時 34 分、2 小時 09 分，8 個時刻裡至少 4 個完全沒跑。這正是停點 6 在量的 GitHub 排程漂移、也是要外部觸發的原因——留字據，不當問題處理，停點 6 量完（09-10）再看。
+
+資料檢查：`latest.json` 13 項、summary ok 13、`sources.local` 沒被清空；`data/history` 對照 `stop7-4`：
+沒有任何日期消失、沒有任何等級被降回去。BTC 與 WTI 的 2026-09-08 有同等級（yahoo）的收盤值微調
+（78302.53→78438.58、93.64→93.03），是 Yahoo 自己修正完成 bar，不是還原。
+
+**測試的副作用，照實記、不刪檔**：`data/archive/2026-09-09/` 裡的 `morning / midmorning / close / review`
+（產生時間 21:12～21:17）是 cron-job.org 設定驗證時的**手動觸發**，不是排程產出；同一天凌晨還有 7-B／7-D 測試產的晨報（00:22）與盤後（00:28），已被晚上這兩份覆蓋；午前與收盤快報是今晚才第一次有；另有一份 manual（00:23，7-B 測試）。它們都老實記著 `producedBy.runId`，可以追。
+歷史頁**沒有**另外標「手動觸發」：`producedBy.event` 對 cron-job.org 與人手按 Execute now 都是 `workflow_dispatch`，
+GitHub 那一層分不出來；用既有欄位做不到，要標的話得在 dispatch 的 inputs 多帶一個來源欄位（之後再說）。
+歷史頁的時段分頁本來就顯示實際產生時間（例如「晨報 21:12」），看得出不是排定時間。
+
+**測試堵洞**：`test_slots.py` 兩條會把 `fetch_data.py` 當子程序跑的測試多帶 `--only __no_such_asset__`，
+突變對照時就算把檢查拿掉也不會真的連網、不會寫真實分片（7-1 那個「無法解釋的 morning」就是這樣來的）。
+`test_reports.py` 的 CLI 測試改成看原始碼（`choices=list(REPORT_SLOTS) + ["manual"]`），不再把 `report.py` 當子程序跑——
+突變之下那會把真實的 archive 寫壞。
+對照組（沙盒＝`git worktree`，突變＝`--slot` 改回選填且預設 morning、拿掉 local 的檢查）：
+第一次做錯了——沙盒從**已提交的 HEAD** 開出來，沒帶到還沒 commit 的測試修改，結果突變之下又真的連了網
+（8 次請求，寫了沙盒裡的 cloud.json／local.json 與 13 個歷史檔；只在沙盒、已整個丟棄，主倉庫 `data/` 零變動）——
+這恰好又重演了一次 7-1 的事故，證明沒有這道 `--only` 時後果就是這樣。第二次把工作區的測試檔複製進沙盒再跑：
+兩條都紅、失敗訊息是「--only 指定的 __no_such_asset__ 不屬於 --source …」、4.7 秒跑完、沙盒 `data/` 一個檔都沒動。
+教訓：對照組沙盒一定要用工作區的檔案，不能只 checkout HEAD。
+
+**新增 `scripts/verify_schedule.py`**（只讀不寫）：給一個日期，拉那天的 run，對照 `data/schedule.json` 算
+7-H（每個排定時刻有沒有對應的 dispatch、晚幾秒，門檻 60 秒）與 7-I（四份報告是否存在、是否在排定＋15 分內產生），
+多出來的 run（備援 cron、手動）另列。用 2026-09-09 跑過一次確認腳本沒壞（今天的結果不算數，排程明天才生效）。
+今天跑出來 7-H 24 個時刻全部「沒有對應的 dispatch」、7-I 四份全部晚 5～11 小時、另列 19 筆——與事實相符
+（cron-job.org 今晚才建、四份報告是 21 點多手動觸發的）。對照組：`--grace-minutes 700` 之後午前／收盤／盤後翻成 PASS、
+晨報仍 FAIL（晚 3 分），門檻邏輯有在分辨，不是永遠 FAIL。
+
+**還沒做（明天）**：7-H、7-I 用 `python scripts/verify_schedule.py --date 2026-09-10` 彙整。

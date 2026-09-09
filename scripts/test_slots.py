@@ -53,8 +53,15 @@ class TestSlotIsToldNotGuessed(unittest.TestCase):
             src = fh.read()
         self.assertNotIn("def guess_slot", src)
 
+    # 這兩條會真的把 fetch_data.py 當子程序跑。正常情況下它在連網之前就被擋下來；
+    # 但做突變對照時（例如故意把 --slot 改回選填），檢查一拿掉它就會真的去抓資料、
+    # 把真實的 data/sources/cloud.json 寫成 slot=morning——2026-09-08 就發生過一次，
+    # 害我們看到一個「無法解釋的 morning」。所以多加一個不存在的 --only：
+    # 就算前面的檢查被拿掉，「--only 指到範圍外」這一關也會在連網前把它擋下來。
+    NO_FETCH = ("--only", "__no_such_asset__")
+
     def test_slot_is_required(self):
-        rc, out = run_script("scripts/fetch_data.py", "--source", "cloud")
+        rc, out = run_script("scripts/fetch_data.py", "--source", "cloud", *self.NO_FETCH)
         self.assertNotEqual(rc, 0)
         self.assertIn("--slot", out)
         self.assertIn("required", out)
@@ -66,7 +73,7 @@ class TestSlotIsToldNotGuessed(unittest.TestCase):
         """
         for bad in ("morning", "midmorning", "close", "review", "manual"):
             rc, out = run_script("scripts/fetch_data.py",
-                                 "--source", "local", "--slot", bad)
+                                 "--source", "local", "--slot", bad, *self.NO_FETCH)
             self.assertEqual(rc, 2, "slot=%s 應該被擋，實際 rc=%d\n%s" % (bad, rc, out))
             self.assertIn("只接受 --slot light", out)
             self.assertNotIn("已寫出分片", out, "被擋的那一輪不可以寫任何檔")
