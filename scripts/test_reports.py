@@ -122,11 +122,18 @@ class TestOldAndNewSlotNames(ReportSandbox):
         self.assertNotIn("midday", rp.SLOT_TITLE)
         self.assertEqual(rp.REPORT_SLOTS, ("morning", "midmorning", "close", "review"))
 
-    def test_cli_rejects_old_name(self):
-        p = subprocess.run([sys.executable, "scripts/report.py", "--slot", "midday"],
-                           cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        self.assertNotEqual(p.returncode, 0)
-        self.assertIn(b"invalid choice", p.stdout)
+    def test_cli_choices_come_from_report_slots(self):
+        """CLI 的 --slot 選項必須由 REPORT_SLOTS 推出來，不能另外手寫一份。
+
+        以前這條是真的把 report.py 當子程序跑 --slot midday 看它報錯；但做突變對照時
+        若有人把 midday 加回選項，那一跑就會把【真實的】archive 寫壞。
+        改成看原始碼：只要選項是從 REPORT_SLOTS 算出來的，midday 就不可能混進去。
+        """
+        with open(os.path.join(HERE, "report.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn('choices=list(REPORT_SLOTS) + ["manual"]', src)
+        self.assertNotIn('"midday"', src.split("SLOT_TITLE")[0],
+                         "SLOT_TITLE 之前不該再出現 midday 這個名字")
 
     def test_index_sorts_old_and_new_names_together(self):
         """對照組：把 update_index 的排序表改回只有舊名字，這一條會紅。"""

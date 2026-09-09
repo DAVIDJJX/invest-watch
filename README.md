@@ -362,6 +362,10 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 **如果 cron-job.org 掛了**：資料靠備援 cron 每 3 小時 light 撐著，`freshness` 會在 30 分鐘內開始標 stale，
 報告會缺席（歷史頁那一天會顯示「缺」）。處理：到 cron-job.org 看那個 job 的 History（401＝PAT 過期、404＝URL、422＝body）。
 
+**驗某一天有沒有準時**（只讀不寫）：先 `git pull`，再跑 `python scripts/verify_schedule.py --date 2026-09-10`。
+它拉那天所有 run 對照 `data/schedule.json`：7-H 每個排定時刻有沒有對應的 dispatch、晚幾秒（門檻 60 秒）；
+7-I 四份報告是否在排定＋15 分內產生；多出來的 run（備援 cron、手動）另列。結束碼 0＝PASS、1＝有 FAIL。
+
 ### 排錯：家用電腦的排程每次都中止
 
 看 `scripts/update_local.log` 最後幾行：
@@ -585,6 +589,9 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - 結束碼說實話：0 全成功／2 部分失敗（黃燈）／1 程式壞掉（紅燈）
   - 設定方式見 `docs/scheduler-setup.md`；每個子階段的改動與驗證見 `docs/CHANGELOG.md`
     （標籤 `stop7-1`～`stop7-4` 可逐段退回）
+  - **收尾 A**（2026-09-09 晚）：cron-job.org 六個 job 各 Execute now 一次，六筆 dispatch 全綠、零重試；
+    當天 archive 裡的四份報告是設定驗證時的**手動觸發**，不是排程產出（見 CHANGELOG，不刪）；
+    新增只讀的 `scripts/verify_schedule.py`（見上方維運區）。**7-H／7-I 要等 09-10 排程真的跑過才驗**
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---
