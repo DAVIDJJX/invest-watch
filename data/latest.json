@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-09-09T22:51:03+08:00",
- "updatedAtText": "2026-09-09 22:51",
+ "updatedAt": "2026-09-09T23:21:03+08:00",
+ "updatedAtText": "2026-09-09 23:21",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -72,7 +72,7 @@
     4487.0,
     4489.0
    ],
-   "fetchedAt": "2026-09-09T22:50:58+08:00",
+   "fetchedAt": "2026-09-09T23:20:58+08:00",
    "error": null,
    "buy": 4436.0,
    "sell": 4489.0,
@@ -80,8 +80,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-09T22:50:58+08:00",
-   "lastSuccessAt": "2026-09-09T22:50:58+08:00",
+   "lastAttemptAt": "2026-09-09T23:20:58+08:00",
+   "lastSuccessAt": "2026-09-09T23:20:58+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-09T17:00:00+08:00",
    "nextDueAt": "2026-09-10T09:00:00+08:00"
@@ -145,7 +145,7 @@
     954.95,
     954.7
    ],
-   "fetchedAt": "2026-09-09T22:51:01+08:00",
+   "fetchedAt": "2026-09-09T23:21:01+08:00",
    "error": null,
    "buy": 944.6,
    "sell": 954.7,
@@ -153,8 +153,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-09T22:51:01+08:00",
-   "lastSuccessAt": "2026-09-09T22:51:01+08:00",
+   "lastAttemptAt": "2026-09-09T23:21:01+08:00",
+   "lastSuccessAt": "2026-09-09T23:21:01+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-09T17:00:00+08:00",
    "nextDueAt": "2026-09-10T09:00:00+08:00"
@@ -865,7 +865,7 @@
     31.59,
     31.545
    ],
-   "fetchedAt": "2026-09-09T22:51:03+08:00",
+   "fetchedAt": "2026-09-09T23:21:03+08:00",
    "error": null,
    "spotBuy": 31.42,
    "spotSell": 31.57,
@@ -873,8 +873,8 @@
    "cashSell": 31.765,
    "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-09T22:51:03+08:00",
-   "lastSuccessAt": "2026-09-09T22:51:03+08:00",
+   "lastAttemptAt": "2026-09-09T23:21:03+08:00",
+   "lastSuccessAt": "2026-09-09T23:21:03+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-09T17:00:00+08:00",
    "nextDueAt": "2026-09-10T09:00:00+08:00"
@@ -938,7 +938,7 @@
     4.725,
     4.722
    ],
-   "fetchedAt": "2026-09-09T22:51:03+08:00",
+   "fetchedAt": "2026-09-09T23:21:03+08:00",
    "error": null,
    "spotBuy": 4.668,
    "spotSell": 4.728,
@@ -946,8 +946,8 @@
    "cashSell": 4.763,
    "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-09T22:51:03+08:00",
-   "lastSuccessAt": "2026-09-09T22:51:03+08:00",
+   "lastAttemptAt": "2026-09-09T23:21:03+08:00",
+   "lastSuccessAt": "2026-09-09T23:21:03+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-09T17:00:00+08:00",
    "nextDueAt": "2026-09-10T09:00:00+08:00"
@@ -961,12 +961,12 @@
    "ok": 8,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 93,
+   "ageMinutes": 123,
    "nextDueAt": "2026-09-10T08:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-09-09T22:51:03+08:00",
+   "runAt": "2026-09-09T23:21:03+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 5,
