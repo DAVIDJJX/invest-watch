@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-09-09T19:51:12+08:00",
- "runAtText": "2026-09-09 19:51",
+ "runAt": "2026-09-09T20:20:54+08:00",
+ "runAtText": "2026-09-09 20:20",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "full",
- "requests": 8,
+ "mode": "light",
+ "requests": 4,
  "count": 5,
  "assets": {
   "gold_twd": {
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4485.0,
+   "price": 4489.0,
    "prevClose": 4487.0,
-   "change": -2.0,
-   "changePct": -0.0446,
+   "change": 2.0,
+   "changePct": 0.0446,
    "date": "2026-09-09",
    "points": 251,
    "spark": [
@@ -66,18 +66,18 @@
     4570.0,
     4489.0,
     4487.0,
-    4485.0
+    4489.0
    ],
-   "fetchedAt": "2026-09-09T19:50:59+08:00",
+   "fetchedAt": "2026-09-09T20:20:49+08:00",
    "error": null,
-   "buy": 4432.0,
-   "sell": 4485.0,
-   "quoteTime": "2026/09/09 19:47",
+   "buy": 4436.0,
+   "sell": 4489.0,
+   "quoteTime": "2026/09/09 19:55",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-09T19:50:59+08:00",
-   "lastSuccessAt": "2026-09-09T19:50:59+08:00"
+   "lastAttemptAt": "2026-09-09T20:20:49+08:00",
+   "lastSuccessAt": "2026-09-09T20:20:49+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,16 +138,16 @@
     954.95,
     954.7
    ],
-   "fetchedAt": "2026-09-09T19:51:02+08:00",
+   "fetchedAt": "2026-09-09T20:20:51+08:00",
    "error": null,
    "buy": 944.6,
    "sell": 954.7,
-   "quoteTime": "2026/09/09 19:47",
+   "quoteTime": "2026/09/09 19:55",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-09T19:51:02+08:00",
-   "lastSuccessAt": "2026-09-09T19:51:02+08:00"
+   "lastAttemptAt": "2026-09-09T20:20:51+08:00",
+   "lastSuccessAt": "2026-09-09T20:20:51+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -225,7 +225,9 @@
    "error": null,
    "source": "local",
    "lastAttemptAt": "2026-09-09T19:51:04+08:00",
-   "lastSuccessAt": "2026-09-09T19:51:04+08:00"
+   "lastSuccessAt": "2026-09-09T19:51:04+08:00",
+   "carriedOver": true,
+   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -286,16 +288,16 @@
     31.59,
     31.545
    ],
-   "fetchedAt": "2026-09-09T19:51:09+08:00",
+   "fetchedAt": "2026-09-09T20:20:54+08:00",
    "error": null,
    "spotBuy": 31.42,
    "spotSell": 31.57,
    "cashBuy": 31.095,
    "cashSell": 31.765,
-   "historyNote": null,
+   "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-09T19:51:09+08:00",
-   "lastSuccessAt": "2026-09-09T19:51:09+08:00"
+   "lastAttemptAt": "2026-09-09T20:20:54+08:00",
+   "lastSuccessAt": "2026-09-09T20:20:54+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -356,16 +358,16 @@
     4.725,
     4.722
    ],
-   "fetchedAt": "2026-09-09T19:51:12+08:00",
+   "fetchedAt": "2026-09-09T20:20:54+08:00",
    "error": null,
    "spotBuy": 4.668,
    "spotSell": 4.728,
    "cashBuy": 4.601,
    "cashSell": 4.763,
-   "historyNote": null,
+   "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
    "source": "local",
-   "lastAttemptAt": "2026-09-09T19:51:12+08:00",
-   "lastSuccessAt": "2026-09-09T19:51:12+08:00"
+   "lastAttemptAt": "2026-09-09T20:20:54+08:00",
+   "lastSuccessAt": "2026-09-09T20:20:54+08:00"
   }
  }
 }
