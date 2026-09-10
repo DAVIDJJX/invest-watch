@@ -1,16 +1,18 @@
 {
- "updatedAt": "2026-09-10T11:30:49+08:00",
+ "updatedAt": "2026-09-10T13:35:43+08:00",
  "count": 11,
  "days": [
   {
    "date": "2026-09-10",
    "slots": [
     "morning",
-    "midmorning"
+    "midmorning",
+    "close"
    ],
    "slotTimes": {
     "morning": "09:30",
-    "midmorning": "11:30"
+    "midmorning": "11:30",
+    "close": "13:35"
    },
    "twTradingDay": true,
    "weekday": "四",
@@ -20,7 +22,7 @@
     "error": 0,
     "errorNames": []
    },
-   "updatedAt": "2026-09-10T11:30:49+08:00"
+   "updatedAt": "2026-09-10T13:35:43+08:00"
   },
   {
    "date": "2026-09-09",
