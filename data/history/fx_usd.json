@@ -3,8 +3,8 @@
   "name": "美元 / 台幣",
   "currency": "TWD",
   "unit": "台幣 / 1 美元",
-  "count": 134,
-  "updatedAt": "2026-09-11T14:29:29+08:00",
+  "count": 136,
+  "updatedAt": "2026-09-11T14:29:36+08:00",
   "points": [
     {"d":"2026-03-02","spotBuy":31.4,"spotSell":31.5,"c":31.5},
     {"d":"2026-03-03","spotBuy":31.58,"spotSell":31.68,"c":31.68},
@@ -139,6 +139,8 @@
     {"d":"2026-09-04","spotBuy":31.58,"spotSell":31.68,"c":31.68,"dateSource":"csv"},
     {"d":"2026-09-07","spotBuy":31.495,"spotSell":31.595,"c":31.595,"dateSource":"csv"},
     {"d":"2026-09-08","spotBuy":31.49,"spotSell":31.59,"c":31.59,"dateSource":"csv"},
-    {"d":"2026-09-09","spotBuy":31.445,"spotSell":31.545,"c":31.545,"dateSource":"csv"}
+    {"d":"2026-09-09","spotBuy":31.445,"spotSell":31.545,"c":31.545,"dateSource":"csv"},
+    {"d":"2026-09-10","spotBuy":31.5,"spotSell":31.6,"c":31.6,"dateSource":"csv"},
+    {"d":"2026-09-11","spotBuy":31.635,"spotSell":31.735,"c":31.735,"dateSource":"csv"}
   ]
 }

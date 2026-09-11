@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-09-11T14:29:29+08:00",
+ "runAt": "2026-09-11T14:29:39+08:00",
  "runAtText": "2026-09-11 14:29",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
- "requests": 4,
+ "mode": "full",
+ "requests": 8,
  "count": 5,
  "assets": {
   "gold_twd": {
@@ -21,13 +21,12 @@
    "priceLabel": "本行賣出",
    "status": "ok",
    "price": 4464.0,
-   "prevClose": 4489.0,
-   "change": -25.0,
-   "changePct": -0.5569,
+   "prevClose": 4507.0,
+   "change": -43.0,
+   "changePct": -0.9541,
    "date": "2026-09-11",
-   "points": 252,
+   "points": 253,
    "spark": [
-    4180.0,
     4181.0,
     4273.0,
     4316.0,
@@ -65,10 +64,11 @@
     4570.0,
     4489.0,
     4487.0,
-    4489.0,
+    4486.0,
+    4507.0,
     4464.0
    ],
-   "fetchedAt": "2026-09-11T14:29:24+08:00",
+   "fetchedAt": "2026-09-11T14:29:27+08:00",
    "error": null,
    "buy": 4416.0,
    "sell": 4464.0,
@@ -76,8 +76,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-11T14:29:24+08:00",
-   "lastSuccessAt": "2026-09-11T14:29:24+08:00"
+   "lastAttemptAt": "2026-09-11T14:29:27+08:00",
+   "lastSuccessAt": "2026-09-11T14:29:27+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,7 +138,7 @@
     956.7,
     945.3
    ],
-   "fetchedAt": "2026-09-11T14:29:27+08:00",
+   "fetchedAt": "2026-09-11T14:29:29+08:00",
    "error": null,
    "buy": 935.3,
    "sell": 945.3,
@@ -146,8 +146,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-11T14:29:27+08:00",
-   "lastSuccessAt": "2026-09-11T14:29:27+08:00"
+   "lastAttemptAt": "2026-09-11T14:29:29+08:00",
+   "lastSuccessAt": "2026-09-11T14:29:29+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -164,52 +164,52 @@
    "bars": [
     {
      "spec": "1 公斤",
-     "sell": 4520555.0,
+     "sell": 4498578.0,
      "buy": null,
      "grams": 1000.0,
-     "perGram": 4520.56,
-     "premiumPct": 0.793
+     "perGram": 4498.58,
+     "premiumPct": 0.775
     },
     {
      "spec": "500 公克",
-     "sell": 2264053.0,
+     "sell": 2253063.0,
      "buy": null,
      "grams": 500.0,
-     "perGram": 4528.11,
-     "premiumPct": 0.961
+     "perGram": 4506.13,
+     "premiumPct": 0.944
     },
     {
      "spec": "250 公克",
-     "sell": 1134171.0,
+     "sell": 1128677.0,
      "buy": null,
      "grams": 250.0,
-     "perGram": 4536.68,
-     "premiumPct": 1.152
+     "perGram": 4514.71,
+     "premiumPct": 1.136
     },
     {
      "spec": "100 公克",
-     "sell": 454965.0,
+     "sell": 452770.0,
      "buy": null,
      "grams": 100.0,
-     "perGram": 4549.65,
-     "premiumPct": 1.441
+     "perGram": 4527.7,
+     "premiumPct": 1.427
     },
     {
      "spec": "金鑽 1 台兩",
-     "sell": 170799.0,
-     "buy": 166425.0,
+     "sell": 169977.0,
+     "buy": 165600.0,
      "grams": 37.5,
-     "perGram": 4554.64,
-     "premiumPct": 1.553
+     "perGram": 4532.72,
+     "premiumPct": 1.539
     }
    ],
-   "quoteTime": "2026/09/09 15:19",
+   "quoteTime": "2026/09/11 14:19",
    "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
-   "points": 7,
-   "goldSell": 4485.0,
+   "points": 8,
+   "goldSell": 4464.0,
    "spark": [
     4592.501,
     4569.963,
@@ -217,17 +217,16 @@
     4583.723,
     4604.07,
     4520.983,
-    4520.555
+    4520.555,
+    4498.578
    ],
-   "date": "2026-09-09",
+   "date": "2026-09-11",
    "historyNote": null,
-   "fetchedAt": "2026-09-09T19:51:04+08:00",
+   "fetchedAt": "2026-09-11T14:29:32+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-09T19:51:04+08:00",
-   "lastSuccessAt": "2026-09-09T19:51:04+08:00",
-   "carriedOver": true,
-   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓"
+   "lastAttemptAt": "2026-09-11T14:29:32+08:00",
+   "lastSuccessAt": "2026-09-11T14:29:32+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -241,14 +240,12 @@
    "priceLabel": "即期賣出",
    "status": "ok",
    "price": 31.735,
-   "prevClose": 31.59,
-   "change": 0.145,
-   "changePct": 0.459,
-   "date": "2026-09-09",
-   "points": 134,
+   "prevClose": 31.6,
+   "change": 0.135,
+   "changePct": 0.4272,
+   "date": "2026-09-11",
+   "points": 136,
    "spark": [
-    32.305,
-    32.345,
     32.31,
     32.43,
     32.43,
@@ -286,18 +283,20 @@
     31.68,
     31.595,
     31.59,
-    31.545
+    31.545,
+    31.6,
+    31.735
    ],
-   "fetchedAt": "2026-09-11T14:29:29+08:00",
+   "fetchedAt": "2026-09-11T14:29:36+08:00",
    "error": null,
    "spotBuy": 31.635,
    "spotSell": 31.735,
    "cashBuy": 31.285,
    "cashSell": 31.955,
-   "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
+   "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-11T14:29:29+08:00",
-   "lastSuccessAt": "2026-09-11T14:29:29+08:00"
+   "lastAttemptAt": "2026-09-11T14:29:37+08:00",
+   "lastSuccessAt": "2026-09-11T14:29:37+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -311,14 +310,12 @@
    "priceLabel": "即期賣出",
    "status": "ok",
    "price": 4.747,
-   "prevClose": 4.725,
-   "change": 0.022,
-   "changePct": 0.4656,
-   "date": "2026-09-09",
-   "points": 134,
+   "prevClose": 4.73,
+   "change": 0.017,
+   "changePct": 0.3594,
+   "date": "2026-09-11",
+   "points": 136,
    "spark": [
-    4.79,
-    4.789,
     4.791,
     4.81,
     4.804,
@@ -356,18 +353,20 @@
     4.739,
     4.726,
     4.725,
-    4.722
+    4.722,
+    4.73,
+    4.747
    ],
-   "fetchedAt": "2026-09-11T14:29:29+08:00",
+   "fetchedAt": "2026-09-11T14:29:39+08:00",
    "error": null,
    "spotBuy": 4.697,
    "spotSell": 4.747,
    "cashBuy": 4.625,
    "cashSell": 4.787,
-   "historyNote": "盤中輕量更新只更新現價；當日匯率 CSV 沒有資料日期欄，不能拿它當某一天的歷史紀錄",
+   "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-11T14:29:29+08:00",
-   "lastSuccessAt": "2026-09-11T14:29:29+08:00"
+   "lastAttemptAt": "2026-09-11T14:29:39+08:00",
+   "lastSuccessAt": "2026-09-11T14:29:39+08:00"
   }
  }
 }
