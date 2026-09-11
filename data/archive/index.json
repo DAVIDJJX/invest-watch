@@ -1,7 +1,25 @@
 {
- "updatedAt": "2026-09-10T15:30:58+08:00",
- "count": 11,
+ "updatedAt": "2026-09-11T09:30:52+08:00",
+ "count": 12,
  "days": [
+  {
+   "date": "2026-09-11",
+   "slots": [
+    "morning"
+   ],
+   "slotTimes": {
+    "morning": "09:30"
+   },
+   "twTradingDay": true,
+   "weekday": "五",
+   "dataStatus": {
+    "total": 13,
+    "ok": 13,
+    "error": 0,
+    "errorNames": []
+   },
+   "updatedAt": "2026-09-11T09:30:52+08:00"
+  },
   {
    "date": "2026-09-10",
    "slots": [
