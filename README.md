@@ -92,7 +92,7 @@ invest-watch/
 | 台股 | 加權指數、台積電 2330、元大 S&P500 00646 | 證交所即時 + 官方月檔 |
 | 台股（上櫃） | 元大美債20年 00679B | 證交所即時（`otc_` 前綴）+ Yahoo 歷史 |
 | 海外 | NVIDIA、S&P 500、比特幣、WTI 原油 | Yahoo Finance |
-| 匯率 | 美元/台幣、人民幣/台幣 | 台銀即期匯率 |
+| 匯率 | 美元/台幣、人民幣/台幣 | 台銀每日匯率（經 FinMind 取得，雲端抓；一天一筆） |
 
 其中 12 項有完整的一年日線歷史與走勢圖。實體黃金條塊台銀不公布歷史牌價，
 所以本站**自 2026-08-31 起自己每天記錄**；在累積滿 5 天之前，卡片展開後先用黃金存摺
@@ -116,7 +116,7 @@ invest-watch/
 pip install requests
 
 # 抓一次資料。--source 與 --slot 都是必填的：
-#   --source  cloud = 雲端負責的 8 項、local = 家用電腦負責的台銀 5 項
+#   --source  cloud = 雲端負責的標的、local = 家用電腦負責的台銀黃金（誰負責哪幾項看 data/assets.json 的 owner）
 #             各自只寫自己的 data/sources/<source>.json，不會碰到對方的
 #   --slot    時段標籤，由呼叫者告知、程式不猜。本機只能用 light（本機不產報告）；
 #             雲端由 cron-job.org 告知 morning / midmorning / close / review / manual
@@ -134,7 +134,7 @@ python scripts/report.py --slot manual
 python scripts/fetch_data.py --source local --slot light --light
 
 # 只抓其中幾項（測試用，同一個 owner 底下沒選到的會沿用上次結果）
-python scripts/fetch_data.py --source local --slot light --only gold_twd,fx_cny
+python scripts/fetch_data.py --source local --slot light --only gold_twd,gold_cny
 
 # 跑測試
 python -m unittest discover -s scripts -p "test_*.py"
@@ -158,8 +158,12 @@ python -m http.server 8765
 就在資料中心裡，實測每個網址連試 8 次全部只拿到驗證頁；同一支程式在家用電腦上跑
 卻一次就過。
 
-受影響的是這 5 項：黃金存摺 TWD、黃金存摺 CNY、實體黃金條塊、美元/台幣、人民幣/台幣。
-證交所與 Yahoo 的 7 項不受影響，雲端排程照常更新。
+直接抓台銀的原本有 5 項：黃金存摺 TWD、黃金存摺 CNY、實體黃金條塊、美元/台幣、人民幣/台幣。
+**匯率那 2 項自 2026-09-18 起改由雲端經 FinMind 取得**（同樣是台銀的每日牌價，見下方），
+所以現在只剩黃金 3 項要靠家用電腦。證交所與 Yahoo 的 8 項不受影響，雲端排程照常更新。
+
+2026-09-08～09-10 又用 `probe-bot` 從雲端量了 12 次、60 個樣本，60 個全部被擋——
+這不是偶發，雲端就是抓不到台銀（結果表見下方設計筆記）。
 
 ### 解法：家用電腦負責補抓（已設定好）
 
@@ -183,13 +187,13 @@ python -m http.server 8765
 
 | 誰 | 什麼時候 | 負責哪些 | 要開電腦？ |
 |---|---|---|---|
-| GitHub Actions | 每天 10:17 / 13:17 / 15:17 | 台股 3 項 + 海外 4 項 | ❌ 不用 |
-| 這台電腦（完整） | 每天 10:05 / 13:05 / 15:05 | 全部 12 項 + 報告 | ✅ 要 |
-| 這台電腦（輕量） | 平日 09:00–17:00 每 30 分 | 現價（黃金存摺、匯率、台股、國際） | ✅ 要 |
+| 雲端（cron-job.org 觸發 GitHub Actions） | 平日 08:10～17:40 每 30 分；09:30／11:30／13:35／15:30 完整更新＋報告；週末每 2 小時 | 台股 4 項、海外 4 項、匯率 2 項（匯率一天一筆，只在完整更新抓） | ❌ 不用 |
+| 這台電腦（完整） | 每天 10:05 / 13:05 / 15:05 | 台銀黃金 3 項（含歷史） | ✅ 要 |
+| 這台電腦（輕量） | 平日 09:00–17:00 每 30 分 | 黃金存摺現價（實體條塊跳過） | ✅ 要 |
 
-> 雲端排程為什麼是 :17 而不是整點？2026-09-01 實測：原本設整點，當天三次排程
-> **只有一次真的觸發**。GitHub 免費排程在整點負載最重、會直接把工作丟掉，
-> 官方也建議避開整點。
+> 這張表 2026-09-18 重寫過。雲端從 2026-09-09 起不再靠 GitHub 自己的 cron（它從來不準時），
+> 改由 cron-job.org 準時觸發，見下方「排程在哪裡」；報告只有雲端會產。
+> 誰負責哪幾項的唯一依據是 `data/assets.json` 的 `owner`。
 
 **⚠ 待機時不會跑（2026-09-01 實測）。**
 所有工作都設了「喚醒電腦執行」（`WakeToRun`），但這台筆電是**現代待機（S0）**機種——
@@ -258,6 +262,10 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
 > 混淆過的 JavaScript），連在家用電腦上都拿不到資料，比台銀更嚴。玉山銀行的匯率
 > 頁面倒是能直接解析，若未來想讓匯率也能在雲端更新，那是可行的方向——但那會變成
 > 看玉山的牌價，不是台銀的。
+>
+> **2026-09-18 更新**：匯率不用換銀行了。FinMind 的 `TaiwanExchangeRate` 轉載的就是台銀的
+> 每日牌價（切換前逐日比對 136 天，即期買入／賣出完全一致），而且雲端抓得到，
+> 所以這 2 項已經搬到雲端。代價是一天只有一筆、沒有盤中價。見 `docs/CHANGELOG.md` 8-0。
 
 ---
 
@@ -324,7 +332,7 @@ git push
 | 2026-09-05 | 分片來源架構 + `latest.json` 改為衍生檔（停點 1-3） | `git revert -m 1 4f3d1b0 && git push` |
 | 2026-09-09 | 外部精準觸發 ＋ 30 分鐘更新 ＋ 四時段報告（停點 7） | `git revert -m 1 56f96f6 && git push` |
 
-### 排錯：某天起每天固定某個時段，8 項雲端資料全部標示過期
+### 排錯：某天起每天固定某個時段，雲端那幾項資料全部標示過期
 
 **代表 GitHub Actions 的觸發時間漂移了**，不是資料真的壞掉。
 `data/schedule.json` 裡 `cloud.full.at` 寫的是「雲端資料實際到貨的時間」，
@@ -352,9 +360,9 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 
 | 誰 | 在哪裡設定 | 怎麼確認 |
 |---|---|---|
-| 雲端（8 項＋四份報告） | **cron-job.org** 的六個 job（照 `docs/scheduler-setup.md` 建的），用 `workflow_dispatch` 打進 GitHub Actions | Actions 頁的 run 右邊寫 `workflow_dispatch`；Summary 有「模式／時段／dispatch→開跑延遲」；cron-job.org 每個 job 的 History 要是 HTTP 204 |
+| 雲端（10 項＋四份報告） | **cron-job.org** 的六個 job（照 `docs/scheduler-setup.md` 建的），用 `workflow_dispatch` 打進 GitHub Actions | Actions 頁的 run 右邊寫 `workflow_dispatch`；Summary 有「模式／時段／dispatch→開跑延遲」；cron-job.org 每個 job 的 History 要是 HTTP 204 |
 | 雲端備援 | `.github/workflows/update-data.yml` 裡那一行 cron（每 3 小時） | run 右邊寫 `schedule`；**只做 light、永遠不產報告**，所以它跑了也不會生出時間錯的報告 |
-| 家用電腦（台銀 5 項） | Windows 工作排程器的四個工作 | `scripts\update_local.log`；本機一律 `--slot light`，時段標籤只由雲端決定 |
+| 家用電腦（台銀黃金 3 項） | Windows 工作排程器的四個工作 | `scripts\update_local.log`；本機一律 `--slot light`，時段標籤只由雲端決定 |
 
 手動跑一次雲端：Actions 頁 → **更新市場資料** → **Run workflow** → `mode` 與 `slot` 兩個都要選
 （`light`＋`light`，或 `full`＋某個報告時段／`manual`）。選錯組合第一步就會紅燈並說明。
@@ -365,6 +373,15 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 **驗某一天有沒有準時**（只讀不寫）：先 `git pull`，再跑 `python scripts/verify_schedule.py --date 2026-09-10`。
 它拉那天所有 run 對照 `data/schedule.json`：7-H 每個排定時刻有沒有對應的 dispatch、晚幾秒（門檻 60 秒）；
 7-I 四份報告是否在排定＋15 分內產生；多出來的 run（備援 cron、手動）另列。結束碼 0＝PASS、1＝有 FAIL。
+
+### 倉庫根目錄不要放不相干的東西（`Claude outputs/` 事故）
+
+2026-09-13 23:22，Claude 桌面 App 把它產出的交付文件存進了倉庫根目錄的 `Claude outputs/`
+（把倉庫資料夾連進對話時它會這樣做）。本機腳本看到工作區「不乾淨」就跳過快轉，接著發現
+落後遠端就中止——從 9/14 到 9/18，**每一次**本機排程都是結束碼 4，台銀 5 項停了五天。
+
+- 此資料夾由 Claude 桌面 App 產生，已加進 `.gitignore`；文件本身移到倉庫外的 `D:\Claude_use\Claude outputs\`。
+- 以後任何「跟這個網站無關」的檔案都不要放進這個資料夾。
 
 ### 排錯：家用電腦的排程每次都中止
 
@@ -400,9 +417,9 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 
 ### 對台銀的請求要克制
 
-臺灣銀行有機器人防護。雲端的資料中心 IP 就是這樣被擋掉的（所以那 5 項才要由家用
+臺灣銀行有機器人防護。雲端的資料中心 IP 就是這樣被擋掉的（所以直接抓台銀的那幾項才要由家用
 電腦補抓），而且用 `curl` 直接抓也會拿到驗證頁——本專案的 `Fetcher` 帶了正確的
-標頭才過得去。**一旦連家用電腦也被擋，本機負責的那 5 項會整個失效**，那是這個
+標頭才過得去。**一旦連家用電腦也被擋，本機負責的黃金 3 項會整個失效**，那是這個
 專案最脆弱的一環。
 
 因此：
@@ -423,7 +440,8 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 |---|---|
 | `quote` | 台銀網頁上的掛牌時間 |
 | `chart` | 台銀黃金走勢表自己的日期欄 |
-| `csv` | 台銀匯率 CSV 的資料日期欄 |
+| `csv` | 台銀匯率 CSV 的資料日期欄（2026-09-11 以前的匯率點） |
+| `finmind` | FinMind `TaiwanExchangeRate` 回應自己的 `date` 欄（台銀每日牌價；2026-09-14 起的匯率點） |
 | `official` | 證交所官方月檔的日期欄 |
 | `realtime` | 證交所即時報價自己回傳的日期 |
 | `yahoo` | Yahoo 日線 K 棒自己的時間戳 |
@@ -592,12 +610,17 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - **收尾 A**（2026-09-09 晚）：cron-job.org 六個 job 各 Execute now 一次，六筆 dispatch 全綠、零重試；
     當天 archive 裡的四份報告是設定驗證時的**手動觸發**，不是排程產出（見 CHANGELOG，不刪）；
     新增只讀的 `scripts/verify_schedule.py`（見上方維運區）。**7-H／7-I 要等 09-10 排程真的跑過才驗**
+- [ ] **停點 8 — 台銀 5 項脫離筆電**（2026-09-18 進行中）
+  - [x] **8-0 匯率改由雲端經 FinMind 抓**：FinMind 的 `TaiwanExchangeRate` 轉載的就是台銀的每日牌價，
+    雲端抓得到；切換前逐日稽核 136 天完全一致。代價是一天一筆、沒有盤中價。
+    卡片與報告都標明「台銀每日匯率（經 FinMind）」與那一筆是哪一天的
+  - 其餘（probe 彙整、本機互斥鎖、舊資料標示、schedule.json）見 `docs/CHANGELOG.md` 的停點 8
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---
 
 ## 資料來源
 
-臺灣銀行（黃金存摺牌價、實體條塊掛牌、即期匯率）、臺灣證券交易所（即時報價與官方
+臺灣銀行（黃金存摺牌價、實體條塊掛牌；即期匯率是台銀的每日牌價，經 FinMind 取得）、臺灣證券交易所（即時報價與官方
 日成交資訊）、Yahoo Finance（美股／原油／比特幣）。全部是公開資料，可能有延遲或誤差，
 正式交易請以各機構官方公告為準。

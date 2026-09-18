@@ -200,3 +200,177 @@ GitHub 那一層分不出來；用既有欄位做不到，要標的話得在 dis
 晨報仍 FAIL（晚 3 分），門檻邏輯有在分辨，不是永遠 FAIL。
 
 **還沒做（明天）**：7-H、7-I 用 `python scripts/verify_schedule.py --date 2026-09-10` 彙整。
+
+---
+
+# CHANGELOG — 停點 8：台銀 5 項脫離筆電（匯率先搬上雲，黃金留在筆電）
+
+格式同停點 7：每個子階段一段，寫「改了什麼、怎麼驗證的、怎麼退回」。標籤與子階段的對應：
+
+| 標籤 | 子階段 |
+|---|---|
+| `stop8-0` | 匯率改由雲端經 FinMind 抓（含前置：`.gitignore`、probe cron） |
+| `stop8-1` | 停點 6 彙整（probe 結果表）＋ 7-H／7-I 正式紀錄 |
+| `stop8-2` | 黃金 3 項的去向（只有紀錄，沒有程式變動） |
+| `stop8-3` | 本機腳本：互斥鎖＋「工作區乾淨」只看已追蹤的檔案 |
+| `stop8-4` | 卡片自己說「這是舊資料」 |
+| `stop8-5` | `schedule.json` 對齊現實 |
+
+退回任何一段：
+
+```bash
+git revert --no-edit stop8-(n-1)..stop8-n    # 只反轉第 n 段（第 0 段用 git revert --no-edit <stop8-0 的前一個 commit>..stop8-0）
+git push
+```
+
+## 背景：2026-09-10～09-18 本機那一邊發生了什麼（照 `scripts/update_local.log` 寫）
+
+雲端這一邊（台股 4、海外 4、四份報告）這段期間全部正常，不動。出事的全在家用電腦：
+
+| 日期 | 本機啟動 | 發生什麼 |
+|---|---|---|
+| 09-10（四） | 0 次 | 筆電整天沒醒 |
+| 09-11（五） | 3 次，14:28:21／:45／:48 | 筆電下午才醒，Windows 把錯過的三個工作一口氣補跑，三個實例互撞（見下） |
+| 09-12（六） | 0 次 | 筆電整天沒醒 |
+| 09-13（日） | 兩批各 3 個，23:15 與 23:20 | 同樣的互撞；23:21 **最後一次成功** |
+| 09-14～09-18 | 每天 2～4 次 | **每一次都是結束碼 4**：原因不是睡覺，是 `Claude outputs/` 這個資料夾（見下） |
+
+**兩個不同的根本原因，不要混為一談：**
+
+1. **09-10、09-12、09-13 白天：筆電在睡。** 現代待機（S0）機種 `WakeToRun` 無效，README 早就寫過。這是「台銀 5 項不能靠筆電」的原因。
+2. **09-14～09-18：一個不相干的資料夾卡住了整條管線。** 09-13 23:22（最後一次成功的七分鐘後），Claude 桌面 App 把它產出的
+   交付文件存進倉庫根目錄的 `Claude outputs/`。`update_local.ps1` 用 `git status --porcelain` 判斷「工作區乾不乾淨」，
+   未追蹤的檔案也算髒 → 跳過快轉 → 發現落後 origin/main → 結束碼 4。log 原文（09-15 13:05）：
+
+   ```
+   2026-09-15 13:05:09    工作區有未提交的變動，跳過自動快轉（不動你正在改的東西）
+   2026-09-15 13:05:10  本機落後 origin/main 43 個 commit 且無法快轉 —— 中止。
+   ```
+
+   落後數一路從 29（09-14 22:23）漲到 141（09-18 22:08）。09-15 筆電在 00:42、13:02、13:05、22:08 都有醒、都有跑，
+   所以當時「筆電整天沒跑」的判斷是**誤判**——它跑了，只是每次都被擋。資料夾 09-18 22:1x 移到倉庫外之後才恢復。
+   另外 09-16 17:35 三個完整更新工作啟動後被系統直接終止（工作排程器結束碼 `0x8007042B`），log 一行都沒留。
+
+**互撞（8-3 要修的那個 bug）比原本以為的早、也嚴重：**
+
+- 不是 09-11 才有。log 裡最早的 `cannot lock ref` 在 **09-01 17:52**，最早的 `index.lock` 在 **09-04 19:50:46**。
+- 09-11 14:28:56 `git merge: error: Unable to create '.git/index.lock': File exists.`——撞在 ps1 的 `git merge --ff-only`，
+  而 ps1 不檢查那一步的結束碼；是另一個實例剛好先把共用的 HEAD 快轉好才沒事。
+  `publish.py` 的重試救的是 14:30:24 那次 `! [remote rejected] HEAD -> main (cannot lock ref …)`（「第 1 次重試」後推送成功），
+  **不是** index.lock——publish 在 add／commit 撞到 index.lock 會直接結束碼 1，沒有重試。
+- 09-13 23:20 那一批把一個 **0 bytes 的 `data/sources/local.json`** 推進了 commit `809b441`，下一個 commit `8b56626` 才還原。
+- 用「開始」的行數算啟動次數會**低估**：多個實例同時 `Add-Content` 會掉行。09-14 22:23:21 四個工作同一秒啟動，log 只留下一行「開始」。
+- 四個 Windows 工作的實際設定（`Get-ScheduledTask` 查的）：UpdateLight＝週一～五 09:00 起每 30 分、持續 8 小時；
+  Morning／Midday／Close＝每天 10:05／13:05／15:05；四個都是 `StartWhenAvailable=True`、`MultipleInstances=IgnoreNew`
+  （只擋「同一個工作」的第二個實例，四個不同的工作互不相擋）——筆電一醒，錯過的工作同一秒一起補跑，這就是根因。
+
+整份 log（274KB）在動工前另外存證了一份；它超過 300KB 會自己砍成最後 500 行，09-11 的原文屆時會消失。
+
+---
+
+## 2026-09-18 · 前置：`Claude outputs/` 與 probe 的 cron
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| （倉庫外） | `Claude outputs/` 移到 `D:\Claude_use\Claude outputs\`（使用者自己移的） |
+| `.gitignore` | 加一行 `Claude outputs/`：就算它再出現，`git status` 也看不到它，不會再擋住本機排程 |
+| `README.md` | 維運區記下這個資料夾的來歷與事故 |
+| `.github/workflows/probe-bot.yml` | 拿掉 `schedule`（兩行）。量測 09-10 就到期了，但 cron 之後每 3 小時還是起一個什麼都不做的 run，白白累積了 28 個；`workflow_dispatch` 與到期檢查原樣留著 |
+
+根治（未追蹤的檔案不該算「工作區不乾淨」）放在 8-3 跟互斥鎖一起做。
+
+**怎麼驗證的**：`git check-ignore -v "Claude outputs/x.md"` 命中 `.gitignore:23`；probe-bot.yml 的 `on:` 只剩 `workflow_dispatch`。
+
+**怎麼退回**：跟 8-0 在同一個 commit，見下一段。
+
+---
+
+## 2026-09-18 · 8-0 匯率改由雲端經 FinMind 抓
+
+**為什麼**：台銀擋雲端，匯率只能靠筆電；筆電一睡（或像上面那樣被卡住）匯率就停——09-11 之後的匯率歷史一片空白。
+FinMind 的 `TaiwanExchangeRate` 轉載的就是台銀的每日牌價，免 token，雲端抓得到。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `scripts/fetch_data.py` | 新 type `finmind_fx`：`parse_finmind_fx`（解析＋三條誠實規則）、`fetch_finmind_fx`（一個幣別一個請求）、`handle_finmind_fx`；`DATE_SOURCE` 與 `DATE_SOURCE_GRADE` 登記 `finmind`（第 3 級，跟 `csv` 同級）。`bot_fx` 的程式與測試原樣留著當「直接抓台銀」的備援路徑 |
+| `data/assets.json` | `fx_usd`、`fx_cny`：`owner` local→**cloud**、`type` bot_fx→**finmind_fx**、加 `cadence: full`（一天一筆，盤中每 30 分去問沒有意義） |
+| `scripts/merge_latest.py`、`scripts/cleanup_fake_history_points.py` | `BOT_TYPES` 加 `finmind_fx`（每日牌價是定案值、週末不掛牌，兩條規則照樣適用） |
+| `scripts/report.py` | 報告裡的匯率多兩個小標籤：「資料來源 台銀每日匯率（經 FinMind）」「資料日期」 |
+| `js/app.js`、`index.html` | 卡片小字列多印 `sourceLabel`（文字由資料層給，呈現層不猜）；今天那筆還沒發布時的說明文字；頁尾與免責的來源說明；頁尾「更新方式」原本寫「每日三時段」，是停點 7 之前的舊話，改成現況 |
+| `scripts/audit_finmind_fx.py`（新） | 只讀的稽核：FinMind vs 本站既有歷史逐日比對，超過 0.3% 結束碼 1 |
+| `scripts/test_finmind_fx.py`（新） | 20 條測試，全部不連網 |
+| `scripts/test_schedule_util.py` | 「只有誰寫了 cadence」的確切清單：`["gold_bar", "fx_usd", "fx_cny"]` |
+| `scripts/test_race_recovery.py` | 項數不寫死（從 assets.json 算）；剛換 owner、對方分片還沒有那一項時不會 `KeyError` |
+| `scripts/update_local.ps1`、`.github/workflows/update-data.yml` | **只改說明文字與 commit 訊息**（「5 項」「8 項」「含匯率」），邏輯一個字沒動 |
+| `README.md` | 標的表、分工表（整張重寫，舊表還停在停點 7 之前）、已知限制、`dateSource` 表、資料來源 |
+
+**設計上的三個決定**
+
+1. **純追加**。每次只問「歷史最後一天」起的資料，而且只收比它**新**的日期。舊的 132 個 `csv` 點與 4 個沒有 `dateSource` 的老點
+   從此不會被重送，也就不可能被改寫（同等級的新點會整筆蓋過去、連 `dateSource` 一起洗掉——所以不靠等級保護，靠「不重送」）。
+   含最後一天是為了對帳：來源對那一天的說法跟本站不同時只提醒、不覆寫。代價：FinMind 事後修正某天的值我們不會跟。
+2. **今天那筆還沒發布不算失敗**。`msg=success` 但沒有新日期 → `status=ok`、卡片顯示最後一筆的日期（不是今天）、
+   `historyNote` 說明原因、**歷史檔完全不碰**（連 `updatedAt` 都不改，少掉每次 full 一筆無意義的 diff）。
+   `msg` 不是 success、`status` 不是 200、`data` 不是陣列 → 失敗，走既有的 `status=error`＋`lastGood`，一個點都不寫。
+   注意 FinMind 出錯時 **HTTP 照樣回 200**，`msg` 這個判斷是唯一的防線。
+3. **輕量更新沿用上次結果，但上次沒有結果或失敗就照抓**（跟實體條塊同一個寫法）。否則換 owner 之後、第一次完整更新之前，
+   兩張匯率卡會因為「雲端分片裡還沒有這一項」而一路紅著。
+
+卡片上的價格、買賣價、日期全部出自同一列（以前現價來自沒有日期的當日 CSV、日期來自歷史最後一點，會出現「09-13 抓的價格配 09-11 的日期」）。
+現金買入／賣出只放在卡片，不進歷史點，歷史點的形狀不變。
+
+**怎麼驗證的**
+
+- **歷史稽核（0.3% 規則）**：`python scripts/audit_finmind_fx.py`，2026-09-18 22:33，共 2 個請求。
+
+  | 標的 | 本站歷史 | 逐日比對 | 完全一致 | 有差異 | 超過 0.3% | 只有一邊有的日期 |
+  |---|---|---|---|---|---|---|
+  | fx_usd | 136 點（03-02～09-11） | 136 天 | **136** | 0 | 0 | 無 |
+  | fx_cny | 136 點（03-02～09-11） | 136 天 | **136** | 0 | 0 | 無 |
+
+  即期買入與即期賣出兩個欄位都比。切換後會補進歷史的新日期：09-14、09-15、09-16、09-17、09-18 共 5 天
+  （CNY 即期賣出 4.75／4.768／4.779／4.777／4.774；USD 31.75／31.9／31.94／31.93／31.855）。
+- 單元測試 `python -m unittest discover -s scripts -p "test_*.py"`：**130 OK**（原 110 ＋ 新 20）。`python scripts/test_race_recovery.py`：全部通過（在「assets.json 已換 owner、雲端分片還沒有匯率」的過渡狀態下跑的）。
+- **突變對照組**（每一個案例：把工作區現在的檔案整份複製到暫存目錄 → 在副本改壞一處 → 只跑 `test_finmind_fx.py` → 必須紅）。
+  11 個全部符合預期：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | （基準）什麼都不改 | 綠（20 條全過） |
+  | 把 `msg` 的判斷改壞（"success" 改成別的字，永遠不會擋） | 2 條紅：`test_failure_message_writes_nothing_at_all`、`test_message_other_than_success_is_a_failure_even_with_data` |
+  | 拿掉 `status` 必須是 200 的判斷 | 1 條紅 |
+  | 沒有新點時也回傳 `new_pts`（main 會拿空陣列去存檔＝清空歷史） | 3 條紅 |
+  | 拿掉「只收比歷史最後一天新的日期」 | 1 條紅：`test_old_days_are_never_rewritten_even_if_the_source_disagrees` |
+  | 歷史點的日期改用「現在」而不是回應的 `date` | 3 條紅 |
+  | 拿掉輕量更新的跳過 | 1 條紅 |
+  | 每次都從 2026-03-02 整段重抓 | 1 條紅 |
+  | `DATE_SOURCE_GRADE` 忘了登記 `finmind` | 1 條紅 |
+  | `assets.json` 的 fx_usd 忘了寫 `cadence=full` | 1 條紅 |
+  | `merge_latest` 的 `BOT_TYPES` 忘了加 `finmind_fx` | 1 條紅 |
+
+  「失敗時一個點都不准寫」那兩條測試刻意走到 `main()` 的存檔那一步，而且假回應**故意帶著看起來正常的資料列**：
+  handler 自己從來不寫檔，只驗 handler 的話，把 `msg` 判斷拿掉之後歷史檔也「看起來」沒被動過，對照組會是假的綠。
+- **端到端（暫存副本，真的連 FinMind，2 個請求）**：`fetch_data.py --source cloud --slot manual --only fx_usd,fx_cny` →
+  兩項各 141 點、最新一筆 09-18、雲端分片 10 項；`merge_latest.py` → 13 項 ok、fx `source=cloud`、`freshness=fresh`。
+  歷史檔的 diff 只有檔頭的 `count`／`updatedAt` 與**新增的 5 行**，舊的 136 行一個字元都沒變。
+- **本機預覽**（`python -m http.server` 開暫存副本）：匯率卡小字列「即期賣出 · 台幣 / 1 人民幣 · 2026-09-18 · 台銀每日匯率（經 FinMind）」、
+  四個買賣價都在、console 無錯誤；把副本裡 fx_cny 的日期改回前一天 → 出現「（最近一筆）」與說明框
+  「這是台銀的每日牌價，經 FinMind 取得；當天那一筆要等它發布才有…」。
+
+**FinMind 當天那一筆幾點出現**（誠實條款，持續補）：目前只有兩個下界——09-16 的那一筆在 09-16 22:16 已經存在；
+09-18 的那一筆在 09-18 22:33 已經存在。09:30 與 15:30 兩次完整更新各觀察一次的結果，等 8-0 上線後的第一個營業日
+（09-21）從 Actions 的 log 讀（handler 每次都會印「FinMind USD 最新一筆：…（就是今天／不是今天）」），再補進這裡與 PLAN 7.11。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-0          # 前置與 8-0 是同一個 commit；assets.json 的 owner 會回到 local
+git push
+```
+
+退回之後匯率又歸家用電腦：雲端分片裡殘留的那兩項會被 merge 當成孤兒略過（無害），本機下一次完整更新就會接手。
+FinMind 補進去的歷史點（`dateSource=finmind`）不會被退回，它們是真的牌價，留著沒有問題。

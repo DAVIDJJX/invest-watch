@@ -18,8 +18,9 @@ test_race_recovery.py — 競態實測：兩邊同時推，誰的資料都不能
 
 情境：
     劇本 A（3-B / 3-C / 3-H / 3-I）
-      1. 雲端那台：更新自己的 8 項 + 產生一份今天的報告 → 推送成功
-      2. 家用電腦：更新自己的 5 項 → 推送被拒 → 走重試流程
+      1. 雲端那台：更新自己負責的標的 + 產生一份今天的報告 → 推送成功
+      2. 家用電腦：更新自己負責的標的 → 推送被拒 → 走重試流程
+      （各自負責哪幾項從 data/assets.json 的 owner 算，不寫死）
       3. 檢查最終的遠端內容
     劇本 B（3-J）
       遠端裝一個永遠拒絕的 pre-receive 掛勾，讓三次重試全部失敗，
@@ -156,7 +157,10 @@ def bump_side(work, source, ids, delta, stamp):
     shard["runAt"] = stamp
     shard["runAtText"] = stamp[:16].replace("T", " ")
     for aid in ids:
-        e = shard["assets"][aid]
+        # 剛把某一項的 owner 換邊、那一邊還沒真的跑過時，分片裡不會有它。
+        # 「那台機器第一次抓到它」本來就是真實會發生的情境，所以補一筆最小的成功紀錄，
+        # 而不是 KeyError 讓整支測試在換邊的那個 commit 上直接炸掉。
+        e = shard["assets"].setdefault(aid, {"id": aid, "status": "ok", "price": 1.0})
         if e.get("price") is not None:
             e["price"] = round(e["price"] + delta, 4)
         e["status"] = "ok"
@@ -202,7 +206,7 @@ def scenario_a(tmp):
     t_local = "2026-09-05T11:22:22+08:00"
 
     # --- 1. 雲端那台：抓 → 合併 → 產報告 → 推送 ---------------------------
-    say("\n[1] 雲端那台：更新 8 項 + 產生今天的報告，然後推送")
+    say("\n[1] 雲端那台：更新 %d 項 + 產生今天的報告，然後推送" % len(CLOUD_IDS))
     cloud_shard = bump_side(cloudside, "cloud", CLOUD_IDS, +100.0, t_cloud)
     py(cloudside, "scripts/merge_latest.py")
     report_marker = make_cloud_report(cloudside, "morning")
@@ -213,7 +217,7 @@ def scenario_a(tmp):
     check("雲端推送成功（結束碼 0）", rc == 0, "實際 %d" % rc)
 
     # --- 2. 家用電腦：抓 → 合併（此時手上的雲端分片還是舊的）→ 推送 -------
-    say("\n[2] 家用電腦：更新 5 項後推送（此時它手上的雲端分片還是舊版）")
+    say("\n[2] 家用電腦：更新 %d 項後推送（此時它手上的雲端分片還是舊版）" % len(LOCAL_IDS))
     bump_side(localside, "local", LOCAL_IDS, +7.0, t_local)
     py(localside, "scripts/merge_latest.py")
 
@@ -227,7 +231,7 @@ def scenario_a(tmp):
     # check_rc=False：推送失敗要印成 FAIL 讓人看得懂，不要丟例外把後面的檢查全中斷
     rc, out = py(localside, "scripts/publish.py", "--source", "local",
                  "--rebuild", "merge",
-                 "--message", "data: %s 本機補抓（含台銀黃金與匯率）" % TODAY,
+                 "--message", "data: %s 本機補抓（台銀黃金）" % TODAY,
                  check_rc=False, env={"INVESTWATCH_RETRY_SLEEP": "0"})
     check("家用電腦最終推送成功（結束碼 0）", rc == 0, "實際 %d" % rc)
     check("而且確實走過了重試流程（不是一次就成功）", "第 1 次重試" in out)
@@ -241,7 +245,7 @@ def scenario_a(tmp):
     final_local = read(verify, "data/sources/local.json")
     final_latest = read(verify, "data/latest.json")
 
-    say("\n  ── 3-B：雲端那 8 項不可以被還原成舊值 ──")
+    say("\n  ── 3-B：雲端那幾項不可以被還原成舊值 ──")
     bad = []
     for aid in CLOUD_IDS:
         want = cloud_shard["assets"][aid]
@@ -251,23 +255,24 @@ def scenario_a(tmp):
             bad.append("%s（價格 %s→%s，成功時間 %s）"
                        % (aid, want.get("price"), got.get("price"),
                           got.get("lastSuccessAt")))
-    check("cloud.json 裡 8 項的價格與 lastSuccessAt 都是雲端推上去的那一筆",
+    check("cloud.json 裡每一項的價格與 lastSuccessAt 都是雲端推上去的那一筆",
           not bad, "；".join(bad))
 
     hist_bad = [aid for aid in CLOUD_IDS
                 if read(verify, "data/history/%s.json" % aid).get("_測試標記")
                 != "cloud-%s" % t_cloud]
-    check("雲端那 8 項的歷史檔也沒有被還原", not hist_bad, "、".join(hist_bad))
+    check("雲端那幾項的歷史檔也沒有被還原", not hist_bad, "、".join(hist_bad))
 
-    say("\n  ── 3-B：家用電腦那 5 項也要是新的 ──")
+    say("\n  ── 3-B：家用電腦那幾項也要是新的 ──")
     bad = [aid for aid in LOCAL_IDS
            if final_local["assets"][aid].get("lastSuccessAt") != t_local]
-    check("local.json 裡 5 項的 lastSuccessAt 是本機這一輪的", not bad, "、".join(bad))
+    check("local.json 裡每一項的 lastSuccessAt 是本機這一輪的", not bad, "、".join(bad))
 
     say("\n  ── 3-B：合併出來的 latest.json ──")
     s = final_latest["summary"]
-    check("summary = ok:13 / error:0",
-          s["total"] == 13 and s["ok"] == 13 and s["error"] == 0,
+    n_all = len(CLOUD_IDS) + len(LOCAL_IDS)
+    check("summary = 全部 %d 項 ok / error:0" % n_all,
+          s["total"] == n_all and s["ok"] == n_all and s["error"] == 0,
           "實際 total=%d ok=%d error=%d" % (s["total"], s["ok"], s["error"]))
 
     mixed_bad = []
@@ -275,7 +280,7 @@ def scenario_a(tmp):
         if final_latest["assets"][aid].get("price") != \
                 cloud_shard["assets"][aid].get("price"):
             mixed_bad.append(aid)
-    check("latest.json 裡雲端 8 項的價格是雲端的新值（證明重算時讀到的是對方的新分片）",
+    check("latest.json 裡雲端那幾項的價格是雲端的新值（證明重算時讀到的是對方的新分片）",
           not mixed_bad, "、".join(mixed_bad))
     check("latest.json 的兩個來源時間都在（cloud=%s / local=%s）"
           % (final_latest["sources"]["cloud"]["runAt"],

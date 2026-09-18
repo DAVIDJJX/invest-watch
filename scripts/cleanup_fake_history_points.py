@@ -41,7 +41,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fetch_data as fd                                      # noqa: E402
 
 # 只有這幾種來源是台銀的，也只有它們適用「週末一定沒有牌價」這條規則
-BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx")
+BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx", "finmind_fx")
 WEEKDAY_NAME = ["一", "二", "三", "四", "五", "六", "日"]
 
 # 本專案第一次執行的日期（Phase 1，commit 5715fe2）。

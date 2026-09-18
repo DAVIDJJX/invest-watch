@@ -4,13 +4,14 @@
 
     為什麼需要這支？
       臺灣銀行的網站會擋掉 GitHub Actions 的資料中心 IP，所以雲端排程抓不到
-      黃金存摺、實體金條塊、美元/台幣、人民幣/台幣這 5 項。但同一支程式在
+      黃金存摺（台幣、人民幣）與實體金條塊這 3 項。但同一支程式在
       你自己的電腦上跑就沒問題，所以由這台電腦負責補上那幾項。
+      （匯率原本也在這裡，2026-09-18 起改由雲端經 FinMind 抓，見 docs/CHANGELOG.md 8-0）
 
     它會做什麼？
       1. 先跟 GitHub 對齊（fetch，工作區乾淨就快轉）
       2. 確認自己在 main 上而且沒有落後——不是的話直接中止
-      3. 跑 fetch_data.py --source local，只抓本機負責的 5 項
+      3. 跑 fetch_data.py --source local，只抓本機負責的標的
       4. 跑 merge_latest.py，把兩邊的分片合成 data/latest.json
       5. 跑 publish.py，提交並推回 GitHub（推不上去會安全地重試）
       6. 全程寫進 scripts/update_local.log
@@ -52,7 +53,7 @@ try {
 } catch { }
 
 # --- 防呆：本機絕對不可以跑 --source all -----------------------------------
-# all 會連雲端負責的 8 項一起抓，並寫出 data/sources/cloud.json，
+# all 會連雲端負責的標的一起抓，並寫出 data/sources/cloud.json，
 # 等於本機又去蓋掉雲端的分片——那正是這次改架構要消滅的問題。
 # all 只留給手動測試，這支腳本與排程一律拒絕。
 if ($Source -ne "local") {
@@ -129,7 +130,7 @@ if ($behind -ne "0") {
     exit 4
 }
 
-# --- 3. 抓資料（只抓本機負責的 5 項）------------------------------------
+# --- 3. 抓資料（只抓本機負責的標的）------------------------------------
 # 本機一律 --slot light：本機不產報告，沒有資格宣告「這是晨報／收盤」。
 # 以前 Windows 排程晚上補跑 13:05 的工作，就把整份 latest.json 標成了「午盤」。
 # 時段標籤只由產報告的那一方（雲端）決定；Task Scheduler 傳來的 -Slot 只寫 log、不採用。
@@ -164,8 +165,8 @@ if ($LASTEXITCODE -ne 0) {
 # 或 data/report-latest.json，那是雲端的檔案。
 $date = Get-Date -Format "yyyy-MM-dd"
 $time = Get-Date -Format "HH:mm"
-$msg  = if ($Light) { "data: $date $time 盤中輕量更新（本機：黃金與匯率現價）" }
-        else        { "data: $date 本機補抓（含台銀黃金與匯率）" }
+$msg  = if ($Light) { "data: $date $time 盤中輕量更新（本機：台銀黃金現價）" }
+        else        { "data: $date 本機補抓（台銀黃金）" }
 
 $pubArgs = @("scripts\publish.py", "--source", "local", "--rebuild", "merge", "--message", $msg)
 Write-Log "執行：python $($pubArgs -join ' ')"

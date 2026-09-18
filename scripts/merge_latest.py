@@ -58,7 +58,7 @@ HIST_DIR = os.path.join(DATA_DIR, "history")
 SOURCES = ("cloud", "local")
 
 # 台銀來源不套「暫定點」規則（掛牌價本來就是當天最新的定案值），停點 8 再處理
-BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx")
+BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx", "finmind_fx")
 
 SLOT_LABEL = {
     "light": "盤中更新（只更新現價）",

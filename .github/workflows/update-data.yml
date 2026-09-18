@@ -85,9 +85,9 @@ jobs:
           echo "seconds=$LAT" >> "$GITHUB_OUTPUT"
           echo "dispatch 於 $CREATED，開跑於 $NOW，延遲 ${LAT} 秒（台北 $(TZ=Asia/Taipei date +%H:%M:%S) 開跑）"
 
-      # --- 步驟 1：只抓雲端負責的 8 項 ------------------------------------
+      # --- 步驟 1：只抓雲端負責的標的（assets.json 裡 owner=cloud）--------
       # 結束碼：0 全部成功；2 部分失敗（分片已寫出、已標示，不紅燈）；其他＝程式壞掉，紅燈。
-      - name: 抓取行情資料（雲端負責的 8 項）
+      - name: 抓取行情資料（雲端負責的標的）
         run: |
           MODE="${{ steps.args.outputs.mode }}"
           SLOT="${{ steps.args.outputs.slot }}"

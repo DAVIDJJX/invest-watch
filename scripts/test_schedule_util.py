@@ -143,13 +143,14 @@ class TestCadence(unittest.TestCase):
         self.assertEqual(su.cadence_of(nvda, SCHEDULE), "light")
 
     def test_real_assets_json_matches(self):
-        """真實的 data/assets.json 只有 gold_bar 需要寫 cadence。"""
+        """真實的 data/assets.json 只有這三項需要寫 cadence：
+        實體條塊一天只掛一次牌、兩項匯率經 FinMind 一天只有一筆。"""
         import json
         path = os.path.join(su.ROOT, "data", "assets.json")
         with open(path, encoding="utf-8") as fh:
             cfg = json.load(fh)
         overridden = [a["id"] for a in cfg["assets"] if a.get("cadence")]
-        self.assertEqual(overridden, ["gold_bar"])
+        self.assertEqual(overridden, ["gold_bar", "fx_usd", "fx_cny"])
 
 
 class TestFourScenarios(unittest.TestCase):
