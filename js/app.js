@@ -94,6 +94,9 @@
       });
       html += '<span class="chip bad">失敗：' + esc(names.join('、')) + '</span>';
     }
+    if (NOW_OVERRIDE) {
+      html += '<span class="chip bad">示範模式：把「現在」當成 ' + esc(NOW_OVERRIDE) + '</span>';
+    }
     bar.innerHTML = html;
   }
 
@@ -192,6 +195,17 @@
     return h;
   }
 
+  // 測試與示範用：網址帶 ?now=2026-09-19T10:00:00+08:00 可以把「現在」當成那個時間，
+  // 用來看週末的灰色標示，不必真的去改電腦的系統時間（那會讓 Windows 的排程大量補跑，
+  // 也會弄髒資料裡的時間戳）。它只影響「今天星期幾」的判斷，資料一個字都不會變；
+  // 有帶的時候頁面上方會明講這是示範，不讓人誤以為是真的現在。
+  var NOW_OVERRIDE = (function () {
+    var m = /[?&]now=([^&#]+)/.exec(window.location.search || '');
+    if (!m) return null;
+    var v = decodeURIComponent(m[1]);
+    return isNaN(new Date(v).getTime()) ? null : v;
+  })();
+
   function makeCard(a, latest) {
     var card = el('article', 'card');
     card.dataset.id = a.id;
@@ -218,12 +232,15 @@
     // 資料日期不是「這次更新的日期」時要講清楚，否則看起來像壞掉。
     // 例：台灣白天看 NVIDIA，美股還沒收盤，最新收盤價本來就是前一天的。
     var dataDay = latest.dataDate;
-    var stale = a.status === 'ok' && a.date && dataDay && a.date !== dataDay;
+    // 注意：這個不是「資料過期」。它只是說牌價的日期不是這次更新的那一天（例：台灣白天看美股）。
+    // 資料新不新由後端算好放在 a.freshness；卡片上怎麼標示交給 js/freshness.js。
+    var dateBehind = a.status === 'ok' && a.date && dataDay && a.date !== dataDay;
+    var fr = window.Freshness.classify(a, NOW_OVERRIDE || new Date());
 
     var subBits = [];
     if (a.priceLabel && !isBar) subBits.push(esc(a.priceLabel));
     if (a.unit) subBits.push(esc(a.unit));
-    if (a.date) subBits.push(esc(a.date) + (stale ? '（最近一筆）' : ''));
+    if (a.date) subBits.push(esc(a.date) + (dateBehind ? '（最近一筆）' : ''));
     // 來源不是直接抓的那一家時要寫出來（例：匯率是台銀的牌價，但是經 FinMind 取得）。
     // 文字由資料層給（sourceLabel），呈現層不自己猜是哪一家。
     if (a.sourceLabel) subBits.push(esc(a.sourceLabel));
@@ -240,6 +257,11 @@
         '<div class="card-price">' + (top ? num(top.sell, 0) : '—') +
         '<span class="cur">TWD</span></div>' +
         '<div class="card-change flat">1 公斤掛牌</div>';
+    } else if (a.status === 'ok' && fr.hidePrice) {
+      // 後端說無法判斷這筆資料的新舊：不知道新舊的數字不該被當成現價，原因寫在下面的紅色標示
+      right.innerHTML =
+        '<div class="card-price" style="color:var(--text-faint)">—</div>' +
+        '<div class="card-change" style="color:var(--error)">無法判斷新舊</div>';
     } else if (a.status === 'ok') {
       right.innerHTML =
         '<div class="card-price">' + num(a.price, a.decimals) +
@@ -256,7 +278,7 @@
     head.appendChild(right);
 
     /* --- 買賣價 / 條塊表 --- */
-    if (a.status === 'ok') {
+    if (a.status === 'ok' && !fr.hidePrice) {
       if (a.type === 'bot_gold') {
         head.appendChild(el('div', 'pair', goldPairHtml(a, latest)));
       } else if (a.type === 'bot_fx' || a.type === 'finmind_fx') {
@@ -287,15 +309,12 @@
     if (a.sourceNote) {
       head.appendChild(el('div', 'note-box', '註：' + esc(a.sourceNote)));
     }
-    if (a.carriedOver) {
-      // 「刻意跳過」和「意外沒更新」要分開講。條塊一天只掛一次牌，
-      // 每半小時提醒一次「沒有重新抓取」只是噪音——它自己的掛牌時間才是實話。
-      head.appendChild(a.carriedReason
-        ? el('div', 'card-sub', '（' + esc(a.carriedReason) + '）')
-        : el('div', 'note-box',
-            '這一項本次沒有重新抓取，顯示的是 ' + esc(shortTime(a.fetchedAt)) + ' 的資料。'));
-    }
-    if (stale) {
+    // 這一輪刻意沒有重抓（實體條塊與匯率一天只更新一次，盤中的輕量更新會跳過）：小字交代就好，
+    // 那不是警告。真的該警告的是下面那個——排定的更新沒有跑到。
+    if (fr.carried) head.appendChild(el('div', 'card-sub fresh-carried', esc(fr.carried)));
+    // 黃＝沿用舊資料、紅＝無法判斷新舊、灰＝週末本來就不掛牌／不開盤（那不是舊資料）
+    if (fr.badge) head.appendChild(el('div', 'fresh-badge ' + fr.badge.kind, esc(fr.badge.text)));
+    if (dateBehind && !fr.suppressDateNote) {
       head.appendChild(el('div', 'note-box',
         '這一項今天（' + esc(dataDay) + '）還沒有新報價，上面是 ' + esc(a.date) +
         ' 的收盤價。' +

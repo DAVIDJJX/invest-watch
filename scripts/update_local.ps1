@@ -21,8 +21,10 @@
 
     安全性：
       * 不在 main 上就中止，不會自作主張切分支
-      * 落後遠端而且快轉不了（例如工作區有未提交的變動擋住）也中止，
-        免得拿舊的基準去提交
+      * 同一時間只跑一個：發現另一個實例正在跑，寫一行「另一個實例執行中，略過」就以結束碼 0 離開
+        （筆電一醒，錯過的幾個工作會同一秒一起補跑，以前會互撞 git）
+      * 落後遠端而且快轉不了（已追蹤的檔案有未提交的變動擋住）也中止，
+        免得拿舊的基準去提交。未追蹤的檔案不算——不相干的檔案不該讓整條管線停下來
       * 競態重試在 publish.py 裡，會先把對方剛推上來的檔案取回工作區再重算，
         不會用 reset --soft 把對方的資料還原掉
       * 任何一步失敗都只是寫進 log，不會跳視窗打擾你
@@ -76,10 +78,70 @@ function Write-Log {
     param([string]$Message)
     $line = "{0}  {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $Message
     Write-Output $line
-    Add-Content -Path $LogFile -Value $line -Encoding utf8
+    # 為什麼不用 Add-Content？多個實例同時寫同一個檔案時，它不會報錯，而是各自從「當時的檔尾」
+    # 寫下去——後寫的把先寫的蓋掉，那幾行就無聲無息地不見了（2026-09-14 22:23 四個工作同一秒啟動，
+    # log 只留下一行「開始」；用「開始」的行數去算啟動次數因此會低估）。
+    # 這裡改成【獨占】開檔再附加：同一時間只有一個實例寫得進去，別人開不了檔就等一下再試。
+    # 試 40 次（最多約 3 秒）還不行才放棄這一行——log 掉一行不值得讓整支腳本停下來。
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($line + "`r`n")
+    for ($i = 0; $i -lt 40; $i++) {
+        try {
+            $fs = [System.IO.File]::Open($LogFile, [System.IO.FileMode]::Append,
+                                         [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            try { $fs.Write($bytes, 0, $bytes.Length) } finally { $fs.Dispose() }
+            break
+        } catch [System.IO.IOException] {
+            Start-Sleep -Milliseconds (20 + (Get-Random -Maximum 80))
+        }
+    }
 }
 
-# 記錄檔太大就砍掉重來（留最後 500 行）
+# --- 互斥鎖：同一時間只准一個實例動這個倉庫 --------------------------------
+# 為什麼需要？四個 Windows 工作各自設了「錯過就補跑」，而「不要同時跑第二個」
+# 那個設定只管【同一個工作】。筆電一醒，錯過的三、四個工作會在同一秒一起啟動，
+# 對同一個 git 倉庫同時 fetch／merge／commit／push：
+#   「Unable to create '.git/index.lock': File exists」
+#   「remote rejected … cannot lock ref」
+# log 裡最早 2026-09-01 就有，09-13 那次還把一個 0 bytes 的分片推了上去。
+# 同時跑的那幾個實例做的是一模一樣的事，留一個就夠了；其餘的寫一行 log 就走，
+# 而且用結束碼 0——那不是失敗，工作排程器不需要把它記成錯誤。
+#
+# 用具名 Mutex 而不是 lock 檔：持有鎖的程序不管怎麼死（被工作排程器的時間上限砍掉、
+# 電腦睡著時被終止），Windows 都會自己把鎖收回去，不會留下一個要人手動刪的死檔。
+# 鎖的名字帶倉庫路徑的雜湊：同一台電腦上的另一份 clone（例如測試用的沙盒）不會跟正式的互相擋。
+# Global\ 讓「工作排程器啟動的」和「你手動在視窗裡跑的」也互相看得到。
+$md5 = [System.Security.Cryptography.MD5]::Create()
+$repoKey = -join ($md5.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($RepoDir.ToLowerInvariant())) |
+                  ForEach-Object { $_.ToString("x2") })
+$MutexName = "Global\InvestWatch-update_local-" + $repoKey.Substring(0, 12)
+$script:Mutex = New-Object System.Threading.Mutex($false, $MutexName)
+$script:HasLock = $false
+try {
+    $script:HasLock = $script:Mutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    # 上一個持有鎖的實例沒放鎖就死了。這種情況 Windows 會把鎖交給我們、同時丟這個例外：
+    # 鎖已經是我們的了。不接住的話，之後每一次排程都會死在這裡。
+    $script:HasLock = $true
+}
+if (-not $script:HasLock) {
+    Write-Log "另一個實例執行中，略過"
+    $script:Mutex.Dispose()
+    exit 0
+}
+
+function Exit-Script {
+    # 拿到鎖之後的每一個出口都走這裡：先放鎖再結束。
+    # （就算漏放，程序結束時 Windows 也會收回；這裡只是不想讓下一個實例多走一次「被遺棄的鎖」那條路）
+    param([int]$Code)
+    if ($script:HasLock) {
+        try { $script:Mutex.ReleaseMutex() } catch { }
+    }
+    $script:Mutex.Dispose()
+    exit $Code
+}
+
+# 記錄檔太大就砍掉重來（留最後 500 行）——放在鎖後面：這是「讀整個檔再整個寫回去」，
+# 兩個實例同時做會把對方剛寫的行砍掉
 if ((Test-Path $LogFile) -and ((Get-Item $LogFile).Length -gt 300KB)) {
     $tail = Get-Content $LogFile -Tail 500
     Set-Content -Path $LogFile -Value $tail -Encoding utf8
@@ -90,7 +152,29 @@ Set-Location $RepoDir
 
 if (-not (Test-Path $Python)) {
     Write-Log "找不到 Python：$Python  —— 中止"
-    exit 1
+    Exit-Script 1
+}
+
+# --- 0. 死掉的 .git\index.lock -------------------------------------------
+# git 每次改索引都會先建這個檔、做完就刪。如果 git 做到一半被砍掉（電腦睡著、
+# 工作排程器的時間上限），檔案會留著，之後【每一個】git 指令都會失敗，直到有人手動刪掉。
+# 這個檔本身不記是誰建的，所以判斷要保守，三個條件都成立才清：
+#   我們拿到了互斥鎖（沒有別的實例在跑）＋ 現在沒有任何 git 程序 ＋ 它已經放超過 2 分鐘。
+# 任何一個不成立就不動它——你可能正好在編輯器或終端機裡對這個倉庫下 git 指令。
+$gitDir = (git rev-parse --git-dir 2>$null | Select-Object -First 1)
+if ($gitDir) {
+    if (-not [System.IO.Path]::IsPathRooted($gitDir)) { $gitDir = Join-Path $RepoDir $gitDir }
+    $indexLock = Join-Path $gitDir "index.lock"
+    if (Test-Path $indexLock) {
+        $age = [int]((Get-Date) - (Get-Item $indexLock).LastWriteTime).TotalSeconds
+        $gitProcs = @(Get-Process -Name git -ErrorAction SilentlyContinue).Count
+        if ($gitProcs -eq 0 -and $age -gt 120) {
+            Remove-Item $indexLock -Force
+            Write-Log "  發現死掉的 index.lock（$age 秒前留下的，現在沒有任何 git 在跑）—— 已清掉"
+        } else {
+            Write-Log "  index.lock 存在，但不確定是不是死的（$age 秒前、git 程序 $gitProcs 個）—— 不動它"
+        }
+    }
 }
 
 # --- 1. 先跟 GitHub 對齊 -------------------------------------------------
@@ -107,15 +191,19 @@ if ($branch -ne "main") {
     Write-Log "目前在分支「$branch」，不是 main —— 中止，不自作主張切分支。"
     Write-Log "  （開發完成把分支 merge 回 main 之後，排程就會自動恢復正常）"
     Write-Log "==================== 結束 ===================="
-    exit 3
+    Exit-Script 3
 }
 
-$dirty = git status --porcelain
+# 只看【已追蹤】的檔案有沒有被改過（--untracked-files=no）。
+# 未追蹤的檔案不會被快轉動到，也不會被 publish.py 提交（它只 add 自己清單裡的路徑），
+# 沒有理由因為它們而不同步。2026-09-13 有一個不相干的資料夾落在倉庫根目錄，當時這裡把它也算成
+# 「工作區不乾淨」，結果本機排程從 09-14 到 09-18 每一次都在下面那個結束碼 4 中止。
+$dirty = git status --porcelain --untracked-files=no
 if ([string]::IsNullOrWhiteSpace($dirty)) {
     # 工作區乾淨才快轉；不用 merge，避免對產生出來的 JSON 逐行合併
     git merge --ff-only origin/main 2>&1 | ForEach-Object { Write-Log "  git merge: $_" }
 } else {
-    Write-Log "  工作區有未提交的變動，跳過自動快轉（不動你正在改的東西）"
+    Write-Log "  已追蹤的檔案有未提交的變動，跳過自動快轉（不動你正在改的東西）"
 }
 
 # 快轉之後還是落後，代表有東西擋住（通常是未提交的變動）。
@@ -127,7 +215,7 @@ if ($behind -ne "0") {
     Write-Log "本機落後 origin/main $behind 個 commit 且無法快轉 —— 中止。"
     Write-Log "  請先手動處理未提交的變動（git status 看一下），再讓排程接手。"
     Write-Log "==================== 結束 ===================="
-    exit 4
+    Exit-Script 4
 }
 
 # --- 3. 抓資料（只抓本機負責的標的）------------------------------------
@@ -156,7 +244,7 @@ $output | ForEach-Object { Write-Log "  $_" }
 if ($LASTEXITCODE -ne 0) {
     Write-Log "合併失敗（結束碼 $LASTEXITCODE）—— 中止，不提交半成品。"
     Write-Log "==================== 結束 ===================="
-    exit 5
+    Exit-Script 5
 }
 
 # --- 5. 提交並推上去 ------------------------------------------------------
@@ -180,4 +268,4 @@ if ($rc -eq 0) {
     Write-Log "提交/推送未成功（結束碼 $rc），下一個時段會再試。"
 }
 Write-Log "==================== 結束 ===================="
-exit $rc
+Exit-Script $rc

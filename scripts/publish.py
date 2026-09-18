@@ -277,7 +277,10 @@ def index_has_changes():
 
 
 def dirty_paths(scope=None):
-    args = ["status", "--porcelain"]
+    # 只看【已追蹤】的檔案。未追蹤的檔案不會讓 update_local.ps1 跳過同步（它也只看已追蹤的），
+    # 自己新建、該提交的檔案則是靠 owned_paths 明確列名去 add 的，不靠這裡發現。
+    # 2026-09-13 一個不相干的未追蹤資料夾讓本機排程連續五天每次都中止，這兩處因此一起改。
+    args = ["status", "--porcelain", "--untracked-files=no"]
     if scope:
         args += ["--", scope]
     _, out = git(*args, quiet=True)

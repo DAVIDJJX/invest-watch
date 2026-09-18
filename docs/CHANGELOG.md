@@ -143,7 +143,7 @@ git revert --no-edit stop7-2..stop7-3   # 只反轉 7-3
 之後 `git revert` 整個 commit，README 的三處修改也被退掉了。已從那個 commit 把 README 撈回來（`git checkout e14930a -- README.md`），
 `report.py` 確認沒有 raise。分支歷史裡因此有一對「注入／反轉」的 commit，內容含 README 的來回，無害。
 
-**還沒做（要等你）**：7-H（cron-job.org 建好後觀察 2 小時）、7-I（隔天四份報告準時到）。
+**還沒做（要等你）**：7-H（cron-job.org 建好後觀察 2 小時）、7-I（隔天四份報告準時到）。（→ 已於 2026-09-18 完成，四天全部 PASS，見停點 8 的 8-1）
 
 **怎麼退回**
 
@@ -199,7 +199,7 @@ GitHub 那一層分不出來；用既有欄位做不到，要標的話得在 dis
 （cron-job.org 今晚才建、四份報告是 21 點多手動觸發的）。對照組：`--grace-minutes 700` 之後午前／收盤／盤後翻成 PASS、
 晨報仍 FAIL（晚 3 分），門檻邏輯有在分辨，不是永遠 FAIL。
 
-**還沒做（明天）**：7-H、7-I 用 `python scripts/verify_schedule.py --date 2026-09-10` 彙整。
+**還沒做（明天）**：7-H、7-I 用 `python scripts/verify_schedule.py --date 2026-09-10` 彙整。（→ 已於 2026-09-18 完成，見停點 8 的 8-1）
 
 ---
 
@@ -374,3 +374,283 @@ git push
 
 退回之後匯率又歸家用電腦：雲端分片裡殘留的那兩項會被 merge 當成孤兒略過（無害），本機下一次完整更新就會接手。
 FinMind 補進去的歷史點（`dateSource=finmind`）不會被退回，它們是真的牌價，留著沒有問題。
+
+---
+
+## 2026-09-18 · 8-0 上線後的實跑驗收（22:46～22:50）
+
+8-0 單獨先合回 main（merge commit `6ce8498`），因為它的驗收只能在正式環境發生。
+
+| 驗收 | 結果 |
+|---|---|
+| 手動觸發雲端 `mode=full slot=manual`（run 35358347438） | ✅ success。log：`FinMind USD 最新一筆：2026-09-18（就是今天）`、CNY 同；`已寫出分片 data/sources/cloud.json（10 項）`；成功 10／失敗 0，共 11 次請求（其中 FinMind 2 次）。**從 GitHub 的機器抓得到 FinMind。** |
+| 雲端提交了匯率的歷史檔 | ✅ commit `52c9f9e`（github-actions[bot]）含 `data/history/fx_usd.json`、`fx_cny.json`；diff 只有檔頭的 `count`／`updatedAt` 與新增的 5 行（09-14～09-18，`dateSource=finmind`），舊的 136 行一字未動 |
+| `latest.json` | ✅ fx_usd／fx_cny：`source=cloud`、`freshness=fresh`、`date=2026-09-18`、`points=141`、`sourceLabel=台銀每日匯率（經 FinMind）`；下一個排定點 09-21 09:30（cadence=full、週末不排） |
+| 本機實跑一次 `update_local.ps1`（完整更新，22:47:59） | ✅ 結束碼 0，09-13 以來第一次成功。log：`標的數：3`（gold_twd、gold_cny、gold_bar）、`已寫出分片 data/sources/local.json（3 項）`、對台銀 5 次請求、`推送成功`。commit `5175557`「本機補抓（台銀黃金）」只動了三個黃金歷史檔、`local.json`、`latest.json`——**沒有碰匯率的任何檔案** |
+| 合併結果 | ✅ 13 項全部 ok、全部 fresh；`sources.cloud` ok=10、`sources.local` ok=3 |
+| 線上網站（`https://davidjjx.github.io/invest-watch/`，22:49） | ✅ 美元／台幣 31.855、人民幣／台幣 **4.774**，小字列「即期賣出 · … · 2026-09-18 · 台銀每日匯率（經 FinMind）」，四個買賣價都在；頁尾已是新文字；`app.js?v=20260918-1` |
+
+規格寫的驗收值是「09-15 的 4.768」；實際上線時 FinMind 已經有 09-18 那一筆，所以卡片顯示的是 09-18 的 4.774，
+09-15 的 4.768 在歷史檔裡（與稽核表一致）。
+
+---
+
+## 2026-09-18 · 8-1 停點 6 彙整 ＋ 7-H／7-I 正式紀錄
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `README.md` | 設計筆記新增「停點 6 的量測結果」：12 個 run × 5 個網址的結果表、量之前就寫死的判定規則、結論與這個結果的界線；進度區把「7-H／7-I 要等 09-10」收掉 |
+| `.github/workflows/probe-bot.yml` | cron 已在前置那個 commit 拿掉（使用者要求立刻做），這裡不再動 |
+| `docs/CHANGELOG.md` | 這一段；停點 7 那兩句「還沒做 7-H／7-I」補上去向 |
+
+不改任何程式。
+
+**probe 彙整**（`gh run list`＋逐一 `gh run view --log` 抓 `PROBE_RESULT`，只讀；不碰台銀）
+
+- probe-bot 共 48 個 run，全部是 `schedule`：**有量測結果的 12 個**（09-08 12:51～09-10 19:31），
+  其餘 36 個（09-11 00:32～09-18 19:28）是到期後的空跑，log 只有「量測期間已於 2026-09-10 結束」。
+- 60 個樣本：**驗證頁 60、通過 0、連線失敗 0、HTTP 錯誤 0**；順位 1～5 都出現過；12 台不同的 runner。
+- 三組判定（每組全部樣本通過才算）：匯率組 0/24、存摺組 0/24、條塊組 0/12 → **三組全部不通過**。
+- 完整的表在 README 設計筆記。
+
+**7-H／7-I**（`python scripts/verify_schedule.py --date …`，只讀）
+
+| 日期 | 7-H：24 個排定時刻都有對應的 dispatch | dispatch 晚幾秒（最小／最大／平均） | 7-I：四份報告產生時間 |
+|---|---|---|---|
+| 09-10（四） | PASS 24/24 | 12／25／18.0 | PASS：09:30:56、11:30:49、13:35:43、15:30:58 |
+| 09-11（五） | PASS 24/24 | 12／25／18.1 | PASS：09:30:52、11:31:01、13:35:42、15:30:53 |
+| 09-14（一） | PASS 24/24 | 11／25／17.2 | PASS：09:30:59、11:30:48、13:35:37、15:30:52 |
+| 09-15（二） | PASS 24/24 | 12／23／17.3 | PASS：09:30:54、11:30:49、13:35:38、15:30:49 |
+
+門檻是 dispatch 晚 60 秒內、報告在排定＋15 分內。四天 96 個排定時刻沒有一個漏掉，最晚 25 秒；
+十六份報告都在排定後 61 秒內產生。每天另有 4～5 筆不對應排定時刻的 run（備援 cron 的 light），另列、不計分。
+規格要的是 09-14 與 09-15；09-10 與 09-11 是 cron-job.org 上線後的頭兩天，README 原本寫著要等它們，一併補驗。
+
+**怎麼驗證的**：彙整腳本對自己的結論做了交叉檢查——樣本數＝run 數×5、三組樣本數相加＝60、
+分類用 `fingerprint.title`（`Challenge Validation`）與錯誤訊息兩個獨立欄位，兩者結論一致。
+對照組：把判定從「全部通過才算」改成「有一個通過就算」→ 結論仍是不通過（因為通過數是 0），
+所以這張表對判定規則的寬嚴不敏感，結論不是規則選出來的。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-0..stop8-1   # 只有文件
+```
+
+---
+
+## 2026-09-18 · 8-2 黃金 3 項的去向（只有紀錄）
+
+**決定**：8-1 的存摺組與條塊組都不通過 → 黃金存摺 TWD／CNY、實體條塊**留在家用電腦**。使用者 2026-09-18 拍板：
+這一輪把筆電這條路修好（8-3），下一階段 8-B 另案做「雲端用國際金價換算的估算序列當保底，台銀官方價留筆電並誠實標示」。
+本停點**不做**估算序列。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `README.md` | 設計筆記新增「黃金 3 項的去向」：決定、下一階段的方向、以及日後若要把直接抓台銀搬上雲，規格必須先補的四件事 |
+| `data/assets.json`、`data/schedule.json`、`scripts/fetch_data.py`、`.github/workflows/update-data.yml` | **不動**。黃金 3 項 `owner=local`；規格裡「通過的組」那一整段（改 owner、連續 3 次被擋退避、雲端實測、本機無標的時結束碼 0、停用 Windows 工作）都沒有觸發 |
+
+**怎麼驗證的**：`git diff stop8-1..stop8-2 --stat -- data scripts .github js css *.html` 是空的；
+`data/assets.json` 的 owner 統計仍是 cloud 10／local 3（黃金 3 項）。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-1..stop8-2   # 只有文件
+```
+
+---
+
+## 2026-09-18 · 8-3 本機腳本：互斥鎖 ＋「工作區乾淨」只看已追蹤的檔案
+
+黃金 3 項留在筆電，所以這一段要做。目標：筆電這條路「醒著就一定會成功」。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `scripts/update_local.ps1` | ① **互斥鎖**：具名 Mutex（`Global\InvestWatch-update_local-<倉庫路徑雜湊>`），拿不到就寫一行「另一個實例執行中，略過」、結束碼 **0**。接住 `AbandonedMutexException`（上一個持有者沒放鎖就死了＝鎖已經是我們的）。拿到鎖之後的每個出口都走 `Exit-Script` 先放鎖。② **「工作區乾淨」只看已追蹤的檔案**：`git status --porcelain --untracked-files=no`。③ **死掉的 `index.lock`**：拿到互斥鎖＋當下沒有任何 git 程序＋檔案放超過 2 分鐘，三個都成立才清並記 log；否則記 log 不動它。④ **`Write-Log` 改成獨占開檔再附加**（見下）。log 自砍挪到鎖後面 |
+| `scripts/publish.py` | `dirty_paths()` 同樣加 `--untracked-files=no`，跟 ps1 的判斷一致 |
+| `scripts/test_update_local_lock.py`（新） | 沙盒實測，正式組＋對照組（`--contrast`） |
+| `scripts/test_publish.py` | 加一條：`dirty_paths` 一定帶 `--untracked-files=no` |
+| `README.md` | 結束碼表加「0／另一個實例執行中，略過」、index.lock 的兩種訊息、沙盒測試怎麼跑；`Claude outputs/` 事故補上根治方式 |
+
+**為什麼用 Mutex 不用 lock 檔**：持有鎖的程序不管怎麼死（工作排程器的時間上限、電腦睡著時被終止），
+Windows 都會自己把鎖收回，不會留下一個要人手動刪的死檔——lock 檔正好會製造出跟 `index.lock` 一樣的問題。
+鎖名帶倉庫路徑的雜湊，所以沙盒測試跟正式排程互不干擾；`Global\` 讓工作排程器啟動的與手動在視窗跑的互相看得到。
+
+**做到一半才發現的事：log 掉行不是「寫不進去」，是「互相蓋掉」。** 第一版只給 `Add-Content` 加了重試，
+沙盒實測照樣掉行（第 2 輪「開始」0 次、「略過」只有 1 次）。原因：多個程序同時 `Add-Content` 不會報錯，
+而是各自從當時的檔尾寫下去，後寫的蓋掉先寫的。改成 `[System.IO.File]::Open(…, Append, Write, FileShare.None)`
+獨占開檔、開不了就稍等重試（最多 40 次），之後三輪都是「開始 1 次、略過 3 次」，一行不掉。
+這也解釋了背景段說的「用『開始』的行數算啟動次數會低估」。
+
+**怎麼驗證的**
+
+- 驗收與對照組**都不在正式倉庫做**：同時啟動多個實例等於對台銀打數倍請求、在公開倉庫製造互撞 commit，
+  而且 ps1 在非 main 分支根本跑不到抓取。`python scripts/test_update_local_lock.py` 在暫存目錄建假遠端（bare repo）
+  與假筆電，種子用**工作區現在的檔案**，把 `fetch_data.py` 換成替身（睡 4 秒、改寫本機分片的時間戳、不連網），
+  `merge_latest.py` 與 `publish.py` 用真的，真的啟動 PowerShell 跑 ps1。
+- **正式組：33 項檢查全部 PASS**
+
+  | 情境 | 結果 |
+  |---|---|
+  | A. 同時啟動 **4** 個 ps1（2026-09-14 22:23 真的發生過四個工作同一秒啟動），連做 3 輪 | 每一輪：4 個結束碼都是 0、「開始」1 次、「另一個實例執行中，略過」3 次、log 沒有任何 `index.lock`／`cannot lock ref`／`rejected`、遠端**剛好**多 1 個 commit、本機分片是完整的 JSON、工作區乾淨 |
+  | B. 倉庫根目錄放一個陌生的空資料夾、一個裝著文件的陌生資料夾、一個陌生檔案，而且遠端比本機新一個 commit | 結束碼 0；log 沒有「跳過自動快轉」、有 `git merge: … Fast-forward`；抓取與推送都做了；HEAD＝遠端 main；陌生檔案沒有被 commit、原封不動還在 |
+  | C. `.git/index.lock` 放了 10 分鐘、沒有 git 在跑 | log「已清掉」、鎖檔消失、這一輪照常完成 |
+  | C. 剛建立的 `index.lock` | **沒有**被刪、log「不動它」（那一輪結束碼 1，符合預期：你可能正在用 git） |
+
+- **對照組（`--contrast`，把沙盒裡 ps1 的修正拿掉）：問題全部重現**
+
+  | 拿掉的修正 | 結果 |
+  |---|---|
+  | 互斥鎖（每個實例都當自己拿到了鎖） | **第 1 輪就重現**：`fatal: Unable to create '…/.git/index.lock': File exists.`、`Another git process seems to be running in this repository`；4 個實例有 2 個結束碼 1、「開始」4 次 |
+  | `--untracked-files=no` | **重現結束碼 4**；log「跳過自動快轉」「無法快轉 —— 中止」；什麼都沒推上去——就是 09-14～09-18 那五天的樣子 |
+  | 死鎖檔清理 | 鎖檔留著、這一輪結束碼 1、沒有任何 commit；log 看得到 `index.lock` 的錯誤 |
+  | `publish.py` 的 `--untracked-files=no` | `test_dirty_paths_ignores_untracked_files` 紅 |
+
+- 單元測試 131 OK；`test_race_recovery.py` 全部通過（publish.py 有改所以重跑）；ps1 語法檢查 0 錯誤、UTF-8 BOM 還在（PowerShell 5.1 沒有 BOM 會把中文當 Big5）。
+
+**已知取捨**
+
+- 筆電一醒同時補跑的三、四個工作只剩一個真的跑。它們做的是同一件事（本機一律 `--slot light`；不帶 `-Light` 就是完整更新），
+  但如果活下來的剛好是 UpdateLight，那一次就只有輕量更新——下一個排定時間會補上。
+- 根因（四個工作各自「錯過就補跑」、互不相擋）沒有動，那要改 Windows 工作排程器的設定，不在這一輪的範圍。
+- 開發期間（倉庫停在功能分支上）本機排程會以結束碼 3 中止，這是既有的設計；今晚沒有排定的本機工作，沒有影響。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-2..stop8-3
+```
+
+---
+
+## 2026-09-18 · 8-4 卡片要自己說「這是舊資料」
+
+**為什麼**：09-10、09-13、09-14～18 三次，網站上的黃金與匯率都停在好幾天前，資料裡老實標了 `stale`，
+但卡片上就是那個數字、沒有任何提示——三次都是使用者自己比對數字才發現。前端從來沒有讀過 `freshness` 這個欄位。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `js/freshness.js`（新） | 純函式 `Freshness.classify(標的, 現在)` → 要掛什麼標示（黃／紅／灰）、要不要隱藏價格、carriedOver 的小字、要不要收掉「今天還沒有新報價」那段黃字。不碰 DOM、不發請求 |
+| `js/app.js` | 卡片去問 `freshness.js`；原本叫 `stale` 的變數其實是「牌價日期不是這次更新的那一天」，改名 `dateBehind` 免得兩種意思混在一起；carriedOver 統一成一行灰色小字；`freshness=error` 時價格與買賣價都不顯示；網址帶 `?now=` 可以假裝「現在」（頁面上方會明講是示範模式） |
+| `css/style.css` | 三個最小樣式 `.fresh-badge.stale／error／weekend`，沿用既有的顏色變數，不動版面 |
+| `index.html` | 在 `app.js` 之前載入 `freshness.js`；`bump_assets.py` 更新版本號 |
+| `scripts/test_freshness.html`、`scripts/test_freshness_js.py`（新） | 16 題寫死的假資料＋假時間，用無頭 Edge／Chrome 開頁面、把 DOM 倒出來逐題檢查；另外 2 條檢查卡片真的有接上 |
+| `README.md` | 「資料壞掉的時候會怎樣」新增一節，列出五種情況各看到什麼、規則在哪、已知限制 |
+
+**跟規格字面不同的兩個地方（理由）**
+
+1. **週末灰色看的是牌價日期，不是「最後成功時間是週五」。** `lastSuccessAt` 是機器去抓的時間：本機排程週六日也跑，
+   筆電週日 23:21 抓成功時它是週日，牌價卻是週五 19:57。若筆電週六醒來抓過一次再睡到週日，照字面會顯示黃色
+   「沿用週六 14:00 的資料」——但那筆就是週五牌價、也就是現行牌價，該灰不該黃。改看 `a.date`（牌價自己的日期）
+   是不是剛過去的星期五，兩種情況都對；規格裡的驗收（週六＋週五的資料 → 灰）照樣成立。
+   台股 8 項雲端週末照抓，`lastSuccessAt` 永遠是週末當天，照字面永遠進不了灰色。
+   週末時就算 `freshness=fresh` 也掛灰色、並收掉原本那段黃色的「今天還沒有新報價」——那正是「週五的數字被說成舊資料」的來源。
+2. **「把 lastSuccessAt 改成 3 小時前 → 黃色」不一定成立，這是對的。** 新舊比的是「上一個排定的更新時間」不是「距今多久」：
+   週五 23:45 把黃金存摺的成功時間改成 3 小時前（20:45），它還是 fresh——因為本機最後一個排定點是 17:00。
+   示範改用「早於最後一個排定點減 30 分寬限」的時間（當天 15:00）。前端不自己用距今多久算，那會重演停點 2 砍掉的誤判。
+
+**怎麼驗證的**
+
+- 單元測試：`test_freshness_js.py` 19 條全綠（17 條經無頭瀏覽器、2 條看原始碼接線）；全套見下一段。
+- **驗收示範（沙盒副本＋`python -m http.server`，真資料、不 commit）**：
+  1. 把沙盒裡本機分片的 gold_twd `lastSuccessAt` 改成當天 15:00、gold_cny 改成沒有成功紀錄 → 重跑 `merge_latest.py`
+     （新舊判定：error 1、fresh 11、stale 1）→ gold_twd 卡片出現**黃色**「沿用 09-18 15:00 的資料（牌價日期 2026-09-18）——排定的更新沒有跑到」；
+     gold_cny **紅色**、價格變「—」、買賣價收起來；其餘 11 張沒有任何標示。
+  2. 分片改回原樣、重跑合併（fresh 13）→ 頁面上 `.fresh-badge` 0 個，價格回來。**黃色出現、改回就消失。**
+  3. 網址加 `?now=2026-09-19T10:00:00+08:00`（週六）→ 台銀黃金 3 張與台股 4 張全部**中性灰**
+     「週末不掛牌／不開盤，沿用週五 …」，海外 4 張沒有；頁首出現紅色「示範模式」。**沒有改系統時間**
+     （那會讓四個 Windows 工作大量補跑、也會弄髒資料裡的時間戳）。
+  4. console 零錯誤；兩張示範截圖存檔（檔名標明 SANDBOX，不是線上）。
+- **突變對照組**（工作區整份複製到暫存目錄 → 改壞一處 → 只跑 `test_freshness_js.py` → 必須紅），9 個全部符合預期：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | （基準）什麼都不改 | 綠（19 條全過） |
+  | 把 stale 的判斷改壞（`'stale'` 改成 `'fresh'`） | 8 條紅（含 `test_stale_is_yellow_and_says_since_when`、`test_fresh_has_no_badge`） |
+  | 週末的灰色不再要求「牌價日期是星期五」 | 1 條紅：test_weekend_but_the_quote_is_older_than_friday_is_yellow |
+  | 星期幾改用瀏覽器的時區算（拿掉 +8 小時） | 1 條紅：test_weekday_is_judged_in_taipei_not_in_the_browsers_timezone |
+  | freshness=error 時照樣顯示價格 | 1 條紅：test_freshness_error_is_red_and_hides_the_price |
+  | 週末那個理由也套用到海外標的 | 1 條紅：test_overseas_assets_never_get_the_weekend_excuse |
+  | carriedOver 不再產生小字 | 2 條紅：test_carried_over_is_small_text_with_the_reason、test_carried_over_without_a_reason_says_when_it_was_fetched |
+  | app.js 不去問 freshness.js（函式寫對了但卡片沒接上） | 1 條紅：test_app_js_asks_freshness_js_and_does_not_judge_by_itself |
+  | 找不到瀏覽器（IW_BROWSER 指到不存在的路徑）→ 必須紅，不是跳過 | 1 條紅：setUpClass |
+
+  最後一列是刻意的：找不到瀏覽器時這一組是**紅**的，不是跳過——「測試沒跑」不可以看起來像「測試過了」。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-3..stop8-4
+```
+
+---
+
+## 2026-09-18 · 8-5 `schedule.json` 對齊現實
+
+本機仍有標的（黃金 3 項），所以 `local` 那一段要留著、而且要描述現實。
+
+**先查現實，再動檔案。** 規格的前提是「log 證明 UpdateLight 整天每 30 分鐘跑，不是 09:00–17:00」。
+用 `Get-ScheduledTask` 查四個工作的實際設定（09-14、09-18 各查一次，結果相同）：
+
+| 工作 | 觸發 | 重複 | 錯過就補跑 | 同一工作重複啟動 |
+|---|---|---|---|---|
+| InvestWatch-UpdateLight | 每週，`DaysOfWeek=62`（一～五），09:00 | 每 `PT30M`、持續 `PT8H`、到期即停 | True | IgnoreNew |
+| InvestWatch-Morning／Midday／Close | 每天 10:05／13:05／15:05 | 無 | True | IgnoreNew |
+
+**設定值跟 `schedule.json` 原本寫的一字不差**（`light` 平日 09:00～17:00 每 30 分、`full` 每天三個時間）。
+log 裡排程時間以外的執行全部是「錯過就補跑」造成的，而且行為不固定：
+
+| 日期 | 本機實際啟動的時間（log 的「開始」） | 說明 |
+|---|---|---|
+| 09-07 | 16:12、17:28、20:36、20:42、21:12 … 23:42、隔天 00:12 | 20:42 起每 30 分連跑到 00:12（都是 `--light`） |
+| 09-09 | 19:50 ×2、20:20、20:50 … 23:20 | 19:50 補跑後每 30 分連跑到 23:20 |
+| 09-16 | 21:26、21:35、22:05、22:35 | 補跑後每 30 分 |
+| 09-18 | 18:36、19:06、22:07 | 22:07 之後筆電一直醒著，**22:37、23:07 都沒有再跑** |
+
+「補跑之後 8 小時的重複窗從補跑那一刻重算」可以解釋 09-07（16:12＋8 小時＝00:12），卻解釋不了 09-18。
+所以它只能算觀察，不是規則；什麼時候補跑取決於筆電什麼時候醒，寫不成 `days／from／to`。
+
+**決定**：`local.full`／`local.light` 的值**不動**——它們已經是現實（設定的排程）。
+把 `light` 改成整天反而不對：`freshness` 會在晚上與半夜（台銀根本沒有新牌價）一直判成過期，那是誤判，
+而且 8-4 之後卡片會因此整晚掛著黃色。改的是「把查到的現實寫下來」。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `scripts/test_schedule_util.py` | 補一條對真檔案的健檢 `test_every_days_field_only_names_real_weekdays`（對照組抓到的漏洞，見下） |
+| `data/schedule.json` | `local` 加 `_排程在哪裡`（跟 `cloud` 那一段同樣的寫法）：四個工作的實際設定、查證日期、本機現在只負責黃金 3 項、補跑的觀察（含不一致的那一天）、為什麼不把 light 寫成整天。`full`／`light` 的值一個字沒動 |
+| `README.md` | 四個 Windows 工作的表照現實重寫（舊表還寫著本機會產晨報／午盤／收盤報告，那是停點 7 之前的事）；加上查實際設定的一行 PowerShell 與怎麼讀它的輸出 |
+
+**怎麼驗證的**
+
+- `python -m unittest discover -s scripts -p "test_*.py"`：151 OK（`TestRealScheduleFile` 會重新健檢真的 `schedule.json`）；
+  用新檔對真資料合併一次：13 項、新舊判定與改之前一致（值沒動，只多了說明）。
+- 突變對照組（只跑 `test_schedule_util.py`）：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | （基準）什麼都不改 | 綠 |
+  | `local.light` 的 `days` 寫成 `"8"`（不存在的星期） | **第一次沒有紅**，補測試之後 1 條紅：`test_every_days_field_only_names_real_weekdays` |
+  | 整個 `local` 段刪掉（本機明明還有黃金 3 項） | 紅：`test_every_owner_has_a_usable_schedule` 等 |
+
+  第二列第一次跑是綠的——對照組失敗。原因：`parse_days` 對超出範圍的數字取 7 的餘數，`"8"` 不會報錯，
+  而是被安靜地當成週一；真檔案的健檢只看「算不算得出時間」，看不出時窗被搬到別天。
+  這正是對照組存在的理由：沒有它，我會以為這個檔案有測試在顧。補了一條只針對真檔案的健檢（days 只能用 0～6），
+  重跑之後紅。`parse_days` 本身沒有動（改它的行為不在這一段的範圍）。
+- 人工核對：`Get-ScheduledTask` 的輸出（上表）與 `schedule.json` 的 `local.full`／`local.light` 逐項一致。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-4..stop8-5
+```

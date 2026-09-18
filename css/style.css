@@ -411,6 +411,25 @@ a:hover { text-decoration: underline; }
   color: var(--warn);
 }
 
+/* ---------------------------------------------------------- 資料新舊的標示（js/freshness.js） */
+
+.fresh-carried { grid-column: 1 / -1; }
+.fresh-badge {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+/* 黃：排定的更新沒有跑到，這是舊資料 */
+.fresh-badge.stale   { color: var(--warn);  border-color: rgba(247, 185, 85, .45); background: rgba(247, 185, 85, .08); }
+/* 紅：無法判斷新舊，價格不顯示 */
+.fresh-badge.error   { color: var(--error); border-color: rgba(255, 95, 86, .45);  background: rgba(255, 95, 86, .08); }
+/* 灰：週末本來就不掛牌／不開盤，週五的數字就是現在的牌價，不是舊資料 */
+.fresh-badge.weekend { color: var(--text-dim); background: rgba(143, 162, 189, .06); }
+
 /* ---------------------------------------------------------- 免責與頁尾 */
 
 .disclaimer {
