@@ -438,3 +438,27 @@ FinMind 補進去的歷史點（`dateSource=finmind`）不會被退回，它們�
 ```bash
 git revert --no-edit stop8-0..stop8-1   # 只有文件
 ```
+
+---
+
+## 2026-09-18 · 8-2 黃金 3 項的去向（只有紀錄）
+
+**決定**：8-1 的存摺組與條塊組都不通過 → 黃金存摺 TWD／CNY、實體條塊**留在家用電腦**。使用者 2026-09-18 拍板：
+這一輪把筆電這條路修好（8-3），下一階段 8-B 另案做「雲端用國際金價換算的估算序列當保底，台銀官方價留筆電並誠實標示」。
+本停點**不做**估算序列。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `README.md` | 設計筆記新增「黃金 3 項的去向」：決定、下一階段的方向、以及日後若要把直接抓台銀搬上雲，規格必須先補的四件事 |
+| `data/assets.json`、`data/schedule.json`、`scripts/fetch_data.py`、`.github/workflows/update-data.yml` | **不動**。黃金 3 項 `owner=local`；規格裡「通過的組」那一整段（改 owner、連續 3 次被擋退避、雲端實測、本機無標的時結束碼 0、停用 Windows 工作）都沒有觸發 |
+
+**怎麼驗證的**：`git diff stop8-1..stop8-2 --stat -- data scripts .github js css *.html` 是空的；
+`data/assets.json` 的 owner 統計仍是 cloud 10／local 3（黃金 3 項）。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-1..stop8-2   # 只有文件
+```
