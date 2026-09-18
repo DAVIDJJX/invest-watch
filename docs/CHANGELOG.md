@@ -527,3 +527,67 @@ Windows 都會自己把鎖收回，不會留下一個要人手動刪的死檔—
 ```bash
 git revert --no-edit stop8-2..stop8-3
 ```
+
+---
+
+## 2026-09-18 · 8-4 卡片要自己說「這是舊資料」
+
+**為什麼**：09-10、09-13、09-14～18 三次，網站上的黃金與匯率都停在好幾天前，資料裡老實標了 `stale`，
+但卡片上就是那個數字、沒有任何提示——三次都是使用者自己比對數字才發現。前端從來沒有讀過 `freshness` 這個欄位。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `js/freshness.js`（新） | 純函式 `Freshness.classify(標的, 現在)` → 要掛什麼標示（黃／紅／灰）、要不要隱藏價格、carriedOver 的小字、要不要收掉「今天還沒有新報價」那段黃字。不碰 DOM、不發請求 |
+| `js/app.js` | 卡片去問 `freshness.js`；原本叫 `stale` 的變數其實是「牌價日期不是這次更新的那一天」，改名 `dateBehind` 免得兩種意思混在一起；carriedOver 統一成一行灰色小字；`freshness=error` 時價格與買賣價都不顯示；網址帶 `?now=` 可以假裝「現在」（頁面上方會明講是示範模式） |
+| `css/style.css` | 三個最小樣式 `.fresh-badge.stale／error／weekend`，沿用既有的顏色變數，不動版面 |
+| `index.html` | 在 `app.js` 之前載入 `freshness.js`；`bump_assets.py` 更新版本號 |
+| `scripts/test_freshness.html`、`scripts/test_freshness_js.py`（新） | 16 題寫死的假資料＋假時間，用無頭 Edge／Chrome 開頁面、把 DOM 倒出來逐題檢查；另外 2 條檢查卡片真的有接上 |
+| `README.md` | 「資料壞掉的時候會怎樣」新增一節，列出五種情況各看到什麼、規則在哪、已知限制 |
+
+**跟規格字面不同的兩個地方（理由）**
+
+1. **週末灰色看的是牌價日期，不是「最後成功時間是週五」。** `lastSuccessAt` 是機器去抓的時間：本機排程週六日也跑，
+   筆電週日 23:21 抓成功時它是週日，牌價卻是週五 19:57。若筆電週六醒來抓過一次再睡到週日，照字面會顯示黃色
+   「沿用週六 14:00 的資料」——但那筆就是週五牌價、也就是現行牌價，該灰不該黃。改看 `a.date`（牌價自己的日期）
+   是不是剛過去的星期五，兩種情況都對；規格裡的驗收（週六＋週五的資料 → 灰）照樣成立。
+   台股 8 項雲端週末照抓，`lastSuccessAt` 永遠是週末當天，照字面永遠進不了灰色。
+   週末時就算 `freshness=fresh` 也掛灰色、並收掉原本那段黃色的「今天還沒有新報價」——那正是「週五的數字被說成舊資料」的來源。
+2. **「把 lastSuccessAt 改成 3 小時前 → 黃色」不一定成立，這是對的。** 新舊比的是「上一個排定的更新時間」不是「距今多久」：
+   週五 23:45 把黃金存摺的成功時間改成 3 小時前（20:45），它還是 fresh——因為本機最後一個排定點是 17:00。
+   示範改用「早於最後一個排定點減 30 分寬限」的時間（當天 15:00）。前端不自己用距今多久算，那會重演停點 2 砍掉的誤判。
+
+**怎麼驗證的**
+
+- 單元測試：`test_freshness_js.py` 19 條全綠（17 條經無頭瀏覽器、2 條看原始碼接線）；全套見下一段。
+- **驗收示範（沙盒副本＋`python -m http.server`，真資料、不 commit）**：
+  1. 把沙盒裡本機分片的 gold_twd `lastSuccessAt` 改成當天 15:00、gold_cny 改成沒有成功紀錄 → 重跑 `merge_latest.py`
+     （新舊判定：error 1、fresh 11、stale 1）→ gold_twd 卡片出現**黃色**「沿用 09-18 15:00 的資料（牌價日期 2026-09-18）——排定的更新沒有跑到」；
+     gold_cny **紅色**、價格變「—」、買賣價收起來；其餘 11 張沒有任何標示。
+  2. 分片改回原樣、重跑合併（fresh 13）→ 頁面上 `.fresh-badge` 0 個，價格回來。**黃色出現、改回就消失。**
+  3. 網址加 `?now=2026-09-19T10:00:00+08:00`（週六）→ 台銀黃金 3 張與台股 4 張全部**中性灰**
+     「週末不掛牌／不開盤，沿用週五 …」，海外 4 張沒有；頁首出現紅色「示範模式」。**沒有改系統時間**
+     （那會讓四個 Windows 工作大量補跑、也會弄髒資料裡的時間戳）。
+  4. console 零錯誤；兩張示範截圖存檔（檔名標明 SANDBOX，不是線上）。
+- **突變對照組**（工作區整份複製到暫存目錄 → 改壞一處 → 只跑 `test_freshness_js.py` → 必須紅），9 個全部符合預期：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | （基準）什麼都不改 | 綠（19 條全過） |
+  | 把 stale 的判斷改壞（`'stale'` 改成 `'fresh'`） | 8 條紅（含 `test_stale_is_yellow_and_says_since_when`、`test_fresh_has_no_badge`） |
+  | 週末的灰色不再要求「牌價日期是星期五」 | 1 條紅：test_weekend_but_the_quote_is_older_than_friday_is_yellow |
+  | 星期幾改用瀏覽器的時區算（拿掉 +8 小時） | 1 條紅：test_weekday_is_judged_in_taipei_not_in_the_browsers_timezone |
+  | freshness=error 時照樣顯示價格 | 1 條紅：test_freshness_error_is_red_and_hides_the_price |
+  | 週末那個理由也套用到海外標的 | 1 條紅：test_overseas_assets_never_get_the_weekend_excuse |
+  | carriedOver 不再產生小字 | 2 條紅：test_carried_over_is_small_text_with_the_reason、test_carried_over_without_a_reason_says_when_it_was_fetched |
+  | app.js 不去問 freshness.js（函式寫對了但卡片沒接上） | 1 條紅：test_app_js_asks_freshness_js_and_does_not_judge_by_itself |
+  | 找不到瀏覽器（IW_BROWSER 指到不存在的路徑）→ 必須紅，不是跳過 | 1 條紅：setUpClass |
+
+  最後一列是刻意的：找不到瀏覽器時這一組是**紅**的，不是跳過——「測試沒跑」不可以看起來像「測試過了」。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit stop8-3..stop8-4
+```

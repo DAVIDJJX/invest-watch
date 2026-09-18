@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>js/freshness.js 測試頁（由 scripts/test_freshness_js.py 用無頭瀏覽器開）</title>
+</head>
+<body>
+<!--
+  這一頁不連網、不讀任何資料檔：載入 js/freshness.js，拿寫死的假標的與假「現在」去問它，
+  把每一題的結果寫進下面 id 是 result 的那個區塊。scripts/test_freshness_js.py 用無頭 Edge／Chrome
+  開這一頁、把 DOM 倒出來逐題檢查。用瀏覽器直接開這個檔也看得到結果。
+
+  為什麼時間都寫死？這裡要驗的是「星期幾」的判斷；寫死才不會哪天真的在週六跑測試就分辨不出對錯。
+  2026-09-18 是星期五、09-19 星期六、09-20 星期日、09-21 星期一、09-16 星期三、09-17 星期四。
+-->
+<script src="../js/freshness.js"></script>
+<pre id="result">（尚未執行）</pre>
+<script>
+(function () {
+  var FRI = '2026-09-18T16:00:00+08:00', SAT = '2026-09-19T10:00:00+08:00',
+      SUN = '2026-09-20T21:00:00+08:00', MON = '2026-09-21T08:00:00+08:00',
+      WED = '2026-09-16T12:00:00+08:00';
+
+  function gold(over) {
+    var a = { id: 'gold_twd', type: 'bot_gold', status: 'ok', freshness: 'fresh', price: 4500,
+              date: '2026-09-18', quoteTime: '2026/09/18 19:52',
+              lastSuccessAt: '2026-09-18T22:48:08+08:00', fetchedAt: '2026-09-18T22:48:08+08:00' };
+    for (var k in over) a[k] = over[k];
+    return a;
+  }
+
+  // expect：kind（null＝沒有標示）、hidePrice、suppress、carried（null 或必須包含的字）、has／hasNot（標示文字）
+  var CASES = [
+    { name: 'fresh_has_no_badge', a: gold({}), now: FRI,
+      expect: { kind: null, hidePrice: false, suppress: false, carried: null } },
+
+    { name: 'stale_is_yellow_and_says_since_when',
+      a: gold({ freshness: 'stale', date: '2026-09-11', lastSuccessAt: '2026-09-13T23:21:01+08:00' }), now: WED,
+      expect: { kind: 'stale', hidePrice: false, has: ['沿用 09-13 23:21 的資料', '2026-09-11'] } },
+
+    { name: 'back_to_fresh_clears_the_badge',
+      a: gold({ freshness: 'fresh', date: '2026-09-16', lastSuccessAt: '2026-09-16T11:35:00+08:00' }), now: WED,
+      expect: { kind: null, hidePrice: false } },
+
+    { name: 'freshness_error_is_red_and_hides_the_price',
+      a: gold({ freshness: 'error' }), now: FRI,
+      expect: { kind: 'error', hidePrice: true } },
+
+    { name: 'failed_fetch_hides_price_without_a_second_badge',
+      a: gold({ status: 'error', freshness: 'stale', price: null }), now: FRI,
+      expect: { kind: null, hidePrice: true } },
+
+    { name: 'carried_over_is_small_text_with_the_reason',
+      a: gold({ carriedOver: true, carriedReason: '實體條塊一天只更新一次，盤中的輕量更新不重抓' }), now: FRI,
+      expect: { kind: null, carried: '這一輪未更新，沿用上次結果（實體條塊一天只更新一次' } },
+
+    { name: 'carried_over_without_a_reason_says_when_it_was_fetched',
+      a: gold({ carriedOver: true }), now: FRI,
+      expect: { kind: null, carried: '這一輪未更新，沿用上次結果（09-18 22:48 抓的）' } },
+
+    { name: 'saturday_with_fridays_quote_is_grey_not_yellow',
+      a: gold({ freshness: 'stale' }), now: SAT,
+      expect: { kind: 'weekend', hidePrice: false, suppress: true,
+                has: ['週末不掛牌', '2026/09/18 19:52'], hasNot: ['沿用 09-18'] } },
+
+    { name: 'sunday_still_grey_even_if_the_last_fetch_was_on_saturday',
+      a: gold({ freshness: 'stale', lastSuccessAt: '2026-09-19T14:00:00+08:00' }), now: SUN,
+      expect: { kind: 'weekend', suppress: true } },
+
+    { name: 'weekend_and_fresh_is_grey_too_so_the_yellow_date_note_is_suppressed',
+      a: gold({ freshness: 'fresh', lastSuccessAt: '2026-09-19T10:05:30+08:00' }), now: SAT,
+      expect: { kind: 'weekend', suppress: true } },
+
+    { name: 'taiwan_stocks_say_market_closed',
+      a: gold({ id: 'tw2330', type: 'twse_stock', quoteTime: null, freshness: 'stale' }), now: SAT,
+      expect: { kind: 'weekend', has: ['週末不開盤', '2026-09-18'] } },
+
+    { name: 'finmind_fx_counts_as_bank_of_taiwan_and_uses_the_quote_date',
+      a: gold({ id: 'fx_cny', type: 'finmind_fx', quoteTime: null, freshness: 'fresh' }), now: SUN,
+      expect: { kind: 'weekend', has: ['週末不掛牌', '2026-09-18'] } },
+
+    { name: 'weekend_but_the_quote_is_older_than_friday_is_yellow',
+      a: gold({ freshness: 'stale', date: '2026-09-17', lastSuccessAt: '2026-09-17T15:05:40+08:00' }), now: SAT,
+      expect: { kind: 'stale', suppress: false } },
+
+    { name: 'overseas_assets_never_get_the_weekend_excuse',
+      a: gold({ id: 'btc', type: 'yahoo', quoteTime: null, freshness: 'stale' }), now: SAT,
+      expect: { kind: 'stale' } },
+
+    { name: 'monday_is_not_the_weekend',
+      a: gold({ freshness: 'stale' }), now: MON,
+      expect: { kind: 'stale', suppress: false } },
+
+    // 瀏覽器的時鐘可能在別的時區：UTC 的週五 17:00 在台北已經是週六 01:00
+    { name: 'weekday_is_judged_in_taipei_not_in_the_browsers_timezone',
+      a: gold({ freshness: 'stale' }), now: '2026-09-18T17:00:00Z',
+      expect: { kind: 'weekend' } }
+  ];
+
+  var results = [];
+  CASES.forEach(function (c) {
+    var got, problems = [];
+    try {
+      got = window.Freshness.classify(c.a, c.now);
+      var e = c.expect, kind = got.badge ? got.badge.kind : null, text = got.badge ? got.badge.text : '';
+      if ('kind' in e && kind !== e.kind) problems.push('kind 應該是 ' + e.kind + '，實際 ' + kind);
+      if ('hidePrice' in e && got.hidePrice !== e.hidePrice) problems.push('hidePrice 應該是 ' + e.hidePrice);
+      if ('suppress' in e && got.suppressDateNote !== e.suppress) problems.push('suppressDateNote 應該是 ' + e.suppress);
+      if ('carried' in e) {
+        if (e.carried === null ? got.carried !== null : String(got.carried || '').indexOf(e.carried) < 0) {
+          problems.push('carried 應該' + (e.carried === null ? '是 null' : '包含「' + e.carried + '」') + '，實際 ' + got.carried);
+        }
+      }
+      (e.has || []).forEach(function (s) { if (text.indexOf(s) < 0) problems.push('標示文字應該包含「' + s + '」：' + text); });
+      (e.hasNot || []).forEach(function (s) { if (text.indexOf(s) >= 0) problems.push('標示文字不該包含「' + s + '」：' + text); });
+    } catch (err) {
+      problems.push('丟出例外：' + err);
+    }
+    results.push({ name: c.name, ok: problems.length === 0, problems: problems, got: got });
+  });
+
+  document.getElementById('result').textContent =
+    JSON.stringify({ loaded: !!window.Freshness, total: results.length, results: results });
+})();
+</script>
+</body>
+</html>
