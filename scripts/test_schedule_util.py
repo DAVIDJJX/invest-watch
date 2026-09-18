@@ -504,6 +504,34 @@ class TestRealScheduleFile(unittest.TestCase):
             self.assertEqual(times, sorted(times))
             self.assertEqual(len(times), len(set(times)), "有重複的時間點")
 
+    def test_every_days_field_only_names_real_weekdays(self):
+        """days 只能用 0～6（0=週日 … 6=週六）。
+
+        parse_days 對超出範圍的數字是取 7 的餘數：寫成 "8" 不會報錯，而是被安靜地當成週一，
+        那個時窗就默默搬到別天去了。2026-09-18 做 8-5 的對照組時，把 local.light 的 days 改成 "8"，
+        整組測試居然全綠——所以補上這一條，專門健檢真的 data/schedule.json。
+        """
+        import re
+
+        def blocks():
+            for owner in ("cloud", "local"):
+                conf = self.sch.get(owner) or {}
+                if conf.get("full"):
+                    yield owner, "full", conf["full"]
+                light = conf.get("light") or []
+                for w in ([light] if isinstance(light, dict) else light):
+                    yield owner, "light", w
+
+        seen = 0
+        for owner, kind, block in blocks():
+            seen += 1
+            spec = str(block.get("days", "*"))
+            nums = [int(x) for x in re.findall("[0-9]+", spec)]
+            self.assertTrue(all(0 <= n <= 6 for n in nums),
+                            "%s.%s 的 days=%r 有超出 0～6 的數字" % (owner, kind, spec))
+            self.assertTrue(su.parse_days(spec), "%s.%s 的 days=%r 解析出來是空的" % (owner, kind, spec))
+        self.assertGreaterEqual(seen, 4, "應該至少檢查到 cloud／local 各自的 full 與 light")
+
     def test_grace_is_sane(self):
         g = su.grace_minutes(self.sch)
         self.assertTrue(0 < g <= 120, "寬限 %d 分鐘不合理" % g)
