@@ -17,6 +17,11 @@ PLAN.md.md
 # 本機補抓腳本的執行紀錄
 scripts/update_local.log
 
+# Claude 桌面 App 會把它產出的交付文件存在這個資料夾（把倉庫資料夾連進對話時）。
+# 2026-09-13 它落在倉庫根目錄，害本機排程連續五天每一次都中止（見 docs/CHANGELOG.md 停點 8 的背景）。
+# 那些文件不屬於這個倉庫，永遠不該被 commit。
+Claude outputs/
+
 # ===== 隱私保險絲 =====
 # 個人持倉資料只存在瀏覽器與私人倉庫 invest-data，
 # 就算不小心在這個資料夾產生了，也絕對不會被 commit 進公開倉庫。

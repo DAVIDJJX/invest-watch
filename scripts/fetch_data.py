@@ -22,10 +22,10 @@ InvestWatch 資料抓取腳本
   * 隱私：本檔只處理公開市場資料，不碰任何個人持倉資訊。
 
 用法：
-    python scripts/fetch_data.py --source cloud --slot close   # 雲端負責的 8 項
-    python scripts/fetch_data.py --source local --slot close   # 本機負責的 5 項
-    python scripts/fetch_data.py --source local --light        # 盤中輕量更新
-    python scripts/fetch_data.py --only gold_twd --source local  # 只抓部分（測試用）
+    python scripts/fetch_data.py --source cloud --slot close          # 雲端負責的標的（assets.json 裡 owner=cloud）
+    python scripts/fetch_data.py --source local --slot light          # 本機負責的標的（owner=local），完整更新
+    python scripts/fetch_data.py --source local --slot light --light  # 本機的盤中輕量更新
+    python scripts/fetch_data.py --source local --slot light --only gold_twd   # 只抓部分（測試用）
 
 ⚠ --source 是必填的。all 會兩邊都抓、寫出兩個分片，只給手動測試用；
   正式排程一定要指明 cloud 或 local，否則會寫到不屬於自己的分片。
@@ -139,6 +139,7 @@ DATE_SOURCE = {
     "official": "證交所官方月檔的日期欄",
     "realtime": "證交所即時報價自己回傳的日期",
     "yahoo":    "Yahoo 日線 K 棒自己的時間戳",
+    "finmind":  "FinMind TaiwanExchangeRate 回應自己的 date 欄（台銀每日牌價）",
 }
 
 
@@ -461,6 +462,73 @@ def fetch_bot_fx_history(f, code):
     return pts
 
 
+# ---------------------------------------------------------------- 台銀每日匯率，經 FinMind（PLAN 7.11）
+
+# 為什麼不直接抓台銀？台銀會擋雲端主機的 IP（停點 6 量了 60 個樣本，60 個都被擋），
+# 匯率因此只能靠家用電腦抓；筆電一睡、或本機管線一卡住，匯率就停在那一天。
+# FinMind 的 TaiwanExchangeRate 轉載的就是台銀的每日牌價（切換前逐日稽核過，
+# 即期買入／賣出與本站用台銀 CSV 累積的歷史一致，見 docs/CHANGELOG.md 8-0），而且雲端抓得到。
+# 代價：一天只有一筆，當天那一筆要等 FinMind 發布才有（實際出現時間記在 PLAN 7.11）。
+FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
+FINMIND_FX_LABEL = "台銀每日匯率（經 FinMind）"
+FINMIND_BACKFILL_DAYS = 190     # 連一筆歷史都沒有時回補多久（約半年，跟原本台銀 L6M 檔一樣長）
+
+
+def parse_finmind_fx(j, code):
+    """把 TaiwanExchangeRate 的回應整理成一列一天、依日期排序的清單：
+    [{date, spotBuy, spotSell, cashBuy, cashSell}]。
+
+    三條誠實規則：
+      1. msg 不是 "success"、status 不是 200、或 data 不是陣列 → 一律當失敗（FetchError）。
+         FinMind 超過用量或 token 失效時【HTTP 照樣回 200】，錯誤只寫在 msg 裡，
+         Fetcher 那一層看不出來；這裡不擋，就會把一則錯誤訊息當成「今天沒有新資料」。
+      2. 每一列的日期只認回應自己的 date 欄，絕不用「現在」。
+         沒有日期、或沒有即期賣出的列直接丟掉。
+      3. data 是空陣列【不是】錯誤：那是來源說「這段期間還沒有資料」。
+    """
+    if not isinstance(j, dict):
+        raise FetchError("FinMind 回應不是預期的格式")
+    if j.get("msg") != "success" or j.get("status") != 200:
+        raise FetchError("FinMind 回報失敗：msg=%r status=%r"
+                         % (j.get("msg"), j.get("status")))
+    data = j.get("data")
+    if not isinstance(data, list):
+        raise FetchError("FinMind 回應裡沒有 data 陣列")
+
+    def val(x):
+        # 來源用 0 或負數代表「沒有這個牌價」，那不是價格
+        v = to_float(x)
+        return v if (v is not None and v > 0) else None
+
+    rows = {}
+    for r in data:
+        if not isinstance(r, dict) or r.get("currency") != code:
+            continue
+        day = str(r.get("date") or "")
+        if not re.match(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$", day):
+            continue
+        sell = val(r.get("spot_sell"))
+        if sell is None:
+            continue
+        rows[day] = {
+            "date": day,
+            "spotBuy": val(r.get("spot_buy")),
+            "spotSell": sell,
+            "cashBuy": val(r.get("cash_buy")),
+            "cashSell": val(r.get("cash_sell")),
+        }
+    return [rows[k] for k in sorted(rows)]
+
+
+def fetch_finmind_fx(f, code, start_date):
+    """問 FinMind 要 start_date（含）之後的台銀每日匯率。一個幣別一個請求。"""
+    url = ("%s?dataset=TaiwanExchangeRate&data_id=%s&start_date=%s"
+           % (FINMIND_URL, code, start_date))
+    j = f.get(url, delay=1.0, expect_json=True,
+              headers={"Accept": "application/json, text/plain, */*"})
+    return parse_finmind_fx(j, code)
+
+
 # ---------------------------------------------------------------- 台股（PLAN 7.4 / 7.5）
 
 
@@ -641,6 +709,8 @@ def load_history(asset_id):
 DATE_SOURCE_GRADE = {
     "official": 3,        # 證交所官方月檔
     "csv": 3,             # 台銀匯率 CSV 的資料日期
+    "finmind": 3,         # 台銀每日匯率（經 FinMind）：跟 csv 是同一種資料、同一級。
+                          # 沒登記的話會被當成 0 級，永遠蓋不過任何舊點，而且錯得無聲無息
     "chart": 3,           # 台銀黃金走勢表
     "quote": 3,           # 台銀掛牌時間（當日最新掛牌，同等級由新的蓋舊的）
     "close-realtime": 2,  # 收盤後的即時價（PLAN 7.4：收盤後 z 即收盤價），等官方月檔來蓋
@@ -929,6 +999,82 @@ def handle_bot_fx(f, asset, ctx):
     return merged, build_quote(asset, merged, today.get("spotSell"), extra)
 
 
+def handle_finmind_fx(f, asset, ctx):
+    # FinMind 一天只有一筆，盤中每 30 分鐘去問一次沒有意義，對來源也不客氣。
+    # 所以 assets.json 裡這兩項的 cadence 是 full，這裡跟實體條塊用同一個寫法：
+    # 輕量更新時沿用上一次的結果。但「上一次」若不存在、或本身是失敗的，就照抓——
+    # 剛從家用電腦搬到雲端的那一刻，雲端分片裡還沒有這一項；不這樣寫，
+    # 卡片會一路紅到下一次完整更新（週五傍晚搬的話就是紅一整個週末）。
+    if ctx.get("light") and (ctx.get("prevAssets") or {}).get(
+            asset["id"], {}).get("status") == "ok":
+        raise SkipAsset("台銀每日匯率一天一筆，盤中的輕量更新不重抓")
+
+    code = asset["symbol"]
+    old = load_history(asset["id"])
+    last_day = old[-1]["d"] if old else None
+
+    # 只問「歷史最後一天」起的資料，而且只收比它【新】的日期——純追加。
+    # 為什麼含最後一天？那一列拿來對帳（來源事後有沒有改數字），也讓卡片上的
+    # 現金買賣價跟日期出自同一列。
+    # 為什麼不收舊日期？舊的點是台銀 CSV 時期寫的（dateSource=csv），同等級的新點會把
+    # 整筆蓋過去、連 dateSource 一起洗掉；不重送，就不可能改寫歷史。
+    if last_day:
+        start = last_day
+    else:
+        start = (now_tpe() - timedelta(days=FINMIND_BACKFILL_DAYS)).date().isoformat()
+    rows = fetch_finmind_fx(f, code, start)
+
+    new_pts = []
+    for r in rows:
+        if last_day and r["date"] <= last_day:
+            continue
+        # 主價 c＝即期賣出（你要換外幣時付的價）。欄位順序跟台銀 CSV 時期的舊點一樣，
+        # 歷史檔一行一天，新舊點排在一起才好對照
+        new_pts.append({"d": r["date"],
+                        "spotBuy": r["spotBuy"], "spotSell": r["spotSell"],
+                        "c": r["spotSell"], "dateSource": "finmind"})
+
+    merged = merge_points(old, new_pts)
+    if not merged:
+        raise FetchError("FinMind 沒有回傳任何 %s 匯率，本站也還沒有歷史" % code)
+    last = merged[-1]
+    by_day = dict((r["date"], r) for r in rows)
+    same = by_day.get(last["d"]) or {}
+
+    # 對帳：來源對「歷史最後一天」的說法，跟本站記的一不一樣。不一樣也【不覆寫】，只提醒。
+    notes = []
+    chk = by_day.get(last_day) if last_day else None
+    if chk and old[-1].get("c") is not None:
+        if abs(chk["spotSell"] - old[-1]["c"]) > 1e-9:
+            notes.append("FinMind 說 %s 的即期賣出是 %s，本站歷史記的是 %s（沒有覆寫，請人工確認）"
+                         % (last_day, chk["spotSell"], old[-1]["c"]))
+
+    # 這一行會留在 Actions 的 log 裡，用來查「當天那一筆到底幾點才出現」
+    today = now_tpe().date().isoformat()
+    print("    . FinMind %s 最新一筆：%s（%s）"
+          % (code, last["d"],
+             "就是今天" if last["d"] == today else "不是今天，今天是 %s" % today))
+
+    history_note = None
+    if not new_pts:
+        history_note = ("FinMind 還沒有比 %s 更新的資料（當天那一筆要等它發布），"
+                        "這一輪沒有新增歷史點" % last["d"])
+
+    extra = {
+        # 價格、買賣價、日期全部出自同一天：卡片不可以出現「今天抓的價格配上別天的日期」
+        "spotBuy": last.get("spotBuy"),
+        "spotSell": last.get("spotSell"),
+        "cashBuy": same.get("cashBuy"),
+        "cashSell": same.get("cashSell"),
+        "historyNote": history_note,
+        "sourceLabel": FINMIND_FX_LABEL,
+    }
+    if notes:
+        extra["warnings"] = notes
+    # 沒有新點就回 None（＝不要碰歷史檔）：否則每次只改 updatedAt，平白多一筆 diff
+    return (merged if new_pts else None), build_quote(asset, merged, last.get("c"), extra)
+
+
 def handle_twse(f, asset, ctx):
     old = load_history(asset["id"])
     new_pts = []
@@ -1050,7 +1196,8 @@ HANDLERS = {
     "twse_index": handle_twse,
     "twse_stock": handle_twse,
     "yahoo": handle_yahoo,
-    "bot_fx": handle_bot_fx,
+    "bot_fx": handle_bot_fx,          # 停點 8 之後沒有標的在用；留著當「直接抓台銀」的備援路徑
+    "finmind_fx": handle_finmind_fx,
 }
 
 

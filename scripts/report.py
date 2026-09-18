@@ -236,11 +236,16 @@ def quote_item(a, extra=None, compare=None):
         ex.append({"k": "本行賣出", "v": fmt(a.get("sell"), dec)})
         if a.get("quoteTime"):
             ex.append({"k": "掛牌時間", "v": a["quoteTime"]})
-    elif a.get("type") == "bot_fx":
+    elif a.get("type") in ("bot_fx", "finmind_fx"):
         ex.append({"k": "即期買入", "v": fmt(a.get("spotBuy"), dec)})
         ex.append({"k": "即期賣出", "v": fmt(a.get("spotSell"), dec)})
         ex.append({"k": "現金買入", "v": fmt(a.get("cashBuy"), dec)})
         ex.append({"k": "現金賣出", "v": fmt(a.get("cashSell"), dec)})
+        if a.get("sourceLabel"):
+            # 匯率改經 FinMind 取得之後一天只有一筆，而且當天那筆要等它發布；
+            # 報告要自己講清楚來源，以及這一筆到底是哪一天的，不能讓人以為是今天的牌價。
+            ex.append({"k": "資料來源", "v": a["sourceLabel"]})
+            ex.append({"k": "資料日期", "v": a.get("date") or "—"})
     if a.get("quoteTime") and a.get("type") not in ("bot_gold",):
         ex.append({"k": "報價時間", "v": a["quoteTime"]})
     if extra:

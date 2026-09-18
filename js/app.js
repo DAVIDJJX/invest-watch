@@ -224,6 +224,9 @@
     if (a.priceLabel && !isBar) subBits.push(esc(a.priceLabel));
     if (a.unit) subBits.push(esc(a.unit));
     if (a.date) subBits.push(esc(a.date) + (stale ? '（最近一筆）' : ''));
+    // 來源不是直接抓的那一家時要寫出來（例：匯率是台銀的牌價，但是經 FinMind 取得）。
+    // 文字由資料層給（sourceLabel），呈現層不自己猜是哪一家。
+    if (a.sourceLabel) subBits.push(esc(a.sourceLabel));
     if (a.quoteTime && !isBar && a.type !== 'bot_gold') subBits.push(esc(a.quoteTime));
     left.appendChild(el('div', 'card-sub',
       subBits.join(' · ') +
@@ -256,7 +259,7 @@
     if (a.status === 'ok') {
       if (a.type === 'bot_gold') {
         head.appendChild(el('div', 'pair', goldPairHtml(a, latest)));
-      } else if (a.type === 'bot_fx') {
+      } else if (a.type === 'bot_fx' || a.type === 'finmind_fx') {
         head.appendChild(el('div', 'pair', fxPairHtml(a)));
       } else if (isBar) {
         var wrap = el('div', 'pair');
@@ -298,7 +301,9 @@
         ' 的收盤價。' +
         (a.group === '海外'
           ? '台灣白天時美股尚未收盤，看到前一個交易日的收盤價是正常的。'
-          : '該市場今天還沒有產生新的收盤價。')));
+          : (a.type === 'finmind_fx'
+              ? '這是台銀的每日牌價，經 FinMind 取得；當天那一筆要等它發布才有，在那之前看到前一個營業日是正常的。'
+              : '該市場今天還沒有產生新的收盤價。'))));
     }
 
     card.appendChild(head);

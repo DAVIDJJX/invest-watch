@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#0e1420">
 <meta name="description" content="個人理財監控儀表板：黃金、台股、美股、匯率的每日行情與量化指標整理。">
 <title>InvestWatch 儀表板</title>
-<link rel="stylesheet" href="css/style.css?v=20260901-6">
+<link rel="stylesheet" href="css/style.css?v=20260918-1">
 </head>
 <body>
 
@@ -48,20 +48,20 @@
     本頁的「相對低檔區／中性／相對高檔區」燈號，只是把 RSI、均線位置、52 週區間百分位
     這些<b>客觀數字做分類</b>，<b>未經任何歷史回測驗證，不構成投資建議</b>，也不保證未來走勢。
     實際投資決定與盈虧請自行負責。<br>
-    價格資料來自臺灣銀行、臺灣證券交易所與 Yahoo Finance 的公開牌價，可能有延遲或誤差，
+    價格資料來自臺灣銀行（匯率經 FinMind 取得）、臺灣證券交易所與 Yahoo Finance 的公開牌價，可能有延遲或誤差，
     正式交易請以各機構官方公告為準。
   </section>
 
   <footer class="site-foot">
-    <span>資料來源：臺灣銀行牌價 · 臺灣證券交易所 · Yahoo Finance</span>
-    <span>更新方式：GitHub Actions 每日三時段自動抓取</span>
+    <span>資料來源：臺灣銀行牌價（匯率經 FinMind 取得） · 臺灣證券交易所 · Yahoo Finance</span>
+    <span>更新方式：雲端排程平日每 30 分鐘更新；台銀黃金由家用電腦補抓</span>
     <span>本站不儲存任何個人持倉資料</span>
   </footer>
 </main>
 
 <script src="lib/chart.umd.min.js"></script>
-<script src="js/indicators.js?v=20260901-6"></script>
-<script src="js/charts.js?v=20260901-6"></script>
-<script src="js/app.js?v=20260901-6"></script>
+<script src="js/indicators.js?v=20260918-1"></script>
+<script src="js/charts.js?v=20260918-1"></script>
+<script src="js/app.js?v=20260918-1"></script>
 </body>
 </html>
