@@ -381,7 +381,10 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 落後遠端就中止——從 9/14 到 9/18，**每一次**本機排程都是結束碼 4，台銀 5 項停了五天。
 
 - 此資料夾由 Claude 桌面 App 產生，已加進 `.gitignore`；文件本身移到倉庫外的 `D:\Claude_use\Claude outputs\`。
-- 以後任何「跟這個網站無關」的檔案都不要放進這個資料夾。
+- 根治：`update_local.ps1` 與 `publish.py` 判斷「工作區乾不乾淨」時只看**已追蹤**的檔案
+  （`git status --porcelain --untracked-files=no`）。未追蹤的檔案不會被快轉動到、也不會被提交，
+  沒有理由因為它們而停擺。一個不相干的資料夾不該讓整條管線停五天。
+- 即使如此，跟這個網站無關的檔案還是不要放進這個資料夾。
 
 ### 排錯：家用電腦的排程每次都中止
 
@@ -389,10 +392,18 @@ gh api "repos/DAVIDJJX/invest-watch/actions/workflows/update-data.yml/runs?per_p
 
 | 結束碼 | 訊息 | 處理 |
 |---|---|---|
+| 0 | `另一個實例執行中，略過` | **不是錯誤**。筆電一醒，錯過的幾個工作會同一秒一起補跑；互斥鎖只讓一個真的跑，其餘的寫這一行就離開（它們做的是同一件事） |
 | 2 | `-Source` 不是 local | 排程的參數被改壞了，改回 `-Source local` 或拿掉 |
 | 3 | 目前不在 `main` 分支 | `git switch main && git pull` |
-| 4 | 落後遠端且無法快轉 | 有未提交的變動擋住，`git status` 看一下先處理掉 |
+| 4 | 落後遠端且無法快轉 | **已追蹤**的檔案有未提交的變動擋住，`git status` 看一下先處理掉（未追蹤的檔案不算） |
 | 5 | 合併失敗 | 跑 `python scripts/merge_latest.py` 看錯誤訊息 |
+
+log 裡另外兩種訊息：`發現死掉的 index.lock … 已清掉`（git 做到一半被砍掉留下的鎖檔，放超過 2 分鐘、
+而且當下沒有任何 git 在跑才會清）；`index.lock 存在，但不確定是不是死的 … 不動它`（你可能正在用 git，
+那一輪多半會失敗，下一輪再試）。
+
+要在不碰 GitHub、不碰台銀的情況下實測這支腳本：`python scripts/test_update_local_lock.py`
+（沙盒裡同時啟動 4 個實例；加 `--contrast` 會把修正拿掉、證明問題重現）。
 
 ---
 

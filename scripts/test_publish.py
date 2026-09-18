@@ -165,5 +165,31 @@ class TestRebuildParsing(unittest.TestCase):
                 publish.parse_rebuild(bad)
 
 
+class TestCleanMeansTrackedFilesOnly(unittest.TestCase):
+    """「工作區乾不乾淨」只看已追蹤的檔案。
+
+    2026-09-13 一個不相干的未追蹤資料夾（Claude 桌面 App 寫進倉庫根目錄的 Claude outputs/）
+    讓本機排程連續五天每一次都以結束碼 4 中止。update_local.ps1 與這裡的判斷要一致：
+    未追蹤的檔案不算髒。ps1 那一半由 scripts/test_update_local_lock.py 在沙盒裡實跑驗證。
+
+    對照組：把 dirty_paths 裡的 --untracked-files=no 拿掉，這一條會紅。
+    """
+
+    def test_dirty_paths_ignores_untracked_files(self):
+        seen = []
+        orig = publish.git
+        publish.git = lambda *a, **kw: (seen.append(a) or (0, ""))
+        try:
+            publish.dirty_paths()
+            publish.dirty_paths(scope="data")
+        finally:
+            publish.git = orig
+        self.assertEqual(len(seen), 2)
+        for args in seen:
+            self.assertEqual(args[:2], ("status", "--porcelain"))
+            self.assertIn("--untracked-files=no", args)
+        self.assertEqual(seen[1][-2:], ("--", "data"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
