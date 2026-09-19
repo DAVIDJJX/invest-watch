@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-09-19T14:10:31+08:00",
- "updatedAtText": "2026-09-19 14:10",
+ "updatedAt": "2026-09-19T14:49:52+08:00",
+ "updatedAtText": "2026-09-19 14:49",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -11,7 +11,7 @@
   "error": 0,
   "errorIds": []
  },
- "requests": 8,
+ "requests": 11,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -72,7 +72,7 @@
     4457.0,
     4500.0
    ],
-   "fetchedAt": "2026-09-18T23:28:54+08:00",
+   "fetchedAt": "2026-09-19T14:49:47+08:00",
    "error": null,
    "buy": 4447.0,
    "sell": 4500.0,
@@ -80,9 +80,9 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-18T23:28:54+08:00",
-   "lastSuccessAt": "2026-09-18T23:28:54+08:00",
-   "freshness": "stale",
+   "lastAttemptAt": "2026-09-19T14:49:47+08:00",
+   "lastSuccessAt": "2026-09-19T14:49:47+08:00",
+   "freshness": "fresh",
    "lastDueAt": "2026-09-19T13:05:00+08:00",
    "nextDueAt": "2026-09-19T15:05:00+08:00"
   },
@@ -145,7 +145,7 @@
     936.2,
     950.35
    ],
-   "fetchedAt": "2026-09-18T23:28:56+08:00",
+   "fetchedAt": "2026-09-19T14:49:50+08:00",
    "error": null,
    "buy": 940.3,
    "sell": 950.35,
@@ -153,9 +153,9 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-18T23:28:56+08:00",
-   "lastSuccessAt": "2026-09-18T23:28:56+08:00",
-   "freshness": "stale",
+   "lastAttemptAt": "2026-09-19T14:49:50+08:00",
+   "lastSuccessAt": "2026-09-19T14:49:50+08:00",
+   "freshness": "fresh",
    "lastDueAt": "2026-09-19T13:05:00+08:00",
    "nextDueAt": "2026-09-19T15:05:00+08:00"
   },
@@ -233,14 +233,12 @@
    ],
    "date": "2026-09-18",
    "historyNote": null,
-   "fetchedAt": "2026-09-18T22:48:13+08:00",
+   "fetchedAt": "2026-09-19T14:49:52+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-18T22:48:13+08:00",
-   "lastSuccessAt": "2026-09-18T22:48:13+08:00",
-   "carriedOver": true,
-   "carriedReason": "實體條塊一天只更新一次，盤中的輕量更新不重抓",
-   "freshness": "stale",
+   "lastAttemptAt": "2026-09-19T14:49:52+08:00",
+   "lastSuccessAt": "2026-09-19T14:49:52+08:00",
+   "freshness": "fresh",
    "lastDueAt": "2026-09-19T13:05:00+08:00",
    "nextDueAt": "2026-09-19T15:05:00+08:00"
   },
@@ -969,18 +967,18 @@
    "ok": 10,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 39,
    "nextDueAt": "2026-09-19T16:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-09-18T23:28:56+08:00",
+   "runAt": "2026-09-19T14:49:52+08:00",
    "slot": "light",
-   "mode": "light",
+   "mode": "full",
    "ok": 3,
    "error": 0,
-   "requests": 3,
-   "ageMinutes": 881,
+   "requests": 6,
+   "ageMinutes": 0,
    "nextDueAt": "2026-09-19T15:05:00+08:00",
    "status": "ok"
   }
