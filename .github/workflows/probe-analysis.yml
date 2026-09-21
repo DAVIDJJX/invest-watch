@@ -1,0 +1,76 @@
+name: 探測分析資料來源（probe，A0）
+
+# 這個 workflow 只做一件事：對「分析系列可能會用到的新資料來源」各發一個請求，
+# 記下抓不抓得到、格式、能回溯到哪一年、最新一筆是哪一天。
+# 它【不寫任何資料檔、不 commit 任何東西、不接任何來源進正式抓取】，結果只在 job summary 與 log 裡。
+#
+# 為什麼要在這裡跑、不只在筆電上跑？停點 6～8 的教訓：雲端的 IP 跟家裡的 IP 待遇不一樣
+# （台銀在雲端 60 次全被擋）。分析只在雲端 15:30 那一輪算，所以「雲端抓不抓得到」才算數。
+#
+# 只有手動觸發，沒有排程：探測是一次性的調查，不是例行工作。
+# 建議在交易日 15:45～16:00 跑（正式的 15:30 那一輪跑完之後），
+# 這樣量到的「最新一筆日期」就是分析真正會拿到的東西。
+# 到 Actions 頁 → 左邊選這個 workflow → Run workflow；或用 gh：
+#     gh workflow run probe-analysis.yml --ref main
+#
+# 這支探測不碰台銀：探測腳本裡有主機白名單，bot.com.tw 永遠拒絕（有測試釘住）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "只測某幾組（逗號分隔：yahoo,finmind,fred,cape,cpi,nav）；留空＝全部"
+        required: false
+        default: ""
+
+# 連寫入權限都不給：這個 workflow 從結構上就不可能 commit 任何東西
+permissions:
+  contents: read
+
+# 同一時間只准一個探測在跑：兩個一起跑會讓對來源的請求間隔減半
+concurrency:
+  group: probe-analysis
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 取出倉庫
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝套件
+        run: pip install requests
+
+      # 順序規則：先跑離線測試（餵假回應、不連網）。這一步紅就到此為止，後面不發任何真實請求——
+      # 判準壞掉的探測，量出來的東西不能信，不如不量。
+      - name: 離線測試（判準沒壞才准探測）
+        run: python -m unittest discover -s scripts -p "test_probe_analysis.py"
+
+      # 探測腳本永遠 exit 0：來源抓不到是「結果」，不是「程式錯」。
+      # 所以綠燈不代表來源都可用——請打開 job summary 看第一行的統計與結果表。
+      - name: 探測
+        env:
+          ONLY: ${{ github.event.inputs.only }}
+        run: |
+          if [ -n "$ONLY" ]; then
+            python scripts/probe_analysis_sources.py --summary "$GITHUB_STEP_SUMMARY" --only "$ONLY"
+          else
+            python scripts/probe_analysis_sources.py --summary "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 確認這次 run 沒有改到任何檔案（保險）
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::探測不應該改任何檔案，但工作區有變動："
+            git status --porcelain
+            exit 1
+          fi
+          echo "工作區乾淨，沒有寫任何檔。"
