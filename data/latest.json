@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-09-21T22:26:46+08:00",
- "updatedAtText": "2026-09-21 22:26",
+ "updatedAt": "2026-09-21T22:56:51+08:00",
+ "updatedAtText": "2026-09-21 22:56",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -72,7 +72,7 @@
     4500.0,
     4487.0
    ],
-   "fetchedAt": "2026-09-21T22:26:43+08:00",
+   "fetchedAt": "2026-09-21T22:56:48+08:00",
    "error": null,
    "buy": 4434.0,
    "sell": 4487.0,
@@ -80,8 +80,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-21T22:26:43+08:00",
-   "lastSuccessAt": "2026-09-21T22:26:43+08:00",
+   "lastAttemptAt": "2026-09-21T22:56:48+08:00",
+   "lastSuccessAt": "2026-09-21T22:56:48+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-21T17:00:00+08:00",
    "nextDueAt": "2026-09-22T09:00:00+08:00"
@@ -145,7 +145,7 @@
     950.35,
     941.9
    ],
-   "fetchedAt": "2026-09-21T22:26:46+08:00",
+   "fetchedAt": "2026-09-21T22:56:51+08:00",
    "error": null,
    "buy": 931.9,
    "sell": 941.9,
@@ -153,8 +153,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-21T22:26:46+08:00",
-   "lastSuccessAt": "2026-09-21T22:26:46+08:00",
+   "lastAttemptAt": "2026-09-21T22:56:51+08:00",
+   "lastSuccessAt": "2026-09-21T22:56:51+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-21T17:00:00+08:00",
    "nextDueAt": "2026-09-22T09:00:00+08:00"
@@ -969,12 +969,12 @@
    "ok": 10,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 66,
+   "ageMinutes": 96,
    "nextDueAt": "2026-09-22T08:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-09-21T22:26:46+08:00",
+   "runAt": "2026-09-21T22:56:51+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 3,
