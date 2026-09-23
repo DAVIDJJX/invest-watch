@@ -50,6 +50,7 @@ invest-watch/
 ├─ history.html          歷史頁（Phase 2）
 ├─ records.html          我的紀錄（Phase 3）
 ├─ settings.html         設定（Phase 3 / 4）
+├─ analysis-debug.html   分析檢視（暫時頁，純表格；分析系列 A4 會用正式的面向卡片取代）
 ├─ css/style.css         深色系樣式，手機優先 RWD
 ├─ js/
 │   ├─ indicators.js     指標計算（MA / RSI / 百分位…），純函式
@@ -61,13 +62,16 @@ invest-watch/
 │   ├─ portfolio.js      持倉與損益計算（純函式）
 │   ├─ records.js        「我的紀錄」頁邏輯
 │   ├─ settings.js       設定頁邏輯
-│   └─ lock.js           密碼鎖（把本機資料與金鑰加密）
+│   ├─ lock.js           密碼鎖（把本機資料與金鑰加密）
+│   └─ analysis-debug.js 分析檢視頁的表格（只列事實與日期，不算任何東西）
 ├─ lib/chart.umd.min.js  Chart.js 4.4.4，下載到本地，不依賴 CDN
 ├─ data/
 │   ├─ assets.json       監控清單設定檔 ← 要增減標的只改這一個檔
 │   ├─ latest.json       每次更新寫入：所有標的的最新報價與狀態
 │   ├─ history/<id>.json 各標的日線歷史（最多 400 點）
 │   ├─ archive/          每天的報告與行情快照（歷史頁讀這裡）
+│   ├─ history-long/     各標的的週線全歷史（分析系列；只由雲端 15:30 那一輪維護、一週補一次）
+│   ├─ analysis/         分析輸出：status.json（上次算的狀態與錯誤）、risk.json、decompose.json
 │   └─ report-latest.json 最新一份報告（首頁入口用）
 ├─ scripts/
 │   ├─ fetch_data.py     抓資料腳本（只用 requests）
@@ -76,7 +80,11 @@ invest-watch/
 │   ├─ bump_assets.py    幫 HTML 的 css/js 引用加版本號（避免瀏覽器用到舊檔）
 │   ├─ update_local.ps1  家用電腦排程用的補抓腳本
 │   ├─ probe_analysis_sources.py  分析系列 A0：新資料來源探測（只讀、只測不接；結果只進 job summary）
-│   └─ test_probe_analysis.py     上一支的離線測試（餵假回應、不連網；判準改壞必須紅）
+│   ├─ test_probe_analysis.py     上一支的離線測試（餵假回應、不連網；判準改壞必須紅）
+│   ├─ analyze.py        分析系列：週線長歷史、風險、拆解（只在 15:30 review 那一輪跑；出錯不卡行情與報告）
+│   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
+│   └─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
+├─ docs/ANALYSIS.md      分析方法（公開版）：五個面向、方法證據★、資料標籤、assetClass 對應、已實作的定義
 └─ .github/workflows/
     ├─ update-data.yml     排程設定（cron-job.org 觸發）
     ├─ probe-bot.yml       量測台銀（手動觸發；停點 6 的工具）
@@ -88,18 +96,19 @@ invest-watch/
 
 ---
 
-## 目前監控的標的（13 項）
+## 目前監控的標的（14 項）
 
 | 群組 | 標的 | 來源 |
 |---|---|---|
 | 貴金屬 | 黃金存摺 TWD、黃金存摺 CNY | 台銀黃金存摺牌價 |
 | 貴金屬 | 台銀實體黃金條塊（1公斤／500克／250克／100克／金鑽1台兩） | 台銀掛牌 |
+| 貴金屬 | 國際金價（COMEX 近月期貨 GC=F，美元／盎司） | Yahoo Finance；只在四個報時更新（`cadence: full`），是台銀金價拆解與日後估算序列的基礎 |
 | 台股 | 加權指數、台積電 2330、元大 S&P500 00646 | 證交所即時 + 官方月檔 |
 | 台股（上櫃） | 元大美債20年 00679B | 證交所即時（`otc_` 前綴）+ Yahoo 歷史 |
 | 海外 | NVIDIA、S&P 500、比特幣、WTI 原油 | Yahoo Finance |
 | 匯率 | 美元/台幣、人民幣/台幣 | 台銀每日匯率（經 FinMind 取得，雲端抓；一天一筆） |
 
-其中 12 項有完整的一年日線歷史與走勢圖。實體黃金條塊台銀不公布歷史牌價，
+其中 13 項有完整的一年日線歷史與走勢圖。實體黃金條塊台銀不公布歷史牌價，
 所以本站**自 2026-08-31 起自己每天記錄**；在累積滿 5 天之前，卡片展開後先用黃金存摺
 賣出價的走勢當底圖（同一塊金子的價格，條塊只是再加上鑄造與加工費），並在圖下註明。
 條塊卡另外會把各規格換算成**每公克單價**，一眼看得出買越大條每公克越便宜、
@@ -376,6 +385,7 @@ git push
 | 2026-09-18 | 匯率改由雲端經 FinMind 抓（停點 8-0） | `git revert -m 1 6ce8498 && git push`（匯率會回到家用電腦；FinMind 補進去的歷史點是真的牌價，留著無妨） |
 | 2026-09-18 | 停點 8 其餘（probe 彙整、互斥鎖、舊資料標示、schedule.json） | `git revert -m 1 3ffe155 && git push`；或照 `docs/CHANGELOG.md` 用 `stop8-N` 標籤逐段退 |
 | 2026-09-21 | 分析系列 A0（一）：探測腳本＋離線測試＋手動 workflow（只讀，沒有正式流程引用） | `git revert -m 1 3782bbe && git push` |
+| 2026-09-24 | 分析系列 A1-1：assetClass、國際金價卡片、週線長歷史、risk／decompose、檢視頁、守門測試 | `git revert -m 1 <合併 commit> && git push`（它是 7459b34 之後的第一個合併；退回後雲端下一輪就不再產生 data/history-long 與 data/analysis，已產生的檔案可另外刪） |
 | 2026-09-23 | 分析系列 A0（二）：CHANGELOG、README、`.gitignore`（擋分析方法目錄的原始版本） | `git revert -m 1 <第二次合併的 commit> && git push`（它是 3782bbe 之後的第一個合併，`git log --oneline --merges -3` 可查；先退這一次，再退上一列） |
 
 ### 排錯：某天起每天固定某個時段，雲端那幾項資料全部標示過期
@@ -752,7 +762,15 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
     ETF 淨值長歷史只有證交所 e添富的 00646，00679B 得自己每天累積——而且證交所的這兩個端點在雲端被「安全性考量」頁擋下（正式抓法沒被擋，A1 接之前再測）。完整結果表與三行結論在本機的 PLAN.md 7.12
   - **沒有接任何來源**、沒有改 assets.json、沒有動排程、沒有 commit 資料檔。改動、驗證（含 29 個把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA0`
   - 立了一條新的工作規則：批准前的偵察只准讀本機檔案與官方說明文件頁，資料端點留給批准後的正式探測；大檔先看大小或分段讀
-- [ ] 分析系列 A1～A4 — 各面向事實卡（絕不做加權總分；每個指標標證據等級；需要持倉的計算只在瀏覽器裡做）
+- [x] **分析系列 A1-1 — 資料層＋風險＋拆解**（2026-09-24 完成）
+  - **做了什麼**：`assets.json` 每個標的加 `assetClass`（分析方法照類別自動套用；跟 `type` 並存）；新增雲端資產 **國際金價 gold_intl**（GC=F，只在四個報時更新，`cadence: full` 從此對所有 type 通用）；
+    `data/history-long/` 十個週線全歷史（Yahoo 九個標的＋USD/TWD 經 FinMind，2006 起，標原始出處）；每天 15:30 review 那一輪跑 `scripts/analyze.py` 算 **風險**（年化波動 1／5 年、最大回檔、目前距高點、3 年相關矩陣）與 **拆解**
+    （台銀金價＝國際金價×匯率÷31.1035＋殘差；00646＝S&P 500×匯率＋殘差）；`data/analysis/status.json` 記上次算的狀態與錯誤；暫時檢視頁 `analysis-debug.html`；公開版方法文件 `docs/ANALYSIS.md`
+  - **守門**：分析系列的檔案由測試自動掃——不准出現投資判斷用語（頁尾那句固定聲明是唯一例外），不准出現個人持倉數字、具名字串（加鹽 HMAC 比對，鹽不在倉庫裡）；分析出錯絕不卡住行情與報告
+  - **實跑學到的**：Yahoo 會把「一週」的起點對齊 `period1` 那一天的星期幾，`period1=0`（星期四）會讓 S&P 500 變成週四起的週——一律改用 1970-01-05（星期一）
+  - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-1`
+- [ ] 分析系列 A1-2 — 成本（追蹤差、折溢價、黃金價差、靜態費用表）＋ 個人集中度（只在瀏覽器裡算）
+- [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、正式的五面向卡片與狀態快照（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
 ---

@@ -23,7 +23,7 @@
     "full": "完整更新：會重抓歷史、定案當天的點；雲端的四個 full 各對應一份報告（見 reports）。",
     "light": "盤中輕量更新：只更新現價，不抓歷史、不產報告。可以是一個時窗，也可以是一串時窗（例如平日每 30 分、週末每 2 小時各一個）。時間是 from 到 to（含 to）之間每 everyMinutes 一個點。",
     "reports": "四份報告的觸發時間，跟 cloud.full.at 一一對應；歷史頁與首頁之後改成從這裡讀。",
-    "cadence": "每個標的走哪一種排程，寫在 data/assets.json。預設是『該 owner 有 light 就用 light，沒有就用 full』；full 表示只算 full.at 那幾個時間點。"
+    "cadence": "每個標的走哪一種排程，寫在 data/assets.json。預設是『該 owner 有 light 就用 light，沒有就用 full』；full 表示只算 full.at 那幾個時間點。目前寫 full 的：gold_bar（本機）、fx_usd、fx_cny、gold_intl（雲端）——只在各自 owner 的 full.at 更新，過期判定也只看那幾個點；gold_intl（國際金價，2026-09-24 加入）是雲端每個交易日 09:30／11:30／13:35／15:30 各更新一次，盤中每 30 分鐘的輕量更新沿用上次結果。"
   },
 
   "timezone": "Asia/Taipei",

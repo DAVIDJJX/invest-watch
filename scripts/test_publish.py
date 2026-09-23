@@ -78,6 +78,26 @@ class TestOwnedPaths(unittest.TestCase):
                          {"data/history/%s.json" % a["id"] for a in assets},
                          "所有啟用中的標的都要有人負責")
 
+    def test_analysis_series_files_belong_to_cloud_only(self):
+        """分析系列（A1）：週線長歷史與 data/analysis 只由雲端 review 那一輪產生，全部歸雲端；本機一項都不能碰。"""
+        cloud = set(publish.owned_paths("cloud", ["merge"], NOW))
+        local = set(publish.owned_paths("local", ["merge"], NOW))
+        with open(publish.ASSETS_FILE, encoding="utf-8") as fh:
+            assets = json.load(fh)["assets"]
+        for a in assets:
+            if not a.get("enabled", True):
+                continue
+            p = "data/history-long/%s.json" % a["id"]
+            if (a.get("owner") or "cloud") == "cloud":
+                self.assertIn(p, cloud)
+            self.assertNotIn(p, local)
+        for p in publish.ANALYSIS_PATHS:
+            self.assertIn(p, cloud)
+            self.assertNotIn(p, local)
+        self.assertIn("data/analysis/status.json", publish.ANALYSIS_PATHS)
+        self.assertIn("data/analysis/risk.json", publish.ANALYSIS_PATHS)
+        self.assertIn("data/analysis/decompose.json", publish.ANALYSIS_PATHS)
+
     def test_latest_json_belongs_to_both(self):
         """latest.json 是衍生檔，兩邊都會重算後提交，所以兩邊都要列。
 

@@ -690,7 +690,8 @@ git revert --no-edit stop8-4..stop8-5
 | 標籤 | 停點 |
 |---|---|
 | `stopA0` | 新資料來源探測——只測不接（探測腳本＋離線測試＋手動 workflow；結果在本機 PLAN.md 7.12） |
-| `stopA1` | （待排）資料層：`assetClass`、去識別化的公開分析文件、第一批指標 |
+| `stopA1-1` | 資料層＋風險＋拆解：`assetClass`、國際金價、週線長歷史、risk／decompose、暫時檢視頁、公開版方法文件、守門測試 |
+| `stopA1-2` | （待排）成本（追蹤差、折溢價、黃金價差、靜態費用表）＋ 個人集中度（只在瀏覽器） |
 | `stopA2` | （待排） |
 | `stopA3` | （待排） |
 | `stopA4` | （待排） |
@@ -782,3 +783,66 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第二次合併（文件＋`.gitignore`）：`git revert -m 1 <第二次合併的 commit> && git push`（它是 3782bbe 之後的第一個合併，`git log --oneline --merges -3` 可查）。
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
+
+## 2026-09-24 · A1-1 資料層＋風險＋拆解（assetClass、國際金價、週線長歷史、risk／decompose、檢視頁、守門）
+
+**為什麼要做**：分析系列 A1～A4 的每一個面向都要 10 年等級的長歷史，這個專案原本只存 400 點日線；
+風險面向（波動、回檔、相關）全部是事實、不含預測，先做它最不會出錯；黃金與 00646 的拆解則是把
+「台幣價格裡有多少是匯率」講清楚，是之後估值與成本面向的基礎。這一段照使用者的裁決拆成 A1-1／A1-2 兩段，
+A1-2（成本、集中度）另外一段。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `data/assets.json` | 14 項全部加 `assetClass`（gold_tw／index／stock／index_etf／bond_etf／commodity／crypto／fx，跟 `type` 並存）；新增雲端資產 **gold_intl**（國際金價，COMEX 近月期貨 GC=F，type yahoo、owner cloud、group 貴金屬、`cadence: full`＝只在 09:30／11:30／13:35／15:30 更新）；`types` 說明補 assetClass 與 cadence 的新規則 |
+| `data/schedule.json` | `fieldNotes.cadence` 補：目前 cadence=full 的四項與 gold_intl 的節奏（過期判定只看 full.at 那幾個點） |
+| `scripts/fetch_data.py` | 新增 `skip_for_cadence()`：`--light` 遇到 `cadence=full` 且上一次成功 → 沿用上次結果；上一次失敗或沒抓過 → 照抓。主迴圈在呼叫 handler 之前統一判斷，實體條塊與 FinMind 匯率原本在 handler 裡的那兩條留著當第二道保險 |
+| `scripts/net_policy.py` | 新增。主機白名單（台銀永遠拒絕、帶帳密的網址不算數）從探測腳本抽出來，探測與分析共用；多一個 `response_hook` 讓轉址的每一跳都被檢查 |
+| `scripts/probe_analysis_sources.py` | 改成 `import net_policy`，行為不變（100 條測試照跑） |
+| `scripts/analyze.py` | 新增。只在 review 那一輪跑：(1) 維護 `data/history-long/<id>.json`——Yahoo 週線（`period1=345600`＝1970-01-05 星期一、`period2=<現在>`、`interval=1wk`；檢查宣告粒度是 1wk **且** 時間戳中位間距 6～8 天；起始＋7 天 > 現在的進行中週不收；最後一根完成週棒超過 7 天才補抓）＋ USD/TWD 週線（FinMind，2006 起，每 ISO 週取最後一個營業日，抓取當週不收，標原始出處）；(2) `risk.json`：年化波動 52／260 週（缺 >10% 資料不足）、最大回檔（整段、含高低點與回到高點的日期）、目前距高點、3 年相關矩陣（ISO 週對齊、成對可用、重疊 <100 週資料不足、對角線≠1 會喊）、00679B 的 10 年視窗寫「資料不足，2027-01 起才滿」；(3) `decompose.json`：台銀金價 ＝ GC=F × USD/TWD 中價 ÷ 31.1035 ＋ 殘差（同一天與前一日兩個口徑、每日序列、60 日摘要、latest.json 的即時一列）、00646 月報酬 ＝ (1＋S&P)(1＋匯率) − 1 ＋ 殘差（還沒走完的當月不算）；(4) `status.json`：上次執行、ok、errors、每個長歷史做了什麼、請求數，錯誤訊息洗掉本機路徑。結束碼 0／2／1；資料標籤照裁決用文字（估算／單一來源／有對照／多來源一致），★ 只出現在方法文件 |
+| `scripts/publish.py` | `owned_paths()`：雲端多擁有 `data/history-long/<雲端標的>.json` 與 `ANALYSIS_PATHS`（status／risk／decompose），競態重試時才不會被丟掉 |
+| `.github/workflows/update-data.yml` | 報告之後多一步「分析（只在 review 那一輪）」：`if: mode == full && slot == review`、`continue-on-error: true`；結束碼 2 印 `::warning::`、其他非 0 印 `::error::` 但**下面照樣存檔**；執行摘要多印分析狀態一行。觸發方式與時刻都沒改 |
+| `js/app.js` | 「台灣白天海外市場尚未收盤」那句提示改看 `type === 'yahoo'`（不看 group，國際金價在貴金屬組） |
+| `index.html`／各 HTML | 頁尾加「分析檢視（暫時頁）」連結；`bump_assets.py` 版本 20260924-1 |
+| `analysis-debug.html`、`js/analysis-debug.js` | 新增。暫時檢視頁：最上面先顯示分析上次執行時間與最新錯誤，再用純表格列 risk／decompose，每一格帶資料日期與資料標籤；讀不到檔要紅字說讀不到 |
+| `docs/ANALYSIS.md` | 新增。公開版方法文件：兩套等級（方法 ★／資料文字標籤）的定義並列、誠實規則、五個面向的方法清單、assetClass 對應與自動套用、A1-1 已實作的定義、資料條款、A1-2 起的預告。只涵蓋公開標的，沒有任何個人資料 |
+| `scripts/test_analyze.py`（48）、`scripts/test_cadence.py`（10）、`scripts/test_analysis_guards.py`（12）、`scripts/test_analysis_debug.html`＋`scripts/test_analysis_debug_js.py`（11）、`scripts/test_publish.py`（+1）、`scripts/test_schedule_util.py`（cadence 清單加 gold_intl）、`scripts/test_probe_analysis.py`（第二道保險的測試改成改 `net_policy` 的清單） | 離線測試全部不連網 |
+| `scripts/sensitive_terms_hmac.json` | 新增。隱私掃描的具名字串清單——只存長度與**加鹽 HMAC-SHA256**，鹽放在倉庫外（預設 `../iw-private/scan-salt.txt`，環境變數 `IW_SCAN_SALT_FILE` 可指定）；沒有鹽（GitHub runner）就跳過這一段，通用樣式與禁止鍵名永遠掃 |
+| `README.md` | 標的 13→14（國際金價一列）、檔案結構、回滾表、進度 |
+| 本機 `PLAN.md`（不進倉庫） | 7.6 補週線抓法與 period1 的坑、7.11 補匯率長歷史、7.12 註記 A1-1 已接的來源；改前備份 `backup/PLAN.md.before-A1-1` |
+
+**怎麼驗證的**
+
+- **順序規則**：先寫離線測試、綠了才動真來源。這一段對真來源的請求：沙盒實跑兩次（各 1 個 Yahoo 日線＋9 個 Yahoo 週線＋1 個 FinMind）＋ 1 次對齊檢查（2 個 Yahoo）＝ **24 個請求，台銀 0**；全部在 worktree 的沙盒副本裡跑，真倉庫沒有寫入任何資料檔。
+- 全套測試 **333 條全綠**（既有 251＋新 82）。瀏覽器測試改用 Chrome（`IW_BROWSER`）：這台的 Edge 這幾天無頭模式對任何頁面都回空輸出（版本目錄有兩個、像是更新待重啟），Chrome 正常。
+- **突變對照 32 個**（工作區複製到暫存目錄→改壞一處→只跑對應的測試檔→必須紅）：3 個基準綠、**29 種改壞全部紅**——
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | 波動率視窗改壞：不夠 90% 也硬算 | 1 條紅 |
+  | 波動率年化用 √252 不是 √52 | 1 條紅 |
+  | 相關矩陣把自相關≠1 放過 | 1 條紅 |
+  | 相關矩陣重疊不足也照算 | 1 條紅 |
+  | 拆解公式的盎司→公克改成常衡盎司 28.35 | 3 條紅 |
+  | Yahoo 週線不看宣告的粒度／不看實際間距／進行中的當週也收 | 1／1／2 條紅 |
+  | 補抓規則改壞（每天重抓整段） | 2 條紅 |
+  | 匯率週線不是取每週最後一個營業日 | 1 條紅 |
+  | 白名單拿掉台銀那一條（分析測試）／（A0 探測測試） | 1／2 條紅（第一輪這一項**沒有紅**：白名單抽到 net_policy 後，A0 那條測試改的是探測腳本 import 進來的名字，碰不到規則本體——補了直接改 `net_policy.ALLOWED_HOSTS` 的測試、也把 A0 那條改成同樣寫法，第二輪才紅） |
+  | PolicedFetcher 不查主機 | 1 條紅 |
+  | 算不出來時 status.json 不寫錯誤／錯誤訊息不洗路徑 | 1／1 條紅 |
+  | 10 年視窗用 520 週算（00679B 會被說成 2026-12 就夠） | 1 條紅 |
+  | 隱私掃描：持倉數字樣式拿掉／禁止鍵名清空／HMAC 永遠不中 | 1／1／1 條紅 |
+  | 擋字串：判斷用語清單清空／在 analyze.py 塞一個判斷用語／在 ANALYSIS.md 塞一個假持倉數字／私人目錄從 .gitignore 拿掉 | 1／1／1／1 條紅 |
+  | 通用 cadence 判斷拿掉／不看上一次成功與否 | 2／2 條紅 |
+  | publish 擁有清單少了分析檔 | 1 條紅 |
+  | 檢視頁：日期欄不標日期／塞一個判斷用語／沒有 status 時不喊 | 1／1／1 條紅 |
+
+- **沙盒實跑**（最終版程式，2026-09-24 00:47）：先抓 gold_intl 日線（252 點）→ merge → analyze：10 個長歷史全部整段回補（^GSPC 2,959 週自 1970-01-05、^TWII 1,505、2330 1,394、00646 563、00679B 506、NVDA 1,444、BTC 627、CL=F 1,361、GC=F 1,360、USD/TWD 1,070 週自 2006-01-06），每檔都略過進行中的 2 根（當週＋Yahoo 附帶的即時點），合計 **836 KB**（最大 ^GSPC 189 KB；覆述時估 650 KB，實際多三成——每點多了 dateSource 欄與較長的日期）；status ok、0 錯誤、對外 10 個請求。risk：對角線全部 1；00679B 的 10 年視窗寫「資料不足，2027-01 起才滿 10 年」。decompose：黃金殘差近 60 日中位數 −0.3%～−0.4%（台銀價格略低於公式值，殘差含期貨基差與時間差）、即時一列殘差 +0.17%；00646 129 個月、近 12 個月殘差累計 +1.35%、月殘差標準差 0.91%。守門掃描對這些真實輸出也綠。
+- **第一次實跑抓到、第二次才修好的**：(1) Yahoo 把「一週」的起點對齊 `period1` 那一天的星期幾——`period1=0` 是 1970-01-01 星期四，歷史夠長的 ^GSPC 就變成週四起的週（2,959 根全是星期四），其他標的因為歷史起點較晚仍是星期一；用 1 個對照請求證實 `period1=345600`（星期一）後全部對齊，程式改成一律用星期一（A0 學到的「period1=0」在這裡要修正）。(2) 匯率週線收進了還沒走完的當週（9/23）；(3) 00646 月拆解收進了還沒走完的 9 月（讓月殘差標準差從 0.9% 被抬到 2.3%）。三項都補了測試與對照組。
+- 隔天 15:30 review 實跑後的檔案內容摘要與 gold_intl 卡片：見驗收回報（合併之後才會有）。
+
+**怎麼退回**
+
+- `git revert -m 1 <這次的合併 commit> && git push`（它是 7459b34 之後的第一個合併）。退回後雲端下一輪就不再跑分析、不再產生 `data/history-long/` 與 `data/analysis/`；已產生的檔案不會自己消失，要的話另外刪。gold_intl 的卡片與 `data/history/gold_intl.json` 也隨 assets.json 一起退回。
+- 標籤 `stopA1-1` 打在分支上的最後一個 commit（`git log --oneline stopA1-1 -1` 可查）。

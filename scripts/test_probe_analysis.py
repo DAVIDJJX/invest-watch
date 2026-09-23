@@ -29,6 +29,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import probe_analysis_sources as P   # noqa: E402
+import net_policy                    # noqa: E402
 
 DAY = 86400
 NOW = datetime(2026, 9, 21, 15, 50, tzinfo=P.TPE)      # 測試裡的「現在」：2026-09-21（一）15:50
@@ -302,13 +303,14 @@ class TestHosts(FrozenNow):
                 P.assert_host_allowed(url)
 
     def test_bot_is_refused_even_if_someone_adds_it_to_the_allowlist(self):
-        orig = P.ALLOWED_HOSTS
-        P.ALLOWED_HOSTS = orig + ("rate.bot.com.tw",)
+        # A1-1 起白名單在 scripts/net_policy.py：要改的是那邊的清單（改探測腳本 import 進來的名字碰不到規則本體）
+        orig = net_policy.ALLOWED_HOSTS
+        net_policy.ALLOWED_HOSTS = orig + ("rate.bot.com.tw",)
         try:
             with self.assertRaises(P.HostNotAllowed):
                 P.assert_host_allowed("https://rate.bot.com.tw/xrt")
         finally:
-            P.ALLOWED_HOSTS = orig
+            net_policy.ALLOWED_HOSTS = orig
 
     def test_unknown_host_is_refused(self):
         with self.assertRaises(P.HostNotAllowed):

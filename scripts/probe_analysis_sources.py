@@ -20,7 +20,7 @@ probe_analysis_sources.py — 分析系列 停點 A0：新資料來源探測（�
          GC=F range=max&interval=1wk（規格原寫法，Yahoo 會無聲地把週線換成月線，必須「降級」）。
          任何一列被判成「可用」，summary 頂端會印「探測判準失效」。
   2. 【台銀碰不到】主機白名單：不在名單上的主機直接拒絕、連線都不發；bot.com.tw 永遠拒絕。
-     轉址也逐跳檢查。
+     轉址也逐跳檢查。規則本體在 scripts/net_policy.py（A1 起正式的分析程式也用同一份）。
   3. 【對來源克制】每個來源一個請求；所有請求之間固定等 3 秒（證交所 3.5 秒）；
      FinMind 一律不重試，第一個 402／403 就整組改記「未測」（連續 4xx 會被它封 IP）；
      只有 Yahoo 遇到 429 會等 10 秒重試一次；大檔用串流讀、讀到需要的那一段就斷線。
@@ -46,7 +46,7 @@ import sys
 import time
 import traceback
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote as url_quote, urlsplit
+from urllib.parse import quote as url_quote
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -56,6 +56,9 @@ except Exception:
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+
+from net_policy import (ALLOWED_HOSTS, FORBIDDEN_HOST_PARTS,   # noqa: E402  白名單規則抽到共用模組（A1-1）
+                        HostNotAllowed, host_of, assert_host_allowed)
 
 TPE = timezone(timedelta(hours=8))
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
@@ -68,19 +71,6 @@ GROUPS = ("yahoo", "finmind", "fred", "cape", "cpi", "nav")
 GAP_SECONDS = 3.0                 # 所有請求之間固定等這麼久（不分主機，最簡單也一定符合「同站 2 秒以上」）
 GAP_SECONDS_TWSE = 3.5            # PLAN 第 7 章：證交所 3 秒以上
 TIMEOUT = 20
-
-# 主機白名單。不在這裡的主機一律不送；轉址也逐跳檢查。
-ALLOWED_HOSTS = (
-    "query1.finance.yahoo.com",
-    "api.finmindtrade.com",
-    "fred.stlouisfed.org",
-    "www.multpl.com",
-    "www.econ.yale.edu", "shillerdata.com", "img1.wsimg.com",       # 只在 multpl 失敗時才會用到，而且只做 HEAD
-    "data.gov.tw", "ws.dgbas.gov.tw", "nstatdb.dgbas.gov.tw",
-    "mis.twse.com.tw", "www.twse.com.tw", "info.tpex.org.tw",
-)
-# 就算哪天有人手滑把它加進白名單，這一條照樣擋：這個系列不准增加對台銀的任何請求。
-FORBIDDEN_HOST_PARTS = ("bot.com.tw",)
 
 # FRED 會把「自稱 Chrome、其實不是瀏覽器」的連線吊住 20 多秒到逾時（2026-09-21 查證），
 # 用誠實的 User-Agent 反而 2 秒多就回。不放 email：這個倉庫是公開的。
@@ -106,35 +96,9 @@ class FinMindBlocked(ProbeFail):
     """FinMind 回 402（超量）或 403（封 IP）：整組停手，不再發任何請求。"""
 
 
-class HostNotAllowed(Exception):
-    pass
-
-
 # ==========================================================================
 # 連線：白名單、固定間隔、不亂重試
 # ==========================================================================
-
-def host_of(url):
-    """網址真正會連到的主機。帶帳密的寫法（https://好主機@壞主機/）看起來像好主機、實際連到壞主機，
-    一律當成「沒有主機」，白名單自然會拒絕。"""
-    try:
-        parts = urlsplit(url or "")
-    except ValueError:
-        return ""
-    if parts.scheme not in ("http", "https") or "@" in parts.netloc:
-        return ""
-    return (parts.hostname or "").lower()
-
-
-def assert_host_allowed(url):
-    host = host_of(url)
-    for bad in FORBIDDEN_HOST_PARTS:
-        if bad in host:
-            raise HostNotAllowed("這個系列不准對台銀發任何請求（%s）" % host)
-    if host not in ALLOWED_HOSTS:
-        raise HostNotAllowed("主機不在白名單裡，拒絕送出（%s）" % (host or "?"))
-    return host
-
 
 class Req(object):
     def __init__(self, url, method="GET", headers=None, data=None, timeout=TIMEOUT,

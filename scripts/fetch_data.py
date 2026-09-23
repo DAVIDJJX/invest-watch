@@ -1223,6 +1223,21 @@ SLOT_LABEL = {
 }
 
 
+def skip_for_cadence(asset, light, prev):
+    """assets.json 的 cadence=full 對所有 type 一律有效（2026-09-24，分析系列 A1-1）。
+
+    盤中的輕量更新（--light）遇到 cadence=full 的標的：上一次成功就沿用、不重抓；
+    上一次失敗（或從來沒抓過）就照抓——不然一次失敗會一直錯到下一個完整更新。
+    回傳「跳過的理由」；不該跳過就回 None。以前只有實體條塊與 FinMind 匯率各自在 handler 裡寫這條，
+    國際金價（gold_intl）加入後改成統一在主流程判斷，handler 裡原本那兩條留著當第二道保險。
+    """
+    if not light or asset.get("cadence") != "full":
+        return None
+    if prev and prev.get("status") == "ok":
+        return "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+    return None
+
+
 def owner_of(asset):
     """這個標的歸誰抓。assets.json 沒寫的話當成 cloud（保守值：雲端一定跑得到）。"""
     return asset.get("owner") or "cloud"
@@ -1452,6 +1467,9 @@ def main():
             print("    x 未知的 type")
             continue
         try:
+            reason = skip_for_cadence(a, light, prev_assets.get(a["id"]))
+            if reason:
+                raise SkipAsset(reason)
             points, quote = handler(f, a, ctx)
             if points is not None:
                 save_history(a, points)
