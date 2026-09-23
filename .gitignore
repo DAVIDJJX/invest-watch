@@ -14,6 +14,10 @@ Thumbs.db
 PLAN.md
 PLAN.md.md
 
+# 分析方法目錄的原始版本也留在本機當規格來源，不進公開倉庫（裡面有個人的資產配置資訊）。
+# 要公開的是另外產的去識別化版本（分析系列 A1），檔名不會符合這個樣式。
+docs/InvestWatch_分析方法目錄_*.md
+
 # 本機補抓腳本的執行紀錄
 scripts/update_local.log
 
