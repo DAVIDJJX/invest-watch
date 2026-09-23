@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>analysis-debug.js 離線測試頁</title>
+</head>
+<body>
+  <!-- 這一頁不連網、不讀資料檔：把假的 status／risk／decompose 塞進 js/analysis-debug.js 的 render()，
+       再逐題檢查畫出來的東西，結果以 JSON 放在下面那個 id 叫 result 的區塊，給 test_analysis_debug_js.py 讀。 -->
+  <section id="status"></section>
+  <section id="risk"></section>
+  <section id="decompose"></section>
+  <footer><p>以上為量化整理，未經回測驗證，不構成投資建議。</p></footer>
+  <pre id="result"></pre>
+  <script src="../js/analysis-debug.js"></script>
+  <script>
+    (function () {
+      var FIX = {
+        status: { generatedAt: '2026-09-24T15:35:10+08:00', lastRun: '2026-09-24T15:35:10+08:00', slot: 'review', mode: 'live',
+                  ok: false, errors: ['拆解（黃金）：沒有 gold_intl 的日線歷史'], warnings: [], produced: ['data/analysis/risk.json'], requests: 10,
+                  longHistory: { gspc: { points: 2961, lastDate: '2026-09-14', action: 'full：抓到 2961 根' },
+                                 fx_usd: { points: 1080, lastDate: '2026-09-18', action: 'full：抓到 1080 週' } } },
+        risk: { generatedAt: '2026-09-24T15:35:12+08:00', notes: ['測試用'],
+                assets: {
+                  gspc: { name: 'S&P 500', assetClass: 'index', currency: 'USD', bars: 2961, firstBar: '1970-01-05', lastBar: '2026-09-14', lastWeek: '2026-W38', dataLabel: '單一來源',
+                          volatility: { '1y': { pct: 12.34, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
+                                        '5y': { pct: 17.8, weeks: 260, window: '260 週', from: '2021-09-20', through: '2026-09-14', label: '單一來源' } },
+                          maxDrawdown: { pct: -56.78, peakDate: '2007-10-08', troughDate: '2009-03-09', recoveredDate: '2013-03-25', label: '單一來源' },
+                          currentDrawdown: { pct: -1.2, highDate: '2026-08-31', asOf: '2026-09-14', label: '單一來源' },
+                          tenYearWindow: { available: true, bars: 2961 } },
+                  tw00679b: { name: '00679B', assetClass: 'bond_etf', currency: 'TWD', bars: 508, firstBar: '2017-01-09', lastBar: '2026-09-14', lastWeek: '2026-W38', dataLabel: '單一來源',
+                          volatility: { '1y': { pct: 15.1, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
+                                        '5y': { pct: null, weeks: 40, window: '260 週', reason: '資料不足：只有 40 週（至少要 234 週）' } },
+                          maxDrawdown: { pct: -48.9, peakDate: '2020-03-09', troughDate: '2023-10-23', recoveredDate: null, label: '單一來源' },
+                          currentDrawdown: { pct: -40.1, highDate: '2020-03-09', asOf: '2026-09-14', label: '單一來源' },
+                          tenYearWindow: { available: false, bars: 508, reason: '資料不足，2027-01 起才滿 10 年' } } },
+                correlation: { window: '3 年（156 週）', label: '單一來源', note: 'n 是重疊週數', ids: ['gspc', 'tw00679b'],
+                               matrix: { gspc: { gspc: { r: 1, n: 156, from: '2023-09-25', through: '2026-09-08' }, tw00679b: { r: -0.123, n: 150, from: '2023-09-25', through: '2026-09-08' } },
+                                         tw00679b: { gspc: { r: -0.123, n: 150 }, tw00679b: { r: null, n: 40, reason: '資料不足：重疊只有 40 週' } } } },
+                problems: [] },
+        decompose: { generatedAt: '2026-09-24T15:35:13+08:00', notes: ['拆解全部是估算'],
+                     gold: { formula: '台銀黃金存摺的本行賣出價 ≈ 國際金價 × USD/TWD ÷ 31.1035 ＋ 殘差', label: '估算', notes: ['近月期貨'],
+                             live: { label: '估算', goldSell: 4415, goldDate: '2026-09-24', gcPrice: 4211.5, gcDate: '2026-09-24', fxMid: 31.65, fxDate: '2026-09-23', implied: 4285.32, residualPct: 3.026, gcNote: '盤中價' },
+                             summarySameDay: { n: 60, window: '最近 60 個有資料的日子', from: '2026-06-20', through: '2026-09-23', medianPct: 2.9, meanPct: 2.95, minPct: 2.1, maxPct: 3.8 },
+                             summaryPrevDay: { n: 0, reason: '資料不足' },
+                             daily: [ { d: '2026-09-22', goldSell: 4350, gc: 4100, impliedSameDay: 4152.3, residualSameDayPct: 4.76, gcPrev: 4000, gcPrevDate: '2026-09-21', impliedPrevDay: 4051.0, residualPrevDayPct: 7.38, fxMid: 31.5, fxDate: '2026-09-22' },
+                                      { d: '2026-09-23', goldSell: 4360, gcPrev: 4100, gcPrevDate: '2026-09-22', impliedPrevDay: 4160.0, residualPrevDayPct: 4.81, fxMid: 31.6, fxDate: '2026-09-23' } ] },
+                     tw00646: { formula: '00646 月報酬 ≈ (1＋S&P 500 月報酬)(1＋USD/TWD 月變動) − 1 ＋ 殘差', label: '估算', notes: ['價格指數'],
+                                summaryLast12: { months: 12, from: '2025-09', through: '2026-08', residualSumPct: 1.1, residualMeanPct: 0.09, residualStdPct: 0.6 },
+                                summaryAll: { months: 128, from: '2016-01', through: '2026-08', residualSumPct: 12.3, residualMeanPct: 0.1, residualStdPct: 0.7 },
+                                monthly: [ { month: '2026-07', d646: '2026-07-27', r646Pct: 3.1, dGspc: '2026-07-27', rGspcPct: 2.5, dFx: '2026-07-31', rFxPct: 0.4, combinedPct: 2.91, residualPct: 0.19 },
+                                           { month: '2026-08', d646: '2026-08-31', r646Pct: -1.0, dGspc: '2026-08-31', rGspcPct: -0.8, dFx: '2026-08-28', rFxPct: -0.3, combinedPct: -1.098, residualPct: 0.098 } ] } }
+      };
+      var results = [];
+      function check(name, fn) {
+        var problems = [];
+        try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
+        results.push({ name: name, ok: problems.length === 0, problems: problems });
+      }
+      var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render);
+      if (loaded) {
+        AnalysisDebug.render(FIX);
+        var $ = function (sel) { return document.querySelector(sel); };
+        var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+        var text = document.body.innerText || document.body.textContent;
+
+        check('status_shows_last_run_and_errors_on_top', function (p) {
+          var s = $('#status');
+          if (!s || s.innerText.indexOf('2026-09-24T15:35:10+08:00') < 0) p.push('沒有顯示上次執行時間');
+          if (!$('#status .warn')) p.push('有錯卻沒有紅字');
+          if (s.innerText.indexOf('沒有 gold_intl 的日線歷史') < 0) p.push('沒有列出錯誤內容');
+          if (s.innerText.indexOf('history-long') < 0) p.push('沒有列長歷史表');
+        });
+        check('risk_table_has_one_row_per_asset', function (p) {
+          var rows = $$('#risk table')[0] ? $$('#risk table')[0].querySelectorAll('tbody tr').length : 0;
+          if (rows !== 2) p.push('風險表列數 ' + rows + '，應為 2');
+          if ($('#risk').innerText.indexOf('12.34%') < 0) p.push('沒有 1 年波動');
+          if ($('#risk').innerText.indexOf('資料不足') < 0) p.push('資料不足沒有顯示');
+          if ($('#risk').innerText.indexOf('2027-01') < 0) p.push('10 年視窗的說明沒顯示');
+        });
+        check('correlation_matrix_rendered', function (p) {
+          var t = $$('#risk table')[1];
+          if (!t) { p.push('沒有相關矩陣表'); return; }
+          if (t.innerText.indexOf('1.000') < 0) p.push('對角線沒有 1.000');
+          if (t.innerText.indexOf('-0.123') < 0) p.push('相關值沒顯示');
+          if (t.innerText.indexOf('資料不足') < 0) p.push('資料不足的格沒顯示');
+        });
+        check('every_date_cell_is_non_empty_and_looks_like_a_date', function (p) {
+          var cells = $$('.date');
+          if (cells.length < 20) p.push('日期欄太少：' + cells.length);
+          cells.forEach(function (c) {
+            var v = (c.innerText || '').trim();
+            if (!/^(\d{4}-\d{2}-\d{2}|\d{4}-W\d{2}|\d{4}-\d{2})/.test(v)) p.push('日期欄不是日期：「' + v + '」');
+          });
+        });
+        check('decompose_rendered_with_live_row_and_monthly_rows', function (p) {
+          var d = $('#decompose').innerText;
+          if (d.indexOf('31.1035') < 0) p.push('公式沒顯示');
+          if (d.indexOf('3.03%') < 0 && d.indexOf('3.026') < 0) p.push('現在這一刻的殘差沒顯示');
+          if (d.indexOf('2026-07') < 0) p.push('月拆解沒顯示');
+          if (d.indexOf('估算') < 0) p.push('資料標籤沒顯示');
+          if (d.indexOf('資料不足') < 0) p.push('前一日口徑的資料不足沒顯示');
+        });
+        check('no_judgement_words_on_the_page', function (p) {
+          var exempt = ['不構成投資建議', '本行賣出', '本行買入', '即期賣出', '即期買入', '現金賣出', '現金買入', '掛牌賣出'];
+          var t = text;
+          exempt.forEach(function (e) { t = t.split(e).join(''); });
+          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數'].forEach(function (w) {
+            if (t.indexOf(w) >= 0) p.push('頁面上出現「' + w + '」');
+          });
+        });
+        check('missing_status_is_loud', function (p) {
+          var box = document.createElement('div');
+          AnalysisDebug.render({ status: null, risk: null, decompose: null }, { status: box, risk: box, decompose: box });
+          var box2 = document.createElement('div');
+          box2.innerHTML = AnalysisDebug.renderStatus(null);
+          if (!box2.querySelector('.warn') || box2.innerText.indexOf('讀不到') < 0) p.push('沒有 status 時沒有紅字說讀不到');
+          var box3 = document.createElement('div');
+          box3.innerHTML = AnalysisDebug.renderRisk(null);
+          if (box3.innerText.indexOf('讀不到') < 0) p.push('沒有 risk 時沒有說讀不到');
+        });
+      }
+      document.getElementById('result').textContent = JSON.stringify({
+        loaded: loaded, total: results.length, results: results
+      });
+    })();
+  </script>
+</body>
+</html>

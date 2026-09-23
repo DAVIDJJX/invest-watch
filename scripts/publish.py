@@ -158,6 +158,14 @@ def run_python(*args):
 # 我這一輪產生了哪些檔案
 # --------------------------------------------------------------------------
 
+# scripts/analyze.py 會寫的檔案（A1-1：status／risk／decompose；A1-2 再加 cost／static-costs／nav）。
+ANALYSIS_PATHS = (
+    "data/analysis/status.json",
+    "data/analysis/risk.json",
+    "data/analysis/decompose.json",
+)
+
+
 def owned_paths(source, rebuild_steps, now=None):
     """列出【我這一輪會寫的檔案】，一律用倉庫相對路徑、正斜線。
 
@@ -178,6 +186,15 @@ def owned_paths(source, rebuild_steps, now=None):
             paths.append("data/history/%s.json" % a["id"])
 
     paths.append("data/latest.json")
+
+    # 分析系列（A1 起）：週線長歷史與分析輸出只由雲端 15:30 那一輪的 scripts/analyze.py 產生，
+    # 全部歸雲端。明確列名、不用 glob——publish 不該把「不知道是什麼」的檔案 commit 進去。
+    # 不存在的路徑會被 stage() 濾掉，列多不會出錯。
+    if source == "cloud":
+        for a in cfg["assets"]:
+            if a.get("enabled", True) and (a.get("owner") or "cloud") == "cloud":
+                paths.append("data/history-long/%s.json" % a["id"])
+        paths += list(ANALYSIS_PATHS)
 
     # 報告檔只有真的跑了報告那一輪才算是我的。
     # 四個排定時段更新 report-latest.json（首頁讀的那份）；

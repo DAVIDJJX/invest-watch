@@ -1,0 +1,18 @@
+{
+ "algorithm": "HMAC-SHA256(salt, term)；salt 在倉庫外，term 先去空白",
+ "note": "只存長度與 HMAC；沒有鹽算不回原文，有鹽也只能驗證「是不是那幾個字串」",
+ "entries": [
+  {
+   "len": 5,
+   "hmac": "2b7ced14daf053929a90c18319b9f77b928d1fc09fbafeafc81b5bd735f8176f"
+  },
+  {
+   "len": 7,
+   "hmac": "857a61515766ba51984991327683184570fd780ed120828b04360c3dcdcd5591"
+  },
+  {
+   "len": 10,
+   "hmac": "97f4d6700a665389b5a6e4f18d75e9f1188215c2c55eac5020a8ce95dc0dfdf5"
+  }
+ ]
+}

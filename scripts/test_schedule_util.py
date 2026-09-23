@@ -150,7 +150,7 @@ class TestCadence(unittest.TestCase):
         with open(path, encoding="utf-8") as fh:
             cfg = json.load(fh)
         overridden = [a["id"] for a in cfg["assets"] if a.get("cadence")]
-        self.assertEqual(overridden, ["gold_bar", "fx_usd", "fx_cny"])
+        self.assertEqual(overridden, ["gold_bar", "gold_intl", "fx_usd", "fx_cny"])   # gold_intl：A1-1 加入，4 次／日
 
 
 class TestFourScenarios(unittest.TestCase):

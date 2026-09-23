@@ -114,6 +114,25 @@ jobs:
         if: steps.args.outputs.mode == 'full'
         run: python scripts/report.py --slot "${{ steps.args.outputs.slot }}"
 
+      # --- 步驟 3b：分析（分析系列 A1；只在 15:30 review 那一輪）------------
+      # 分析屬每日層級，一天算一次就夠；它是行情之外「加算出來」的東西，
+      # 壞掉絕不能把行情與報告一起卡住——所以 continue-on-error，錯誤寫進摘要與 data/analysis/status.json。
+      # 結束碼：0 全部產出；2 部分沒產出（::warning::）；其他＝程式壞掉（::error::，但下面照樣存檔）。
+      - name: 分析（只在 review 那一輪；出錯不卡行情與報告）
+        if: steps.args.outputs.mode == 'full' && steps.args.outputs.slot == 'review'
+        continue-on-error: true
+        run: |
+          set +e
+          python scripts/analyze.py --slot review
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "::warning::分析有部分沒有產出（結束碼 2），詳見 data/analysis/status.json"
+          elif [ "$rc" -ne 0 ]; then
+            echo "::error::分析程式壞掉（結束碼 $rc）；行情與報告不受影響，下面照樣存檔"
+            exit "$rc"
+          fi
+
       - name: 把這次的結果寫進執行摘要
         if: always()
         continue-on-error: true
@@ -148,6 +167,12 @@ jobs:
               price = "—" if price is None else f"{price:,}"
               mark = "OK" if a.get("status") == "ok" else "更新失敗"
               print(f"| {a['name']} | {mark} | {a.get('freshness')} | {price} |")
+          import os
+          if os.path.exists("data/analysis/status.json"):
+              st = json.load(open("data/analysis/status.json", encoding="utf-8"))
+              print("")
+              print(f"- 分析（review 那一輪）：上次執行 {st.get('lastRun')}，"
+                    f"{'全部產出' if st.get('ok') else '有錯：' + '；'.join(st.get('errors') or [])[:300]}")
           PY
           } >> "$GITHUB_STEP_SUMMARY"
 
