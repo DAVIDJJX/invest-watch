@@ -12,7 +12,7 @@
   'use strict';
 
   var GROUP_ORDER = ['貴金屬', '台股', '海外', '匯率'];
-  var state = { latest: null, history: {}, openId: null };
+  var state = { latest: null, history: {}, openId: null, analysis: null };
 
   /* ---------------------------------------------------------- 小工具 */
 
@@ -456,10 +456,12 @@
         '<span style="color:var(--text-faint)">' + points.length + ' 個交易日 · ' +
           esc(points[0].d) + ' ～ ' + esc(points[points.length - 1].d) + '</span>' +
       '</div>' +
-      '<div class="range-bar"><div class="range-note">' + explain + '</div></div>';
+      '<div class="range-bar"><div class="range-note">' + explain + '</div></div>' +
+      analysisHtml(a);
 
     window.Charts.drawHistory(document.getElementById(canvasId), points,
       { decimals: useBar ? 1 : 0, label: label });
+    wireAnalysis(card, a);
   }
 
   function renderBody(card, a, hist) {
@@ -485,7 +487,8 @@
           esc(points[0].d) + ' ～ ' + esc(points[points.length - 1].d) + '</span>' +
       '</div>' +
       metricsHtml(a, ind) +
-      rangeHtml(a, ind);
+      rangeHtml(a, ind) +
+      analysisHtml(a);
 
     var ok = window.Charts.drawHistory(
       document.getElementById(canvasId), points,
@@ -495,6 +498,50 @@
       $('.chart-box', body).innerHTML =
         '<div class="fatal">圖表函式庫沒有載入成功（lib/chart.umd.min.js）。</div>';
     }
+    wireAnalysis(card, a);
+  }
+
+  /* ---------------------------------------------------------- 分析（A1-5）：卡片裡的「分析」摺疊區
+   *
+   * 預設收合。第一次展開才抓 data/analysis/risk.json（需要成本項的四張卡再抓 cost.json），抓過就存在 state.analysis 重複用；
+   * decompose.json 與 data/history-long 完全不由這一頁載入。開頁時什麼都不抓——首屏的請求數跟 A1-5 之前一樣。
+   * 畫什麼由 js/card-analysis.js 決定（純函式），這裡只負責抓與掛。
+   */
+  var COST_IDS = { tw00646: true, tw00679b: true, gold_twd: true, gold_bar: true };
+
+  function analysisHtml(a) {
+    return '<details class="ana" data-ana="' + esc(a.id) + '">' +
+             '<summary>分析<span class="ana-hint">風險、相關、成本；展開才讀取</span></summary>' +
+             '<div class="ana-body"><div class="loading">讀取分析資料中…</div></div>' +
+           '</details>';
+  }
+
+  function ensureAnalysis(id) {
+    state.analysis = state.analysis || {};
+    if (!state.analysis.risk) {
+      state.analysis.risk = fetchJSON('data/analysis/risk.json').catch(function () { return null; });
+    }
+    if (COST_IDS[id] && !state.analysis.cost) {
+      state.analysis.cost = fetchJSON('data/analysis/cost.json').catch(function () { return null; });
+    }
+    return Promise.all([state.analysis.risk, COST_IDS[id] ? state.analysis.cost : Promise.resolve(null)]);
+  }
+
+  function wireAnalysis(card, a) {
+    var det = $('.ana', card);
+    if (!det) return;
+    det.addEventListener('toggle', function () {
+      if (!det.open || det.dataset.loaded) return;
+      det.dataset.loaded = '1';
+      var body = $('.ana-body', det);
+      if (!window.CardAnalysis) {
+        body.innerHTML = '<div class="fatal">分析程式沒有載入成功（js/card-analysis.js）。</div>';
+        return;
+      }
+      ensureAnalysis(a.id).then(function (r) {
+        body.innerHTML = window.CardAnalysis.render(window.CardAnalysis.facts(a, r[0], r[1]));
+      });
+    });
   }
 
   function toggleCard(card, a) {
