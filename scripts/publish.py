@@ -163,6 +163,12 @@ ANALYSIS_PATHS = (
     "data/analysis/status.json",
     "data/analysis/risk.json",
     "data/analysis/decompose.json",
+    # A1-2
+    "data/analysis/cost.json",
+    "data/analysis/static-costs.json",
+    "data/analysis/nav/tw00646.json",
+    "data/analysis/nav/tw00679b.json",
+    "data/history-long/sp500tr.json",     # 追蹤差的基準序列（EXTRA_LONG_SERIES），不在 assets.json 裡
 )
 
 

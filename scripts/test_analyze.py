@@ -203,7 +203,9 @@ class TestFxWeeklyAndPlan(unittest.TestCase):
     def test_long_targets_from_real_assets_json(self):
         assets = A.load_assets()
         ids = sorted(t["id"] for t in A.long_targets(assets))
-        self.assertEqual(ids, ["btc", "fx_usd", "gold_intl", "gspc", "nvda", "tw00646", "tw00679b", "tw2330", "twii", "wti"])
+        self.assertEqual(ids, ["btc", "fx_usd", "gold_intl", "gspc", "nvda", "sp500tr", "tw00646", "tw00679b", "tw2330", "twii", "wti"])
+        extra = [t for t in A.long_targets(assets) if t["id"] == "sp500tr"][0]
+        self.assertEqual((extra["kind"], extra["symbol"]), ("yahoo", "^SP500TR"))          # 只是基準序列，不在 assets.json
         kinds = {t["id"]: t["kind"] for t in A.long_targets(assets)}
         self.assertEqual(kinds["fx_usd"], "finmind")
         self.assertEqual(kinds["gold_intl"], "yahoo")
@@ -441,22 +443,26 @@ class TestPolicy(unittest.TestCase):
 
 
 class World(object):
-    """暫存目錄裡的一個假倉庫：analyze.py 的路徑常數全部指過去，跑完再指回來。"""
+    """暫存目錄裡的一個假倉庫。patch=True：把 analyze.py 的路徑常數指過去（跑完指回來）；
+    patch=False：常數不動，測試自己把 self.paths 傳給 run(paths=…)（A1-3 的 --out 就是這個用法）。"""
 
-    def __init__(self):
+    def __init__(self, patch=True):
         self.tmp = tempfile.mkdtemp(prefix="iw-analyze-")
         self.data = os.path.join(self.tmp, "data")
         for sub in ("history", "history-long", "analysis"):
             os.makedirs(os.path.join(self.data, sub), exist_ok=True)
-        self.saved = (A.LONG_DIR, A.ANALYSIS_DIR, A.ASSETS_FILE, A.LATEST_FILE, fd.HIST_DIR)
-        A.LONG_DIR = os.path.join(self.data, "history-long")
-        A.ANALYSIS_DIR = os.path.join(self.data, "analysis")
-        A.ASSETS_FILE = os.path.join(self.data, "assets.json")
-        A.LATEST_FILE = os.path.join(self.data, "latest.json")
-        fd.HIST_DIR = os.path.join(self.data, "history")
+        self.paths = {"long": os.path.join(self.data, "history-long"), "analysis": os.path.join(self.data, "analysis"),
+                      "assets": os.path.join(self.data, "assets.json"), "latest": os.path.join(self.data, "latest.json"),
+                      "history": os.path.join(self.data, "history")}
+        self.patched = patch
+        if patch:
+            self.saved = (A.LONG_DIR, A.ANALYSIS_DIR, A.ASSETS_FILE, A.LATEST_FILE, fd.HIST_DIR)
+            A.LONG_DIR, A.ANALYSIS_DIR, A.ASSETS_FILE, A.LATEST_FILE, fd.HIST_DIR = (
+                self.paths["long"], self.paths["analysis"], self.paths["assets"], self.paths["latest"], self.paths["history"])
 
     def close(self):
-        A.LONG_DIR, A.ANALYSIS_DIR, A.ASSETS_FILE, A.LATEST_FILE, fd.HIST_DIR = self.saved
+        if self.patched:
+            A.LONG_DIR, A.ANALYSIS_DIR, A.ASSETS_FILE, A.LATEST_FILE, fd.HIST_DIR = self.saved
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def write(self, rel, obj):
@@ -481,8 +487,11 @@ ASSETS = {"assets": [
 
 def fill_world(w, with_gold_intl_daily=True):
     w.write("assets.json", ASSETS)
-    for aid in ("gold_intl", "gspc", "tw00646", "fx_usd"):
+    for aid in ("gold_intl", "gspc", "tw00646", "fx_usd", "sp500tr"):
         w.write("history-long/%s.json" % aid, {"id": aid, "points": pts(start="2019-01-07", n=400)})
+    bar_days = [(A.parse_day("2026-09-01") + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(0, 12)]
+    w.write("history/gold_bar.json", {"points": [{"d": d, "g1000": 4441200.0, "g500": 2224353.0, "g250": 1114313.0, "g100": 447022.0,
+                                                   "tael": 167822.0, "c": 4441.2, "dateSource": "quote"} for d in bar_days]})
     days = [(A.parse_day("2026-03-02") + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(0, 200)]
     w.write("history/gold_twd.json", {"points": [{"d": d, "buy": 4300.0, "sell": 4350.0, "c": 4350.0, "dateSource": "quote"} for d in days]})
     if with_gold_intl_daily:
@@ -517,8 +526,21 @@ class TestRunOffline(unittest.TestCase):
         self.assertTrue(dec["gold"]["daily"])
         self.assertEqual(dec["gold"]["live"]["fxDate"], dec["gold"]["daily"][-2]["d"])
         self.assertTrue(dec["tw00646"]["monthly"])
+        self.assertTrue(any("融資成本" in n for n in dec["gold"]["notes"]))                 # 期貨基差的解釋
         for aid, e in status["longHistory"].items():
             self.assertIn("offline", e["action"])
+        cost = self.w.read("analysis/cost.json")
+        self.assertIn("data/analysis/cost.json", status["produced"])
+        self.assertTrue(cost["trackingDifference"]["primary"]["available"])
+        self.assertEqual(cost["trackingDifference"]["primary"]["benchmark"], "^SP500TR")
+        w1 = cost["trackingDifference"]["primary"]["windows"]["1y"]
+        self.assertIn("from", w1)
+        self.assertIn("through", w1)
+        self.assertEqual(cost["premium"]["tw00646"]["status"][:7], "offline")
+        self.assertIn("reason", cost["premium"]["tw00646"]["estimated"])                      # 沒累積 → 不顯示中位數
+        self.assertEqual(cost["goldSpread"]["summary"]["n"], 200)
+        self.assertEqual(cost["barPremium"]["n"], 12)
+        self.assertAlmostEqual(cost["barPremium"]["latest"]["rows"][0]["premiumPct"], round((4441.2 / 4350.0 - 1) * 100, 3), places=3)
 
     def test_missing_gold_intl_daily_is_exit_two_with_error_recorded(self):
         fill_world(self.w, with_gold_intl_daily=False)
@@ -589,6 +611,180 @@ class TestRunOffline(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             status, _ = A.run("review", dry_run=True, now=NOW)
         self.assertIn("這週不必抓", status["longHistory"]["gspc"]["action"])
+
+
+class TestCost(unittest.TestCase):
+    """成本：追蹤差（含幣別換算）、折溢價（分母是淨值、預估／確定分開、確定回填前一交易日）、黃金價差、條塊溢價。"""
+
+    def weekly(self, start_v, end_v, n=53, base="2025-09-15", fx=False):
+        out = []
+        for i in range(n):
+            d = (A.parse_day(base) + timedelta(days=7 * i)).strftime("%Y-%m-%d")
+            v = start_v + (end_v - start_v) * i / (n - 1.0)
+            out.append({"d": d, "spotBuy": v - 0.1, "spotSell": v + 0.1, "c": v + 0.1} if fx else {"d": d, "c": v})
+        return out
+
+    def test_tracking_difference_math_with_fx_conversion(self):
+        """對照組：把匯率換算拿掉（基準只用美元報酬）→ 這一條會紅。"""
+        r = A.tracking_difference(self.weekly(100, 110), self.weekly(1000, 1050), self.weekly(30.0, 30.6, fx=True), 52)
+        self.assertEqual(r["weeks"], 52)
+        self.assertAlmostEqual(r["r646Pct"], 10.0, places=3)
+        self.assertAlmostEqual(r["rFxPct"], 2.0, places=3)                                    # 用的是中價
+        self.assertAlmostEqual(r["rBenchTwdPct"], 7.1, places=3)                              # 1.05 × 1.02 − 1
+        self.assertAlmostEqual(r["diffPct"], 2.9, places=3)
+        self.assertAlmostEqual(r["annualizedDiffPct"], (1.10 / 1.071 - 1) * 100, places=3)
+        self.assertEqual(r["from"], "2025-09-15")
+        self.assertEqual(r["through"], "2026-09-14")
+
+    def test_tracking_difference_walks_back_up_to_three_weeks_for_the_start(self):
+        p646 = self.weekly(100, 110)
+        pb = self.weekly(1000, 1050)
+        pfx = self.weekly(30.0, 30.6, fx=True)
+        del pb[0]                                                                             # 基準少了起點那一週
+        r = A.tracking_difference(p646, pb, pfx, 51)
+        self.assertNotIn("reason", r)
+        self.assertEqual(r["from"], "2025-09-22")
+
+    def test_tracking_difference_insufficient(self):
+        r = A.tracking_difference(self.weekly(100, 110, n=10), self.weekly(1000, 1050, n=10), self.weekly(30.0, 30.6, n=10, fx=True), 52)
+        self.assertIn("資料不足", r["reason"])
+
+    def test_build_tracking_marks_missing_benchmark(self):
+        series = {"tw00646": self.weekly(100, 110), "gspc": self.weekly(1000, 1050), "fx_usd": self.weekly(30.0, 30.6, fx=True)}
+        t = A.build_tracking(series)
+        self.assertFalse(t["primary"]["available"])
+        self.assertIn("sp500tr", t["primary"]["reason"])
+        self.assertTrue(t["reference"]["available"])
+        self.assertEqual(t["reference"]["label"], "估算")
+
+    def test_parse_all_etf_and_backfill_official_nav_to_previous_trading_day(self):
+        """對照組：預估／確定的標籤對調、或官方淨值填到今天而不是前一交易日 → 這一條會紅。"""
+        j = {"a1": [{"msgArray": [
+            {"a": "00646", "c": 1234, "d": 10, "e": 76.8, "f": 76.42, "g": 0.5, "h": "76.5400", "i": "20260924", "j": "17:00:00"},
+            {"a": "00679B", "c": 1, "d": 0, "e": 25.64, "f": 25.6565, "g": -0.06, "h": "未結出", "i": "20260924", "j": "17:00:00"}]}]}
+        rec = A.parse_all_etf(j, {"00646", "00679B"})
+        self.assertEqual(rec["00646"]["d"], "2026-09-24")
+        self.assertEqual(rec["00646"]["prevOfficialNav"], 76.54)
+        self.assertIsNone(rec["00679B"]["prevOfficialNav"])                                  # 未結出 → 沒有
+        closes = [{"d": "2026-09-22", "c": 76.3, "dateSource": "official"}, {"d": "2026-09-23", "c": 76.6, "dateSource": "official"},
+                  {"d": "2026-09-24", "c": 76.8, "dateSource": "intraday", "provisional": True}]
+        rows = A.update_nav_rows([], rec["00646"], closes)
+        by = dict((r["d"], r) for r in rows)
+        self.assertAlmostEqual(by["2026-09-24"]["estPremiumPct"], round((76.8 / 76.42 - 1) * 100, 3), places=3)
+        self.assertEqual(by["2026-09-24"]["estTag"], "預估")
+        self.assertEqual(by["2026-09-23"]["officialNav"], 76.54)                             # 回填到前一個交易日，不是今天
+        self.assertEqual(by["2026-09-23"]["officialClose"], 76.6)
+        self.assertAlmostEqual(by["2026-09-23"]["officialPremiumPct"], round((76.6 / 76.54 - 1) * 100, 3), places=3)
+        self.assertEqual(by["2026-09-23"]["officialTag"], "確定")
+        self.assertNotIn("officialNav", by["2026-09-24"])
+        rec2 = dict(rec["00646"], d="2026-09-25", prevOfficialNav=76.7)
+        closes2 = closes[:-1] + [{"d": "2026-09-24", "c": 76.8, "dateSource": "official"}]
+        rows2 = A.update_nav_rows(rows, rec2, closes2)
+        by2 = dict((r["d"], r) for r in rows2)
+        self.assertEqual(by2["2026-09-24"]["officialNav"], 76.7)                              # 隔天回填昨天
+        self.assertEqual(by2["2026-09-24"]["estTag"], "預估")                                 # 昨天的預估還在
+        self.assertEqual(len(rows2), 3)                                                    # 09-23、09-24、09-25
+        latest = A.latest_premium_rows(rows2)
+        self.assertEqual([x["tag"] for x in latest], ["預估", "確定"])
+        self.assertEqual(latest[1]["nav"], 76.7)
+
+    def test_premium_denominator_is_nav(self):
+        """對照組：分母改成價格 → 這一條會紅。"""
+        self.assertEqual(A.premium_pct(101.0, 100.0), 1.0)
+        self.assertEqual(A.premium_pct(99.0, 100.0), -1.0)
+        self.assertEqual(A.premium_pct(103.0, 100.0), 3.0)                                    # 用價格當分母會是 2.913
+        self.assertIsNone(A.premium_pct(None, 100.0))
+
+    def test_premium_summary_needs_twenty_days(self):
+        rows = [{"d": "2026-09-%02d" % (i + 1), "estPremiumPct": 0.5} for i in range(19)]
+        self.assertIn("reason", A.premium_summary(rows, "estPremiumPct"))
+        rows.append({"d": "2026-09-20", "estPremiumPct": 0.7})
+        s = A.premium_summary(rows, "estPremiumPct")
+        self.assertEqual(s["n"], 20)
+        self.assertEqual(s["medianPct"], 0.5)
+
+    def test_gold_spread_math(self):
+        out = A.gold_spread([{"d": "2026-09-24", "buy": 4330.0, "sell": 4382.0}])
+        self.assertAlmostEqual(out["latest"]["spreadPct"], round(52.0 / 4356.0 * 100, 3), places=3)
+        self.assertEqual(out["label"], "單一來源")
+
+    def test_bar_premium_math_including_tael(self):
+        """對照組：台兩的公克數改壞 → 這一條會紅。"""
+        out = A.bar_premium([{"d": "2026-09-24", "g1000": 4441200.0, "tael": 167822.0}], [{"d": "2026-09-24", "sell": 4382.0}])
+        rows = dict((r["spec"], r) for r in out["latest"]["rows"])
+        self.assertAlmostEqual(rows["1 公斤"]["premiumPct"], round((4441.2 / 4382.0 - 1) * 100, 3), places=3)
+        self.assertAlmostEqual(rows["金鑽 1 台兩"]["perGram"], round(167822.0 / 37.5, 2), places=2)
+        self.assertAlmostEqual(rows["金鑽 1 台兩"]["premiumPct"], round((167822.0 / 37.5 / 4382.0 - 1) * 100, 3), places=3)
+        self.assertEqual(out["n"], 1)
+
+    def test_tpex_dates_get_a_year(self):
+        today = A.parse_day("2026-09-25")
+        self.assertEqual(A.tpex_dates_with_year(["08/11", "09/25", "12/30", "x"], today), ["2026-08-11", "2026-09-25", "2025-12-30", None])
+
+    def test_all_etf_fetch_uses_production_headers_and_records_status(self):
+        seen = {}
+
+        class F(object):
+            count = 1
+            def get(self, url, **kw):
+                seen["url"], seen["headers"] = url, kw.get("headers")
+                return {"a1": [{"msgArray": [{"a": "00646", "e": 76.8, "f": 76.42, "h": "76.54", "i": "20260924", "j": "17:00"},
+                                             {"a": "00679B", "e": 25.64, "f": 25.6565, "h": "25.5407", "i": "20260924", "j": "17:00"}]}]}
+        w = World()
+        try:
+            w.write("assets.json", ASSETS)
+            problems = []
+            out = A.build_premium(F(), False, w.paths, problems, NOW)
+            self.assertEqual(seen["headers"]["Referer"], "https://mis.twse.com.tw/stock/index.jsp")
+            self.assertEqual(out["tw00646"]["status"][:2], "接了")
+            self.assertTrue(os.path.exists(os.path.join(w.data, "analysis", "nav", "tw00646.json")))
+            self.assertEqual(out["tw00646"]["latest"][0]["tag"], "預估")
+            self.assertEqual(problems, [])
+        finally:
+            w.close()
+
+    def test_blocked_all_etf_is_reported_not_faked(self):
+        class F(object):
+            count = 1
+            session = None
+            def get(self, url, **kw):
+                raise fd.FetchError("HTTP 502")
+            def _wait(self, host, delay):
+                pass
+        w = World()
+        try:
+            w.write("assets.json", ASSETS)
+            problems = []
+            orig = A.fetch_tpex_30d
+            A.fetch_tpex_30d = lambda f, today: {"title": "櫃買 30 日（僅 30 日）", "n": 30, "medianPct": -0.4}
+            try:
+                out = A.build_premium(F(), False, w.paths, problems, NOW)
+            finally:
+                A.fetch_tpex_30d = orig
+            self.assertEqual(out["tw00646"]["status"], "未接（來源在雲端被擋）")
+            self.assertEqual(out["tw00679b"]["status"], "僅 30 日")
+            self.assertTrue(problems)
+        finally:
+            w.close()
+
+
+class TestPathsDict(unittest.TestCase):
+    """A1-3 預留：run(paths=…) 把所有讀寫指到別的地方，模組常數不動（--out <倉庫外> 就是這樣用）。"""
+
+    def test_run_with_explicit_paths_writes_only_there(self):
+        w = World(patch=False)
+        try:
+            fill_world(w)
+            with redirect_stdout(io.StringIO()):
+                status, code = A.run("review", offline=True, now=NOW, paths=w.paths)
+            self.assertEqual(code, 0)
+            for name in ("status.json", "risk.json", "decompose.json", "cost.json"):
+                self.assertTrue(os.path.exists(os.path.join(w.data, "analysis", name)), name)
+            self.assertEqual(A.ANALYSIS_DIR, os.path.join(A.DATA_DIR, "analysis"))           # 模組常數沒被動
+            risk = w.read("analysis/risk.json")
+            self.assertEqual(risk["generatedAt"], A.iso(NOW))
+        finally:
+            w.close()
 
 
 class TestMain(unittest.TestCase):
