@@ -1,0 +1,77 @@
+# adhoc-analyze.yml — 放在【私人倉庫 invest-data】的 .github/workflows/ 底下（公開倉庫只放這份範本，內容不含任何代號）
+#
+# 用途：臨時試算一支不在正式清單上的代號。計算程式從公開倉庫 main 取（唯讀），結果只寫回這個私人倉庫的 adhoc/。
+# 觸發：手機或電腦開 invest-data → Actions → 左側 adhoc-analyze → Run workflow → 填代號、選類別、費用率可留白 → 約 1 分鐘。
+# 代號打錯：analyze.py 會以結束碼 2 失敗、紀錄裡寫「查無此代號」，不會產生空結果。
+# 介面：公開倉庫 scripts/analyze.py 的 --adhoc／--asset-class／--expense-ratio／--out 四個參數名有測試釘住；
+#       若非改不可，公開倉庫會同時改這份範本並在 CHANGELOG 標「私人 workflow 需更新」。
+name: adhoc-analyze
+on:
+  workflow_dispatch:
+    inputs:
+      symbol:
+        description: "Yahoo 代號（例：VT、VUSA.L、00646.TW）"
+        required: true
+        type: string
+      asset_class:
+        description: "類別"
+        required: true
+        type: choice
+        options:
+          - stock
+          - index_etf
+          - bond_etf
+          - commodity
+          - crypto
+          - fx
+          - index
+      expense_ratio:
+        description: "費用率（百分比／年，選填；結果會標「使用者輸入」）"
+        required: false
+        type: string
+        default: ""
+permissions:
+  contents: write            # 只有這一個：把結果 commit 回本倉庫。其他權限一律沒有
+concurrency:
+  group: adhoc-analyze
+  cancel-in-progress: false
+jobs:
+  adhoc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取出私人倉庫（結果要寫回這裡）
+        uses: actions/checkout@v4
+        with:
+          path: private
+      - name: 取出公開倉庫的計算程式（唯讀：不另外給 token、不留 credential）
+        uses: actions/checkout@v4
+        with:
+          repository: davidjjx/invest-watch
+          ref: main
+          path: public
+          persist-credentials: false
+      - name: 安裝 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安裝套件
+        run: pip install requests
+      - name: 試算（結果只寫到私人倉庫的 adhoc/；公開倉庫的目錄在結構上寫不進去）
+        env:
+          SYMBOL: ${{ inputs.symbol }}
+          ASSET_CLASS: ${{ inputs.asset_class }}
+          EXPENSE: ${{ inputs.expense_ratio }}
+        run: |
+          set -e
+          ARGS=(--adhoc "$SYMBOL" --asset-class "$ASSET_CLASS" --out "$GITHUB_WORKSPACE/private/adhoc")
+          if [ -n "$EXPENSE" ]; then ARGS+=(--expense-ratio "$EXPENSE"); fi
+          python public/scripts/analyze.py "${ARGS[@]}"
+      - name: 寫回私人倉庫（commit 訊息不含代號）
+        run: |
+          cd private
+          git config user.name "adhoc-analyze"
+          git config user.email "adhoc-analyze@users.noreply.github.com"
+          git add adhoc
+          if git diff --cached --quiet; then echo "沒有變化"; exit 0; fi
+          git commit -m "adhoc 試算（$(date -u +%Y-%m-%dT%H:%MZ)）"
+          git push

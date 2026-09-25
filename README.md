@@ -58,7 +58,7 @@ invest-watch/
 │   ├─ app.js            儀表板頁面邏輯
 │   ├─ report.js         把報告 JSON 畫成畫面
 │   ├─ history.js        歷史頁邏輯
-│   ├─ storage.js        個人紀錄的存放層（本機 / 私人倉庫，雙後端同介面）
+│   ├─ storage.js        個人紀錄的存放層（本機 / 私人倉庫，雙後端同介面；loadFile／saveFile／listDir 讀寫私人倉庫的任何檔案，分析系列用）
 │   ├─ portfolio.js      持倉與損益計算（純函式）
 │   ├─ records.js        「我的紀錄」頁邏輯
 │   ├─ settings.js       設定頁邏輯
@@ -82,10 +82,11 @@ invest-watch/
 │   ├─ update_local.ps1  家用電腦排程用的補抓腳本
 │   ├─ probe_analysis_sources.py  分析系列 A0：新資料來源探測（只讀、只測不接；結果只進 job summary）
 │   ├─ test_probe_analysis.py     上一支的離線測試（餵假回應、不連網；判準改壞必須紅）
-│   ├─ analyze.py        分析系列：週線長歷史、風險、拆解、成本（只在 15:30 review 那一輪跑；出錯不卡行情與報告）
+│   ├─ analyze.py        分析系列：週線長歷史、風險、拆解、成本（只在 15:30 review 那一輪跑；出錯不卡行情與報告）；`--adhoc` 是 A1-3 的試算入口，只在私人倉庫的 Actions 用、結果只寫到倉庫外
 │   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
 │   └─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
 ├─ docs/ANALYSIS.md      分析方法（公開版）：五個面向、方法證據★、資料標籤、assetClass 對應、已實作的定義
+├─ docs/adhoc-workflow.example.yml  私人倉庫 invest-data 用的試算 workflow 範本（A1-3；內容不含任何代號，複製過去即可用）
 └─ .github/workflows/
     ├─ update-data.yml     排程設定（cron-job.org 觸發）
     ├─ probe-bot.yml       量測台銀（手動觸發；停點 6 的工具）
@@ -361,6 +362,14 @@ Get-ScheduledTask -TaskName "InvestWatch-*" | Unregister-ScheduledTask -Confirm:
   要它不黃，得讓資料真的更新（下一階段的估算序列，或一台不會睡的機器）。
 
 ---
+
+## 試算清單（A1-3）怎麼用
+
+1. **建立私人 workflow（一次就好）**：到 invest-data → Add file → Create new file → 路徑打 `.github/workflows/adhoc-analyze.yml` → 把公開倉庫 `docs/adhoc-workflow.example.yml` 的內容整份貼上 → Commit。檔案要在 invest-data 的預設分支上，Actions 頁才會出現「Run workflow」按鈕。
+2. **跑一次試算**：手機瀏覽器開 invest-data → Actions → 左側選 adhoc-analyze → Run workflow → 填代號、選類別、費用率可留白 → 等約 1 分鐘變綠。
+3. **看結果**：開網站的分析檢視頁 → 「試算」區 → 按「讀取試算清單」。若代號打錯，workflow 會紅並在紀錄裡寫「查無此代號」，不會產生空結果。
+
+代號與結果只在你的私人倉庫和你的瀏覽器裡；公開倉庫的 workflow 不會跑試算。
 
 ## 維運：出事的時候怎麼處理
 
@@ -780,7 +789,13 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - **探測**：在分支上跑 retest 組（證交所端點用正式標頭＋Referer → 可用；e添富先取頁面 cookie 再 POST → 可用；^SP500TR 週線 → 可用；黃金現貨兩個代號 → 404，所以拆解的殘差仍含期貨基差、notes 有解釋）；`probe-analysis.yml` 一字未改
   - risk.json 的 `asOf` 欄改名 `dataThrough`（跟設定檔的鍵名撞名）；`analyze.py run(paths=…)` 可把輸出指到倉庫外（A1-3 預留）
   - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-2`
-- [ ] 分析系列 A1-3 — 試算清單（只是預告，內容等停點說明）
+- [x] **分析系列 A1-3 — 試算清單**（2026-09-25 完成，合併排在 A1-2 第二段驗收之後）
+  - **做了什麼**：`scripts/analyze.py --adhoc 代號 --asset-class 類別 [--expense-ratio 值] --out 倉庫外目錄`——一支不在清單上的標的也能算年化波動、最大回檔、距高點、與全部公開標的的 3 年相關（列前三名）；
+    估值與折溢價一律資料不足、費用率標「使用者輸入」、固定的稅務註記；倫敦掛牌的便士報價（`meta.currency` 等於 `GBp`）÷100 並記錄；上市未滿 3 年寫資料不足；代號查無就明確失敗
+  - **結構性禁寫**：`--out` 在倉庫裡就在連網前結束；adhoc 模式所有寫檔都經「允許寫入根目錄」檢查；`status.json` 也只寫到 out；公開 workflow 有測試釘住不得出現 `--adhoc`；跑前跑後 `git status` 一樣
+  - **私人倉庫這一邊**：`docs/adhoc-workflow.example.yml` 複製到 invest-data 的 `.github/workflows/adhoc-analyze.yml`（只有 `contents: write`；checkout 公開 main 唯讀、不留 credential）；結果寫 `adhoc/<代號>/<執行日>.json`＋`adhoc/index.json`；網站檢視頁「試算」區先讀 index（1 個請求），沒有 index 才用 `listDir` 列目錄
+  - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-3`
+- [ ] 分析系列 A1-4 — 00646 官方淨值回補（小停點）
 - [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、正式的五面向卡片與狀態快照（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 

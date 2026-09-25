@@ -40,6 +40,8 @@ workflow 對這一步 continue-on-error：分析壞掉絕不卡住行情與報�
     python scripts/analyze.py --slot review               # 正式
     python scripts/analyze.py --slot review --offline     # 不連網：只用倉庫裡已有的 history-long 重算
     python scripts/analyze.py --slot review --dry-run     # 只列出這一輪會發哪些請求
+    python scripts/analyze.py --adhoc FAKE.L --asset-class index_etf --out /tmp/adhoc
+        # A1-3 試算：一支不在清單上的代號；結果只寫到 --out（必須在倉庫外），只在私人倉庫的 Actions 裡跑
 """
 import argparse
 import json
@@ -117,6 +119,12 @@ LABEL_NOTES = {
     LABEL_CROSSCHECKED: "有拿別的來源核對過（核對的方法與日期寫在旁邊）",
     LABEL_MULTI: "兩個以上獨立來源給出一致的值",
 }
+LABEL_USER_INPUT = "使用者輸入"                        # A1-3：費用率由使用者輸入，不是任何來源給的
+ADHOC_CLASSES = ("stock", "index_etf", "bond_etf", "commodity", "crypto", "fx", "index")   # 裁決：七類，不含 gold_tw（台銀黃金沒有 Yahoo 代號）
+ADHOC_PENCE = "GBp"                                    # Yahoo 對倫敦掛牌的報價單位：便士。完全等於這個字串才 ÷100；GBP（英鎊）不動
+ADHOC_TAX_NOTE = "註冊地造成的稅務差異（股息預扣稅、遺產稅）本系統不計算，需另查最新規定"
+ADHOC_MAX_SYMBOL_LEN = 24
+WRITE_ROOTS = None                                     # adhoc 模式設成 [--out]：之後任何寫檔不在裡面就拒絕（第二層保險）；正式模式 None＝不限制
 FX_ORIGIN_NOTE = "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）"
 FX_LABEL_NOTE = "有對照（2026-09-18 逐日稽核 136 天，FinMind 轉載值與台銀 CSV 完全一致）"
 DATE_SOURCE_NOTES = {
@@ -211,7 +219,33 @@ def sanitize(msg):
     return re.sub(r"[A-Za-z]:\\[^\s'\"]+", "<path>", s)[:400]
 
 
+class WriteRefused(AnalyzeError):
+    """adhoc 模式下寫到 --out 以外的地方：不是資料問題，是程式想寫進倉庫，一律擋。"""
+
+
+def _norm_path(p):
+    return os.path.normcase(os.path.realpath(os.path.abspath(p)))
+
+
+def path_inside(path, root):
+    """path 是否落在 root 底下（含 root 本身）；不同磁碟機算不在。"""
+    a, b = _norm_path(path), _norm_path(root)
+    try:
+        return os.path.commonpath([a, b]) == b
+    except ValueError:
+        return False
+
+
+def assert_write_allowed(path):
+    """第二層保險：adhoc 模式下，不管路徑怎麼組出來，不在 --out 底下就拒寫（正式模式 WRITE_ROOTS 是 None、不限制）。"""
+    if WRITE_ROOTS is None:
+        return
+    if not any(path_inside(path, r) for r in WRITE_ROOTS):
+        raise WriteRefused("拒絕寫入 %s：adhoc 模式只准寫到 --out 目錄" % sanitize(path))
+
+
 def write_json(path, obj):
+    assert_write_allowed(path)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
@@ -315,7 +349,7 @@ def parse_yahoo_weekly(j, now_epoch=None):
         wd = parse_day(p["d"]).strftime("%a")
         weekdays[wd] = weekdays.get(wd, 0) + 1
     info = {"granularity": gran, "droppedInProgress": dropped, "currency": meta.get("currency"),
-            "exchange": meta.get("exchangeName"),
+            "exchange": meta.get("exchangeName"), "name": meta.get("longName") or meta.get("shortName"),
             "firstTradeDate": local_day(ftd, off) if isinstance(ftd, (int, float)) else None,
             "dominantWeekday": max(weekdays, key=weekdays.get) if weekdays else None}
     return pts, info
@@ -390,6 +424,7 @@ def dump_long(head, points):
 
 def save_long(aid, head, points, paths=None):
     paths = paths or default_paths()
+    assert_write_allowed(long_path(aid, paths))
     os.makedirs(paths["long"], exist_ok=True)
     head = dict(head)
     head["count"] = len(points)
@@ -941,6 +976,7 @@ def load_nav(aid, paths=None):
 def save_nav(aid, symbol, rows, paths=None):
     paths = paths or default_paths()
     p = nav_path(aid, paths)
+    assert_write_allowed(p)
     os.makedirs(os.path.dirname(p), exist_ok=True)
     head = {"id": aid, "symbol": symbol, "source": "證交所 all_etf.txt（15:30 那一輪抓一次）",
             "note": "estNav／estPremiumPct 是投信的盤中預估（標「預估」）；officialNav 是前一營業日的官方淨值、隔天才拿得到、回填到那一天（標「確定」）；"
@@ -1194,6 +1230,179 @@ def build_cost(series, now, problems, paths=None, f=None, offline=False):
 # 主流程
 # ==========================================================================
 
+# ==========================================================================
+# A1-3 試算：一支不在清單上的代號。計算程式公開；代號與結果只寫到 --out（倉庫外），只在私人倉庫的 Actions 裡跑
+# ==========================================================================
+
+def adhoc_out_check(out):
+    """第一層：--out 必須在倉庫目錄之外，連網之前就擋。回傳絕對路徑。"""
+    if not out:
+        raise AnalyzeError("adhoc 需要 --out <倉庫外的目錄>")
+    out_abs = os.path.abspath(out)
+    if path_inside(out_abs, ROOT):
+        raise AnalyzeError("--out 不可以在倉庫目錄裡面：試算的代號與結果不進公開倉庫")
+    return out_abs
+
+
+def adhoc_paths(out_abs, base=None):
+    """adhoc 的讀寫位置：長歷史與 assets 從公開倉庫讀（唯讀），所有輸出寫到 out。"""
+    base = base or default_paths()
+    return {"long": base["long"], "assets": base["assets"], "latest": base["latest"], "history": base["history"],
+            "analysis": out_abs, "out": out_abs}
+
+
+def pence_to_pounds(points, info):
+    """Yahoo 對倫敦掛牌的報價常是便士：meta.currency 完全等於 GBp 才 ÷100 換成英鎊並記錄；GBP（英鎊）與其他幣別一律不動。"""
+    cur = info.get("currency")
+    if cur == ADHOC_PENCE:
+        pts = [dict(p, c=round(p["c"] / 100.0, 6)) for p in points]
+        return pts, "GBP", "Yahoo 的報價單位是便士（GBp），已 ÷100 換成英鎊（GBP）"
+    return points, cur, None
+
+
+def adhoc_correlations(sym_points, public_series, by_id):
+    """試算標的對每一個公開標的的 3 年週報酬相關（每一對各自算，跟 risk.json 同一套規則）；依 r 由高到低。"""
+    rows, insufficient = [], []
+    for aid in sorted(public_series):
+        corr, _problems = correlation_matrix({"adhoc": sym_points, aid: public_series[aid]})
+        cell = corr["matrix"]["adhoc"][aid]
+        a = by_id.get(aid, {})
+        row = {"id": aid, "name": a.get("name"), "assetClass": a.get("assetClass"), "currency": a.get("currency")}
+        row.update(cell)
+        (rows if isinstance(cell.get("r"), (int, float)) else insufficient).append(row)
+    rows.sort(key=lambda r: r["r"], reverse=True)
+    return rows, insufficient
+
+
+def build_adhoc(symbol, asset_class, expense_ratio, pts, info, currency, unit_note, now, paths):
+    assets = load_assets(paths)
+    by_id = {a["id"]: a for a in assets}
+    by_id.update({e["id"]: e for e in EXTRA_LONG_SERIES})
+    public, same = {}, []
+    for t in long_targets(assets):
+        if (t.get("symbol") or "").upper() == symbol.upper():
+            same.append(t["id"])
+            continue
+        old = load_long(t["id"], paths)
+        if old and old.get("points"):
+            public[t["id"]] = old["points"]
+    rets = weekly_returns(pts)
+    first, last = pts[0]["d"], pts[-1]["d"]
+    young = parse_day(first) > now.date() - timedelta(days=3 * 365)
+    if young:
+        corr = {"window": "3 年（156 週）", "label": LABEL_SINGLE, "top": [], "all": [],
+                "reason": "資料不足：上市未滿 3 年（第一根週棒 %s）" % first}
+    else:
+        rows, insufficient = adhoc_correlations(pts, public, by_id)
+        corr = {"window": "3 年（156 週）", "label": LABEL_SINGLE, "top": rows[:3], "all": rows, "insufficient": insufficient,
+                "note": "皮爾森相關，週報酬、ISO 週對齊、成對可用（每一對各自取兩邊都有的最近 156 週），重疊不到 %d 週寫資料不足；各自幣別、不含匯率換算" % CORR_MIN_OVERLAP}
+    if same:
+        corr["skippedSameSymbol"] = same
+    label = LABEL_SINGLE
+    return {
+        "symbol": symbol, "assetClass": asset_class, "name": info.get("name"), "exchange": info.get("exchange"),
+        "currency": currency, "priceUnitNote": unit_note,
+        "runDate": now.astimezone(TPE).strftime("%Y-%m-%d"), "generatedAt": iso(now), "dataThrough": last,
+        "firstBar": first, "bars": len(pts), "dataLabel": label, "source": "Yahoo Finance chart API（週線，跟正式清單同一套抓法與檢查）",
+        "dateSourceNote": DATE_SOURCE_NOTES["yahoo-week"],
+        "expenseRatio": ({"pct": expense_ratio, "label": LABEL_USER_INPUT} if expense_ratio is not None
+                         else {"pct": None, "label": LABEL_USER_INPUT, "reason": "沒有輸入"}),
+        "risk": {"volatility": {k: dict(annualized_vol(rets, w), label=label) for k, w in WINDOWS_WEEKS.items()},
+                 "maxDrawdown": dict(max_drawdown(pts) or {}, label=label),
+                 "currentDrawdown": dict(current_drawdown(pts) or {}, label=label),
+                 "tenYearWindow": ten_year_window(pts)},
+        "correlation": corr,
+        "valuation": {"reason": "資料不足：試算不做估值"},
+        "premium": {"reason": "資料不足：試算不做折溢價"},
+        "trend": {"reason": "A2 完成後才有趨勢面"},
+        "notes": [ADHOC_TAX_NOTE, "相關係數是各自幣別的週報酬，不含匯率換算。", "這裡只有事實與資料標籤，沒有任何判斷。"],
+        "footer": "以上為量化整理，未經回測驗證，不構成投資建議。",
+    }
+
+
+def update_adhoc_index(out_abs, symbol, rel, result):
+    """每跑完一次就更新 index.json：每個代號的最新檔、資料截止日與幾個摘要數字；網站先讀它（1 個請求）。"""
+    p = os.path.join(out_abs, "index.json")
+    idx = {"version": 1, "note": "每個代號的最新一筆；網站先讀這一檔再點進各檔。同一天重跑覆蓋同一檔、舊檔全部保留。", "symbols": {}}
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                old = json.load(fh) or {}
+            if isinstance(old.get("symbols"), dict):
+                idx["symbols"] = old["symbols"]
+        except Exception:                                 # noqa: B902
+            pass
+    top = (result.get("correlation") or {}).get("top") or []
+    vol = result["risk"]["volatility"]
+    idx["symbols"][symbol] = {"latest": rel, "runDate": result["runDate"], "dataThrough": result["dataThrough"],
+                              "assetClass": result["assetClass"], "currency": result["currency"], "bars": result["bars"],
+                              "vol1yPct": vol["1y"].get("pct"), "vol5yPct": vol["5y"].get("pct"),
+                              "maxDrawdownPct": (result["risk"]["maxDrawdown"] or {}).get("pct"),
+                              "currentDrawdownPct": (result["risk"]["currentDrawdown"] or {}).get("pct"),
+                              "top1": {"id": top[0]["id"], "r": top[0]["r"]} if top else None,
+                              "priceUnitNote": result.get("priceUnitNote")}
+    idx["updatedAt"] = iso(now_tpe())
+    write_json(p, idx)
+
+
+def adhoc_run(symbol, asset_class, expense_ratio, out, now=None, fetcher=None, paths=None):
+    """試算入口。回傳 (status, 結束碼)：0 成功、2 使用者輸入或來源的問題（查無代號、--out 在倉庫裡…）、1 程式壞掉。
+    代號查無就明確失敗、不產生結果檔；status.json 也只寫到 out。"""
+    global WRITE_ROOTS
+    now = now or now_tpe()
+    symbol = (symbol or "").strip()
+    status = {"generatedAt": iso(now), "mode": "adhoc", "ok": False, "errors": [], "requests": 0, "produced": []}
+    code = 0
+    out_abs = None
+    try:
+        if (not symbol or len(symbol) > ADHOC_MAX_SYMBOL_LEN or not re.match(r"^[A-Za-z0-9.^=\-]+$", symbol)
+                or not re.search(r"[A-Za-z0-9]", symbol)):
+            raise AnalyzeError("代號格式不對：只接受英數字與 . ^ = -，最長 %d 字" % ADHOC_MAX_SYMBOL_LEN)
+        if asset_class not in ADHOC_CLASSES:
+            raise AnalyzeError("類別必須是 %s 之一" % "／".join(ADHOC_CLASSES))
+        er = None
+        if expense_ratio not in (None, ""):
+            try:
+                er = float(expense_ratio)
+            except (TypeError, ValueError):
+                raise AnalyzeError("費用率要是數字（百分比／年）")
+            if not (0.0 <= er <= 20.0):
+                raise AnalyzeError("費用率超出合理範圍（0～20，百分比／年）")
+        out_abs = adhoc_out_check(out)                    # 第一層：連網之前
+        paths = adhoc_paths(out_abs, paths)
+        WRITE_ROOTS = [out_abs]                           # 第二層：從這裡起任何寫檔都要在 out 底下
+        f = fetcher or PolicedFetcher(verbose=True)
+        try:
+            pts, info = fetch_yahoo_weekly(f, symbol, YAHOO_PERIOD1_MONDAY, int(now.timestamp()), now_epoch=now.timestamp())
+        except fd.FetchError as e:
+            if "404" in str(e):
+                raise AnalyzeError("查無此代號：%s（Yahoo 回 404）" % symbol)
+            raise
+        finally:
+            status["requests"] = getattr(f, "count", 0)
+        pts, currency, unit_note = pence_to_pounds(pts, info)
+        result = build_adhoc(symbol, asset_class, er, pts, info, currency, unit_note, now, paths)
+        rel = "%s/%s.json" % (symbol, result["runDate"])
+        write_json(os.path.join(out_abs, symbol, result["runDate"] + ".json"), result)
+        status["produced"].append(rel)
+        update_adhoc_index(out_abs, symbol, rel, result)
+        status["produced"].append("index.json")
+        status["dataThrough"] = result["dataThrough"]
+    except (AnalyzeError, fd.FetchError, net_policy.HostNotAllowed) as e:
+        status["errors"].append(sanitize(e))
+        code = 2
+    except Exception as e:                                # noqa: B902
+        status["errors"].append("程式壞掉：%s：%s" % (e.__class__.__name__, sanitize(e)))
+        traceback.print_exc(limit=3)
+        code = 1
+    status["ok"] = not status["errors"]
+    status["finishedAt"] = iso(now_tpe())
+    if out_abs is not None:
+        write_json(os.path.join(out_abs, "status.json"), status)     # 裁決：adhoc 的 status.json 也寫到 out，不碰 data/analysis
+    WRITE_ROOTS = None
+    return status, code
+
+
 def load_assets(paths=None):
     with open((paths or default_paths())["assets"], encoding="utf-8") as fh:
         return json.load(fh)["assets"]
@@ -1263,20 +1472,45 @@ def run(slot, offline=False, dry_run=False, only=None, now=None, paths=None):
     return status, code
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description="InvestWatch 分析系列：風險與拆解（只在 review 那一輪跑）")
-    ap.add_argument("--slot", required=True, help="這一輪的時段；正式只接受 review")
+def build_parser():
+    """參數名是私人倉庫 workflow 依賴的介面（docs/adhoc-workflow.example.yml）：測試釘住，改了要同時改範本並在 CHANGELOG 標「私人 workflow 需更新」。"""
+    ap = argparse.ArgumentParser(description="InvestWatch 分析系列：風險、拆解、成本（只在 review 那一輪跑）；--adhoc 是 A1-3 的試算入口")
+    ap.add_argument("--slot", default=None, help="這一輪的時段；正式只接受 review（--adhoc 不用給）")
     ap.add_argument("--offline", action="store_true", help="不連網，只用倉庫裡已有的 history-long 重算")
     ap.add_argument("--dry-run", action="store_true", help="只列出會發哪些請求，不連網、不寫檔")
     ap.add_argument("--only", default=None, help="只更新這些 id 的長歷史（逗號分隔），測試用")
     ap.add_argument("--now", default=None, help="測試用：把「現在」當成這個時間（ISO 8601）")
-    args = ap.parse_args(argv)
-    if args.slot != "review" and not (args.offline or args.dry_run):
-        print("分析只在 review（15:30）那一輪跑；收到的是 --slot %s，什麼都不做。" % args.slot)
-        return 2
+    ap.add_argument("--adhoc", default=None, metavar="SYMBOL", help="A1-3 試算：一支不在清單上的 Yahoo 代號（結果只寫到 --out，倉庫外）")
+    ap.add_argument("--asset-class", default=None, choices=ADHOC_CLASSES, help="試算標的的類別")
+    ap.add_argument("--expense-ratio", default=None, help="試算標的的費用率（百分比／年，選填；標「使用者輸入」）")
+    ap.add_argument("--out", default=None, help="試算結果的目錄，必須在倉庫之外")
+    return ap
+
+
+def main(argv=None):
+    args = build_parser().parse_args(argv)
     now = datetime.fromisoformat(args.now) if args.now else now_tpe()
     if now.tzinfo is None:
         now = now.replace(tzinfo=TPE)
+    if args.adhoc is not None:
+        if not args.asset_class:
+            print("試算需要 --asset-class（%s 之一）" % "／".join(ADHOC_CLASSES))
+            return 2
+        print("=" * 62)
+        print("InvestWatch 試算（adhoc）  台北時間：%s" % now.strftime("%Y-%m-%d %H:%M:%S"))
+        print("=" * 62)
+        status, code = adhoc_run(args.adhoc, args.asset_class, args.expense_ratio, args.out, now=now)
+        print("產出：%s" % ("、".join(status["produced"]) or "無"))
+        if status["errors"]:
+            print("::error::試算失敗：%s" % "；".join(status["errors"])[:600])
+        print("對外請求：%d；結束碼 %d" % (status["requests"], code))
+        return code
+    if not args.slot:
+        print("需要 --slot（正式只接受 review）；試算請用 --adhoc。")
+        return 2
+    if args.slot != "review" and not (args.offline or args.dry_run):
+        print("分析只在 review（15:30）那一輪跑；收到的是 --slot %s，什麼都不做。" % args.slot)
+        return 2
     only = set(x.strip() for x in args.only.split(",") if x.strip()) if args.only else None
     print("=" * 62)
     print("InvestWatch 分析  時段：%s  台北時間：%s%s" % (args.slot, now.strftime("%Y-%m-%d %H:%M:%S"),

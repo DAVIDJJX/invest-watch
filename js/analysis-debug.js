@@ -11,6 +11,9 @@
  * 算法、驗證、設定檔的鍵名全部在 js/concentration.js，這一支只拿算好的結果去畫，表單欄位的 id 也不用設定檔的鍵名。
  * 這一支永遠不 console.log 任何權重。
  *
+ * 試算（A1-3）：結果在使用者自己的私人倉庫 adhoc/ 底下，按一下才讀：先讀 adhoc/index.json（1 個請求）列表，
+ * 點某個代號才讀那一檔；沒有 index 時用 listDir 列目錄當備援。代號只出現在瀏覽器裡。
+ *
  * 測試：scripts/test_analysis_debug.html 把假資料塞進 render()，再由 scripts/test_analysis_debug_js.py
  * 用無頭瀏覽器檢查表格有渲染、日期欄非空、頁面上沒有不該出現的字與鍵名。
  */
@@ -367,6 +370,97 @@
     return h;
   }
 
+  /* ------------------------------------------------------------ 試算（A1-3）：結果在私人倉庫，按一下才讀 */
+  var ADHOC_INDEX = 'adhoc/index.json';
+  var ADHOC_MAX = 20;
+  var ADHOC_TAX = '註冊地造成的稅務差異（股息預扣稅、遺產稅）本系統不計算，需另查最新規定';
+
+  function dateOrDash(d) { return d ? dateCell(d) : td('—'); }
+  function rText(r) { return typeof r === 'number' ? r.toFixed(3) : '—'; }
+
+  function renderAdhocDetail(r) {
+    if (!r) return '<p class="warn">讀不到這一筆試算結果。</p>';
+    var h = '<h3>' + esc(r.symbol) + (r.name ? '　<span class="muted">' + esc(r.name) + '</span>' : '') + '</h3>';
+    h += '<p class="muted">類別 ' + esc(r.assetClass) + '；幣別 ' + esc(r.currency || '—') + '；資料截止 ' + dateSpan(r.dataThrough) +
+         '；第一根週棒 ' + dateSpan(r.firstBar) + '；' + esc(r.bars) + ' 根；執行日 ' + dateSpan(r.runDate) +
+         '；資料標籤：' + esc(r.dataLabel || '') + '</p>';
+    if (r.priceUnitNote) h += '<p class="warn">' + esc(r.priceUnitNote) + '</p>';
+    var er = r.expenseRatio || {};
+    h += '<p>費用率：' + (typeof er.pct === 'number' ? pctText(er.pct) : '—（' + esc(er.reason || '沒有輸入') + '）') +
+         '　<span class="muted">標籤：' + esc(er.label || '') + '</span></p>';
+    var risk = r.risk || {}, vol = risk.volatility || {}, v1 = vol['1y'] || {}, v5 = vol['5y'] || {};
+    var mdd = risk.maxDrawdown || {}, cdd = risk.currentDrawdown || {};
+    function volRow(name, v) {
+      return [td(name), td(typeof v.pct === 'number' ? pctText(v.pct) : '資料不足（' + (v.reason || '') + '）'),
+              td(v.from ? v.from + '～' + v.through : '—'), td(v.label || '')];
+    }
+    h += table(['項目', '數值', '區間', '資料標籤'], [
+      volRow('年化波動 1 年', v1), volRow('年化波動 5 年', v5),
+      [td('最大回檔'), td(typeof mdd.pct === 'number' ? pctText(mdd.pct) : '資料不足'),
+       td(mdd.peakDate ? '高點 ' + mdd.peakDate + ' → 低點 ' + mdd.troughDate + (mdd.recoveredDate ? '，' + mdd.recoveredDate + ' 回到高點' : '，尚未回到高點') : '—'), td(mdd.label || '')],
+      [td('目前距高點'), td(typeof cdd.pct === 'number' ? pctText(cdd.pct) : '資料不足'),
+       td(cdd.highDate ? '高點 ' + cdd.highDate + '，資料到 ' + cdd.dataThrough : '—'), td(cdd.label || '')]
+    ]);
+    var c = r.correlation || {};
+    h += '<h4>與公開標的的 3 年週報酬相關（' + esc(c.window || '') + '）</h4>';
+    if (c.reason) {
+      h += '<p class="warn">' + esc(c.reason) + '</p>';
+    } else {
+      var top = c.top || [];
+      h += '<p class="muted">相關最高的前三名（顯示係數本身；各自幣別、不含匯率換算）：</p>';
+      h += table(['標的', '類別', '相關係數', '重疊週數', '區間'], top.map(function (x) {
+        return [td(x.id + (x.name ? '　' + x.name : '')), td(x.assetClass || ''), td(rText(x.r)), td(x.n), td(x.from ? x.from + '～' + x.through : '—')];
+      }));
+      if ((c.all || []).length > top.length) {
+        h += '<details><summary class="muted">全部 ' + (c.all || []).length + ' 個標的</summary>' +
+             table(['標的', '相關係數', '重疊週數'], (c.all || []).map(function (x) { return [td(x.id), td(rText(x.r)), td(x.n)]; })) + '</details>';
+      }
+      if ((c.insufficient || []).length) {
+        h += '<p class="muted">資料不足的標的：' + esc((c.insufficient || []).map(function (x) { return x.id + '（' + (x.reason || '') + '）'; }).join('、')) + '</p>';
+      }
+      if ((c.skippedSameSymbol || []).length) h += '<p class="muted">同一個代號已在公開清單（' + esc(c.skippedSameSymbol.join('、')) + '），不跟自己算相關。</p>';
+    }
+    h += '<p class="muted">估值：' + esc((r.valuation || {}).reason || '資料不足') + '；折溢價：' + esc((r.premium || {}).reason || '資料不足') +
+         '；趨勢：' + esc((r.trend || {}).reason || '—') + '</p>';
+    h += notesList(r.notes);
+    return h;
+  }
+
+  function renderAdhoc(state) {
+    var s = state || { status: 'idle' };
+    var h = '<h2>試算（A1-3）</h2>';
+    h += '<p class="muted">臨時分析不在清單上的標的。計算在你自己的私人倉庫的 Actions 裡跑，結果只放在私人倉庫的 adhoc/ 底下；這一頁按一下才去讀，不上傳、不寫進任何公開檔。</p>';
+    h += '<p><button type="button" id="adhoc-load">讀取試算清單（從私人倉庫）</button>　<span id="adhoc-status" class="muted"></span></p>';
+    if (s.status === 'loading') {
+      h += '<p class="muted">讀取中…</p>';
+    } else if (s.status === 'error') {
+      h += '<p class="warn">讀不到：' + esc(s.reason || '') + '</p>';
+    } else if (s.status === 'unset') {
+      h += '<p id="adhoc-unset"><b>未設定</b>　<span class="muted">' + esc(s.reason || '') + '</span></p>';
+    } else if (s.status === 'empty') {
+      h += '<p id="adhoc-empty"><b>還沒有任何試算</b>　<span class="muted">' + esc(s.reason || '私人倉庫的 adhoc/ 底下沒有結果；到 invest-data 的 Actions 跑一次 adhoc-analyze') + '</span></p>';
+    } else if (s.status === 'index') {
+      var syms = Object.keys((s.index || {}).symbols || {}).sort();
+      h += '<p class="muted">來自 adhoc/index.json（更新 ' + dateSpan(s.index.updatedAt) + '）；' + syms.length + ' 個代號。點「看詳細」才讀那一檔。</p>';
+      h += table(['代號', '類別', '幣別', '資料截止', '1 年波動', '最大回檔', '距高點', '相關最高', ''], syms.map(function (sym) {
+        var e = s.index.symbols[sym] || {};
+        return [td(sym), td(e.assetClass || ''), td(e.currency || ''), dateOrDash(e.dataThrough), td(pctText(e.vol1yPct)),
+                td(pctText(e.maxDrawdownPct)), td(pctText(e.currentDrawdownPct)),
+                td(e.top1 ? e.top1.id + ' ' + rText(e.top1.r) : '—'),
+                tdRaw('<button type="button" class="adhoc-open" data-path="' + esc(e.latest) + '">看詳細</button>')];
+      }));
+    } else if (s.status === 'list') {
+      h += '<p class="muted">私人倉庫裡沒有 adhoc/index.json，改用目錄清單當備援（每個代號只看檔名最新的一筆）。</p>';
+      h += table(['代號', '最新一筆', ''], (s.entries || []).map(function (e) {
+        return [td(e.symbol), td(e.latest || '—'),
+                tdRaw(e.path ? '<button type="button" class="adhoc-open" data-path="' + esc(e.path) + '">看詳細</button>' : '—')];
+      }));
+    }
+    if (s.detail) h += '<div id="adhoc-detail">' + renderAdhocDetail(s.detail) + '</div>';
+    h += '<p class="muted">' + esc(ADHOC_TAX) + '</p>';
+    return h;
+  }
+
   /* ------------------------------------------------------------ 組合 */
   function render(data, targets) {
     targets = targets || {};
@@ -377,6 +471,8 @@
     if (d) d.innerHTML = renderDecompose(data.decompose);
     if (c) c.innerHTML = renderCost(data.cost, data.staticCosts);
     if (k) k.innerHTML = renderConcentration(data.concentration);
+    var x = pick('adhoc');
+    if (x && data.adhoc) x.innerHTML = renderAdhoc(data.adhoc);
   }
 
   function fetchJSON(url) {
@@ -434,16 +530,72 @@
     wire();
   }
 
+  /* 試算的互動：按一下才去私人倉庫讀；先讀 index.json，沒有才列目錄。代號只出現在瀏覽器裡。 */
+  function wireAdhoc() {
+    var section = document.getElementById('adhoc');
+    if (!section) return;
+    var current = { status: 'idle' };
+    function setState(state) { current = state; section.innerHTML = renderAdhoc(state); wire(); }
+    function fail(e) { setState({ status: 'error', reason: e && e.message }); }
+    function latestOf(entries) {
+      var files = (entries || []).filter(function (e) { return e.type === 'file' && /[.]json$/.test(e.name); })
+        .map(function (e) { return e.name; }).sort();
+      return files.length ? files[files.length - 1] : null;
+    }
+    function loadList() {
+      setState({ status: 'loading' });
+      return window.Storage.loadFile(ADHOC_INDEX).then(function (r) {
+        if (r.reason === 'not-github') { setState({ status: 'unset', reason: '本機模式或還沒貼同步金鑰：到設定頁開啟雲端同步後再讀' }); return null; }
+        if (r.data && r.data.symbols) { setState({ status: 'index', index: r.data }); return null; }
+        return window.Storage.listDir('adhoc').then(function (d) {
+          if (!d.entries || !d.entries.length) { setState({ status: 'empty' }); return null; }
+          var dirs = d.entries.filter(function (e) { return e.type === 'dir'; }).slice(0, ADHOC_MAX);
+          return Promise.all(dirs.map(function (e) {
+            return window.Storage.listDir('adhoc/' + e.name).then(function (sub) {
+              var latest = latestOf(sub.entries);
+              return { symbol: e.name, latest: latest, path: latest ? 'adhoc/' + e.name + '/' + latest : null };
+            });
+          })).then(function (entries) { setState({ status: 'list', entries: entries }); });
+        });
+      }).catch(fail);
+    }
+    function openDetail(path) {
+      window.Storage.loadFile(path).then(function (r) {
+        if (!r.data) { fail(new Error('讀不到 ' + path)); return; }
+        var next = {};
+        Object.keys(current).forEach(function (k) { next[k] = current[k]; });
+        next.detail = r.data;
+        setState(next);
+        var d = document.getElementById('adhoc-detail');
+        if (d && d.scrollIntoView) d.scrollIntoView();
+      }).catch(fail);
+    }
+    function wire() {
+      var b = document.getElementById('adhoc-load');
+      if (b) b.addEventListener('click', function () {
+        if (!window.Storage || !window.Lock) { fail(new Error('這一頁沒有載到 storage.js／lock.js')); return; }
+        window.Lock.gate(function () { window.Storage.init().then(loadList); });
+      });
+      Array.prototype.forEach.call(section.querySelectorAll('.adhoc-open'), function (btn) {
+        btn.addEventListener('click', function () { openDetail(btn.getAttribute('data-path')); });
+      });
+    }
+    wire();
+  }
+
   function boot() {
     Promise.all([fetchJSON('data/analysis/status.json'), fetchJSON('data/analysis/risk.json'), fetchJSON('data/analysis/decompose.json'),
                  fetchJSON('data/analysis/cost.json'), fetchJSON('data/analysis/static-costs.json')])
       .then(function (all) {
-        render({ status: all[0], risk: all[1], decompose: all[2], cost: all[3], staticCosts: all[4], concentration: { status: 'unset' } });
+        render({ status: all[0], risk: all[1], decompose: all[2], cost: all[3], staticCosts: all[4], concentration: { status: 'unset' },
+                 adhoc: { status: 'idle' } });
         wireConcentration(all[1]);
+        wireAdhoc();
       });
   }
 
   window.AnalysisDebug = { boot: boot, render: render, renderStatus: renderStatus, renderRisk: renderRisk,
                            renderDecompose: renderDecompose, renderCost: renderCost, renderConcentration: renderConcentration,
-                           renderProfileForm: renderProfileForm, readFormValues: readFormValues, esc: esc, num: num };
+                           renderProfileForm: renderProfileForm, readFormValues: readFormValues, renderAdhoc: renderAdhoc,
+                           renderAdhocDetail: renderAdhocDetail, esc: esc, num: num };
 })();

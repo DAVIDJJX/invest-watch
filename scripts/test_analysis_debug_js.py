@@ -67,10 +67,19 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 13)
+        self.assertEqual(self.report.get("total"), 16)
 
     def test_status_on_top(self):
         self.case("status_shows_last_run_and_errors_on_top")
+
+    def test_adhoc_index_state(self):
+        self.case("adhoc_index_state_lists_symbols_with_summary")
+
+    def test_adhoc_fallback_list_and_empty_states(self):
+        self.case("adhoc_no_index_fallback_lists_latest_file_per_symbol")
+
+    def test_adhoc_detail(self):
+        self.case("adhoc_detail_shows_facts_labels_and_tax_note")
 
     def test_risk_table(self):
         self.case("risk_table_has_one_row_per_asset")

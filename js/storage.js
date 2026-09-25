@@ -193,6 +193,23 @@
       });
   }
 
+  /*
+   * 列私人倉庫裡一個目錄的內容（A1-3 試算：adhoc/ 底下有哪些代號）。
+   * contents API 對目錄回一個陣列；這裡只留 name／type／path／sha。目錄不存在回空陣列（不是錯誤）。
+   * index.json 在的時候網站不需要它（1 個請求就夠），它是沒有 index 時的備援。
+   */
+  function ghListDir(path) {
+    return fetch(apiUrl(path) + '?t=' + Date.now(), { headers: ghHeaders() })
+      .then(function (res) {
+        if (res.status === 404) return { entries: [], path: path, reason: 'not-found' };
+        return res.json().then(function (body) {
+          if (!res.ok) throw ghError(res, body);
+          if (!Array.isArray(body)) throw new Error('私人倉庫裡的 ' + path + ' 不是目錄');
+          return { entries: body.map(function (e) { return { name: e.name, type: e.type, path: e.path, sha: e.sha }; }), path: path };
+        });
+      });
+  }
+
   function ghLoad() { return ghLoadPath(FILE); }
 
   /*
@@ -233,6 +250,13 @@
       return Promise.resolve({ data: null, sha: null, path: path, reason: 'not-github' });
     }
     return ghLoadPath(path);
+  }
+
+  function listDir(path) {
+    if (getMode() !== 'github' || !hasPat()) {
+      return Promise.resolve({ entries: null, path: path, reason: 'not-github' });
+    }
+    return ghListDir(path);
   }
 
   function saveFile(path, data, message) {
@@ -340,7 +364,7 @@
     hasPat: hasPat, maskedPat: maskedPat,
     getRepo: getRepo, setRepo: setRepo, DEFAULT_REPO: DEFAULT_REPO,
     load: load, save: save,
-    loadFile: loadFile, saveFile: saveFile,
+    loadFile: loadFile, saveFile: saveFile, listDir: listDir,
     testConnection: testConnection,
     exportJSON: exportJSON, importJSON: importJSON,
     hasLocalData: hasLocalData,
