@@ -67,7 +67,7 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 7)
+        self.assertEqual(self.report.get("total"), 13)
 
     def test_status_on_top(self):
         self.case("status_shows_last_run_and_errors_on_top")
@@ -92,6 +92,27 @@ class TestAnalysisDebugJs(unittest.TestCase):
     def test_missing_status_is_loud(self):
         self.case("missing_status_is_loud")
 
+    # --- A1-2：成本、集中度 ---
+    def test_cost_section(self):
+        self.case("cost_section_rendered")
+
+    def test_concentration_three_facts(self):
+        """對照組：把 other 混進同向計算、或把門檻比較改壞 → 這一條會紅。"""
+        self.case("concentration_three_facts_with_fake_profile")
+
+    def test_concentration_unset(self):
+        self.case("concentration_unset_state")
+
+    def test_validation(self):
+        self.case("validation_blocks_bad_numbers_and_only_warns_on_sum")
+
+    def test_profile_key_names_never_reach_the_dom(self):
+        """對照組：表單欄位改用設定檔的鍵名當 id → 這一條會紅。"""
+        self.case("profile_key_names_never_reach_the_dom")
+
+    def test_storage_and_concentration_loaded(self):
+        self.case("storage_exposes_loadFile_and_saveFile")
+
 
 class TestPageWiring(unittest.TestCase):
     """檔案有沒有接對線：只看原始碼，不開瀏覽器。"""
@@ -103,6 +124,10 @@ class TestPageWiring(unittest.TestCase):
     def test_debug_page_loads_the_script_and_has_the_fixed_footer(self):
         src = self.read("analysis-debug.html")
         self.assertIn("js/analysis-debug.js", src)
+        for dep in ("js/lock.js", "js/storage.js", "js/concentration.js"):
+            self.assertIn(dep, src)
+            self.assertLess(src.index(dep), src.index("js/analysis-debug.js"))
+        self.assertIn('id="adhoc"', src)
         self.assertIn("以上為量化整理，未經回測驗證，不構成投資建議。", src)
         self.assertIn("暫時", src)
         self.assertIn("A4", src)

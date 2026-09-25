@@ -37,8 +37,11 @@ TERMS_FILE = os.environ.get("IW_SCAN_TERMS_FILE") or os.path.join(ROOT, "..", "i
 CORE_FILES = [
     "scripts/analyze.py", "scripts/net_policy.py", "scripts/test_analyze.py", "scripts/test_analysis_guards.py",
     "scripts/test_analysis_debug.html", "scripts/test_analysis_debug_js.py",
-    "analysis-debug.html", "js/analysis-debug.js", "docs/ANALYSIS.md",
+    "analysis-debug.html", "js/analysis-debug.js", "js/concentration.js", "docs/ANALYSIS.md",
 ]
+# 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
+PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
+PROFILE_KEY_HOME = "js/concentration.js"
 DATA_GLOBS = ["data/analysis/*.json", "data/analysis/**/*.json", "data/history-long/*.json"]
 
 # 判斷用語（拆開拼，免得掃到這一行）
@@ -54,8 +57,9 @@ PRIVATE_PATTERNS = [
     r"[\d,\.]+\s*(萬元|萬台幣|萬美元)",
 ]
 # 隱私：data/analysis 的 JSON 不准有這些鍵（會裝個人資料的名字）
-FORBIDDEN_JSON_KEYS = {"quantity", "shares", "holding", "holdings", "cost", "costbasis", "amount", "weight", "weights",
-                       "portfolio", "salary", "mortgage", "position", "positions", "exposure"}
+FORBIDDEN_JSON_KEYS = {"quantity", "shares", "holding", "holdings", "cost", "costbasis", "amount", "weight", "wei" + "ghts",
+                       "portfolio", "salary", "mortgage", "position", "positions", "exposure",
+                       "salaryproxy" + "assetid", "as" + "of"}
 
 
 def repo_files():
@@ -80,6 +84,11 @@ def judgement_hits(text):
     for e in EXEMPT_PHRASES:
         t = t.replace(e, "")
     return [w for w in JUDGEMENT_WORDS if w in t]
+
+
+def profile_key_hits(text):
+    """集中度設定檔的鍵名只准在 PROFILE_KEY_HOME 出現；其他地方出現就是漏了。"""
+    return [k for k in PROFILE_KEYS if k in text]
 
 
 def privacy_hits(text):
@@ -185,10 +194,14 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(privacy_hits("每月" + "房" + "貸"))
         self.assertEqual(privacy_hits("相關係數 0.62；年化波動 12.3%；權重的定義見文件"), [])
 
+    def test_profile_key_scanner_catches_a_planted_key(self):
+        self.assertEqual(profile_key_hits("x " + "wei" + "ghts" + " y"), ["wei" + "ghts"])
+        self.assertEqual(profile_key_hits("nothing here"), [])
+
     def test_forbidden_json_keys_are_caught(self):
         self.assertEqual(json_key_hits({"gspc": {"volatility": {"pct": 12.3}}}), [])
         self.assertTrue(json_key_hits({"assets": [{"id": "x", "shares": 1000}]}))
-        self.assertTrue(json_key_hits({"profile": {"weights": {"stock": 30}}}))
+        self.assertTrue(json_key_hits({"profile": {"wei" + "ghts": {"stock": 30}}}))
 
     def test_named_terms_via_hmac(self):
         salt = b"test-salt"
@@ -267,6 +280,52 @@ class TestPublicFilesAreClean(unittest.TestCase):
             self.assertEqual(set(e.keys()), {"len", "hmac"})
             self.assertRegex(e["hmac"], r"^[0-9a-f]{64}$")
         self.assertNotIn("基金", text)
+
+
+class TestProducedOutputsAreClean(unittest.TestCase):
+    """不只掃倉庫裡現成的檔案：把 analyze.py 離線跑一次到暫存目錄，產出的每一個 JSON 也掃（禁用鍵名、判斷用語、設定檔鍵名）。
+    倉庫裡的 data/analysis 是雲端產的，程式改壞了要等隔天才看得到；這一條在測試時就看得到。"""
+
+    def test_offline_run_outputs_have_no_forbidden_keys_or_words(self):
+        import test_analyze as T
+        w = T.World(patch=False)
+        try:
+            T.fill_world(w)
+            with T.redirect_stdout(io.StringIO()):
+                _status, code = T.A.run("review", offline=True, now=T.NOW, paths=w.paths)
+            self.assertEqual(code, 0)
+            bad = {}
+            files = glob.glob(os.path.join(w.data, "analysis", "**", "*.json"), recursive=True)
+            self.assertGreaterEqual(len(files), 4)                                            # status／risk／decompose／cost
+            for p in files:
+                text = io.open(p, encoding="utf-8").read()
+                hits = judgement_hits(text) + json_key_hits(json.loads(text)) + profile_key_hits(text)
+                if hits:
+                    bad[os.path.relpath(p, w.data).replace(os.sep, "/")] = hits
+            self.assertEqual(bad, {}, "離線產出的分析檔裡有不該有的東西：%s" % bad)
+        finally:
+            w.close()
+
+
+class TestProfileKeyNamesStayInOnePlace(unittest.TestCase):
+    """集中度設定檔的鍵名只准在 js/concentration.js 出現；data/analysis、data/history-long、頁面靜態內容、其他 JS 零命中。
+    （渲染出來的 DOM 由 test_analysis_debug_js.py 另外掃。）對照組：把鍵名當表單 id 或印進 cost.json → 紅。"""
+
+    def test_keys_absent_from_public_outputs_and_pages(self):
+        bad = {}
+        for rel in repo_files():
+            if rel == PROFILE_KEY_HOME:
+                continue
+            text = read_text(rel)
+            hits = profile_key_hits(text)
+            if hits:
+                bad[rel] = hits
+        self.assertEqual(bad, {}, "設定檔鍵名出現在不該出現的地方：%s" % bad)
+
+    def test_the_home_file_really_is_the_one_that_uses_them(self):
+        text = read_text(PROFILE_KEY_HOME)
+        for k in PROFILE_KEYS:
+            self.assertIn(k, text)
 
 
 class TestPrivateSpecStaysOut(unittest.TestCase):
