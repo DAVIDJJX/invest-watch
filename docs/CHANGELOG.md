@@ -804,13 +804,14 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 | `scripts/test_analysis_guards.py` | 掃描清單換成新檔名並加 `analysis.html`、`js/card-analysis.js`、三個新測試檔 |
 | `docs/ANALYSIS.md`、`README.md` | 5.5 補 all_etf.txt 17:00 那一句、5.9 儀表板整合、「暫時頁」字樣清掉；README 檔案結構與進度 |
 | 各 HTML | `bump_assets.py` 版本 20260925-3 |
+| `scripts/test_analysis_guards.py`（驗收後、tag 之後的 commit，同一個合併） | docs/ 底下每個 .md 的大小上限：ANALYSIS.md 120 KB、CHANGELOG.md 512 KB、scheduler-setup.md 32 KB、其他 128 KB（各取當時實際大小的 5 倍左右：正常改一次不會長 5 倍，接近上限要有意識地調高）；掃描器有自己的對照組。A1-3 那種 24 MB 事故以後會被自動擋下 |
 
 **怎麼驗的**
 
-- 單元測試 **400 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome）。既有的 freshness 19 條照舊綠。
+- 單元測試 **402 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome）。既有的 freshness 19 條照舊綠。
 - **首屏請求數**（本機 http 伺服器＋瀏覽器實測，不含 HTML 本身）：改前 6 個靜態檔＋16 個 JSON＝22；改後 **7＋16＝23**，多的只有 `js/card-analysis.js`；開頁沒有任何 `data/analysis/` 請求，`decompose.json` 與 `history-long` 完全不載。
 - **改前改後 DOM 比對**（`--dump-dom`，同一份資料、同一個假「現在」，把 `?v=` 與迷你走勢線每次隨機的漸層 id 正規化之後）：只有 4 行不同——導覽列多一行「分析」、`<script src="js/card-analysis.js">` 多一行、首頁頁尾那一行連結改字（1 刪 1 增）；儀表板 14 張卡的 DOM 與文字完全相同。diff 全文在驗收報告。
-- 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**14 組全部符合預期**（4 組基準綠、10 組紅）：
+- 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**16 組全部符合預期**（4 組基準綠、12 組紅）：
 
   | 改壞的方式 | 結果 |
   |---|---|
@@ -824,6 +825,8 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
   | M8 「最不相關」改成取最負的 | 1 條紅 |
   | M9 跳轉頁改成真的刪掉 | 1 條紅 |
   | M10 導覽列少了「分析」 | 1 條紅 |
+  | M11 docs/ 塞一個超過上限的檔（ANALYSIS.md 尾端塞 130 KB） | 1 條紅 |
+  | M12 大小上限的掃描器整個關掉 | 1 條紅 |
 
 - 截圖（1200 與 390 寬）：改前／改後儀表板、分析分頁、矩陣在 390 寬的橫向捲動、展開的卡片三張（00646 有長歷史、黃金存摺只有價差、人民幣存摺「沒有分析項目」），見驗收報告。
 - 對外請求 0；Python 與排程一字未改；隱私掃描與擋字串綠。
