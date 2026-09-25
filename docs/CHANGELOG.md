@@ -690,7 +690,7 @@ git revert --no-edit stop8-4..stop8-5
 | 標籤 | 停點 |
 |---|---|
 | `stopA0` | 新資料來源探測——只測不接（探測腳本＋離線測試＋手動 workflow；結果在本機 PLAN.md 7.12） |
-| `stopA1-1` | 資料層＋風險＋拆解：`assetClass`、國際金價、週線長歷史、risk／decompose、暫時檢視頁、公開版方法文件、守門測試 |
+| `stopA1-1` | 資料層＋風險＋拆解：`assetClass`、國際金價、週線長歷史、risk／decompose、檢視頁（A1-5 起併入分析分頁）、公開版方法文件、守門測試 |
 | `stopA1-2` | （待排）成本（追蹤差、折溢價、黃金價差、靜態費用表）＋ 個人集中度（只在瀏覽器） |
 | `stopA2` | （待排） |
 | `stopA3` | （待排） |
@@ -783,6 +783,60 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第二次合併（文件＋`.gitignore`）：`git revert -m 1 <第二次合併的 commit> && git push`（它是 3782bbe 之後的第一個合併，`git log --oneline --merges -3` 可查）。
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
+
+## 2026-09-26 · 分析系列 A1-5 儀表板整合（第一版）（標籤 `stopA1-5`；等驗收後合併）
+
+**先講一件出事的：** A1-3 的文件腳本把 `docs/ANALYSIS.md` 弄壞了——算第 6 節的切片時，終點找到第 2 節那句頁尾，切片變成空字串，`str.replace("", 新段落)` 把新段落塞進每一個字元之間，整份公開方法文件變成 24 MB（120,955 行），並隨 A1-3 的合併（6292af2）上線；A1-3 的測試沒抓到（守門只掃判斷用語，檔案「乾淨」）。2026-09-25 晚上發現，已直接在 main 修復（commit 2520c18：從 A1-2 合併後的版本重建、用「錨點必須剛好出現一次」補回 A1-3 的段落）。教訓：切片與 replace 的錨點一律要斷言剛好出現一次，空字串當 old 會塞遍全檔。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `js/card-analysis.js`（新） | 純函式：`facts(asset, risk, cost)` 從 risk.json／cost.json 挑出這一張卡的事實；`render(facts)` 畫成幾行小表。風險：年化波動 1／5 年、最大回檔（高點、低點、回到高點的日期）、目前距高點＋小橫條（刻度 0 到該標的歷史最大回檔，顏色中性）；相關：最同向（r 最高）、最不相關（絕對值最接近 0）、反向最強（r < −0.3 才顯示）；成本有才顯示：00646 追蹤差（主口徑 3 年年化）、折溢價（預估／確定各一筆，累積不到 20 個交易日標「累積中 n/20」，滿了才顯示中位數）、存摺價差、條塊各規格溢價。每一列都有資料標籤與資料日期；橫條的週線日期與卡片上方的日線報價日期並列印出。沒有週線長歷史的卡寫「不在相關矩陣」、只列成本；什麼都沒有的卡寫「這個標的目前沒有分析項目」 |
+| `js/app.js` | 卡片展開後的 body 最下面多一個預設收合的「分析」摺疊區（`<details class="ana">`）；第一次展開才抓 `data/analysis/risk.json`（需要成本項的四張卡再抓 `cost.json`），抓過存在 `state.analysis`；開頁時什麼都不抓。其餘一行不動 |
+| `index.html`、`history.html`、`records.html`、`settings.html` | 導覽列加「分析」；首頁多載 `js/card-analysis.js`（首屏靜態檔 6 → 7）；首頁頁尾那個舊連結改成分析分頁 |
+| `analysis.html`（新）、`js/analysis.js`（由 `analysis-debug.js` 改名） | 分析分頁：狀態列、風險總表可按欄排序（`sortableTable`／`sortTable`，資料不足與「—」永遠排最後）、相關矩陣色階（`corrColor`：負相關藍、接近 0 透明、正相關橙；格內數字才是訊息）＋圖例、成本、拆解、集中度、試算（同一套 JS 只換掛載點）；手機上風險總表與矩陣整張橫向捲動、矩陣第一欄固定 |
+| `analysis-debug.html` | 改成只做跳轉的小頁（`meta refresh`＋`location.replace`，留一句「此頁已搬到分析分頁」），不載任何程式 |
+| `css/style.css` | 只新增 `.ana*` 規則（摺疊區、列、標籤、橫條、手機單欄），不改既有選擇器 |
+| `scripts/fixtures/indicators_signal.json`、`scripts/test_indicators.html`、`scripts/test_indicators_js.py`（新） | 燈號釘住：fixture 是在動任何前端程式**之前**用 main 的 `js/indicators.js` 對合成序列產生的（30 組、三種燈號都有），之後每次重算逐值比對 |
+| `scripts/test_card_analysis.html`、`scripts/test_card_analysis_js.py`（新） | 7 題：展開有內容、每列有四種標籤之一與日期、橫條刻度與兩個日期、相關三條規則、四張沒長歷史的卡、20 天中位數規則、沒有判斷用語與加總數字 |
+| `scripts/test_analysis_page.html`、`scripts/test_analysis_page_js.py`（由 debug 測試改名） | 18 題（＋矩陣格數＝標的數平方與色階、風險表排序）；wiring：分析頁腳本順序與六段、五頁導覽列都有「分析」、跳轉頁會跳、首屏靜態檔釘 7 且 `boot()`／`loadHistories()` 不碰分析檔、README／ANALYSIS.md／首頁沒有「暫時頁」字樣 |
+| `scripts/test_analysis_guards.py` | 掃描清單換成新檔名並加 `analysis.html`、`js/card-analysis.js`、三個新測試檔 |
+| `docs/ANALYSIS.md`、`README.md` | 5.5 補 all_etf.txt 17:00 那一句、5.9 儀表板整合、「暫時頁」字樣清掉；README 檔案結構與進度 |
+| 各 HTML | `bump_assets.py` 版本 20260925-3 |
+
+**怎麼驗的**
+
+- 單元測試 **400 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome）。既有的 freshness 19 條照舊綠。
+- **首屏請求數**（本機 http 伺服器＋瀏覽器實測，不含 HTML 本身）：改前 6 個靜態檔＋16 個 JSON＝22；改後 **7＋16＝23**，多的只有 `js/card-analysis.js`；開頁沒有任何 `data/analysis/` 請求，`decompose.json` 與 `history-long` 完全不載。
+- **改前改後 DOM 比對**（`--dump-dom`，同一份資料、同一個假「現在」，把 `?v=` 與迷你走勢線每次隨機的漸層 id 正規化之後）：只有 4 行不同——導覽列多一行「分析」、`<script src="js/card-analysis.js">` 多一行、首頁頁尾那一行連結改字（1 刪 1 增）；儀表板 14 張卡的 DOM 與文字完全相同。diff 全文在驗收報告。
+- 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**14 組全部符合預期**（4 組基準綠、10 組紅）：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | M1 把資料標籤拿掉 | 1 條紅 |
+  | M2 把數字換成一個假的加總數字 | 2 條紅 |
+  | M3 相關矩陣少畫一列 | 2 條紅 |
+  | M4 懶載入改成首屏載入（boot 就抓 risk.json） | 1 條紅（第一版沒紅：檢查漏了大小寫，已改成不分大小寫） |
+  | M5 既有燈號邏輯被改（門檻 25 改 30） | 1 條紅（釘住的 fixture） |
+  | M6 距高點橫條刻度改錯（用 100% 當刻度） | 1 條紅 |
+  | M7 「反向最強」門檻改成 0 | 1 條紅 |
+  | M8 「最不相關」改成取最負的 | 1 條紅 |
+  | M9 跳轉頁改成真的刪掉 | 1 條紅 |
+  | M10 導覽列少了「分析」 | 1 條紅 |
+
+- 截圖（1200 與 390 寬）：改前／改後儀表板、分析分頁、矩陣在 390 寬的橫向捲動、展開的卡片三張（00646 有長歷史、黃金存摺只有價差、人民幣存摺「沒有分析項目」），見驗收報告。
+- 對外請求 0；Python 與排程一字未改；隱私掃描與擋字串綠。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit 2520c18..stopA1-5          # 合併前：在分支上把 A1-5 的全部 commit 反轉
+git revert -m 1 <合併 commit> && git push        # 合併後：退整個 A1-5
+```
+退回後分析分頁與卡片的摺疊區消失、`analysis-debug.html` 變回原本的表格頁；資料檔不受影響。
+
+---
 
 ## 2026-09-25 · 分析系列 A1-3 試算清單（標籤 `stopA1-3`；合併排在 A1-2 第二段驗收之後）
 
@@ -929,8 +983,8 @@ A1-2（成本、集中度）另外一段。
 | `scripts/publish.py` | `owned_paths()`：雲端多擁有 `data/history-long/<雲端標的>.json` 與 `ANALYSIS_PATHS`（status／risk／decompose），競態重試時才不會被丟掉 |
 | `.github/workflows/update-data.yml` | 報告之後多一步「分析（只在 review 那一輪）」：`if: mode == full && slot == review`、`continue-on-error: true`；結束碼 2 印 `::warning::`、其他非 0 印 `::error::` 但**下面照樣存檔**；執行摘要多印分析狀態一行。觸發方式與時刻都沒改 |
 | `js/app.js` | 「台灣白天海外市場尚未收盤」那句提示改看 `type === 'yahoo'`（不看 group，國際金價在貴金屬組） |
-| `index.html`／各 HTML | 頁尾加「分析檢視（暫時頁）」連結；`bump_assets.py` 版本 20260924-1 |
-| `analysis-debug.html`、`js/analysis-debug.js` | 新增。暫時檢視頁：最上面先顯示分析上次執行時間與最新錯誤，再用純表格列 risk／decompose，每一格帶資料日期與資料標籤；讀不到檔要紅字說讀不到 |
+| `index.html`／各 HTML | 頁尾加「分析檢視」連結（A1-5 起改為分析分頁）；`bump_assets.py` 版本 20260924-1 |
+| `analysis-debug.html`、`js/analysis-debug.js` | 新增。檢視頁（A1-5 起併入分析分頁）：最上面先顯示分析上次執行時間與最新錯誤，再用純表格列 risk／decompose，每一格帶資料日期與資料標籤；讀不到檔要紅字說讀不到 |
 | `docs/ANALYSIS.md` | 新增。公開版方法文件：兩套等級（方法 ★／資料文字標籤）的定義並列、誠實規則、五個面向的方法清單、assetClass 對應與自動套用、A1-1 已實作的定義、資料條款、A1-2 起的預告。只涵蓋公開標的，沒有任何個人資料 |
 | `scripts/test_analyze.py`（48）、`scripts/test_cadence.py`（10）、`scripts/test_analysis_guards.py`（12）、`scripts/test_analysis_debug.html`＋`scripts/test_analysis_debug_js.py`（11）、`scripts/test_publish.py`（+1）、`scripts/test_schedule_util.py`（cadence 清單加 gold_intl）、`scripts/test_probe_analysis.py`（第二道保險的測試改成改 `net_policy` 的清單） | 離線測試全部不連網 |
 | `scripts/sensitive_terms_hmac.json` | 新增。隱私掃描的具名字串清單——只存長度與**加鹽 HMAC-SHA256**，鹽放在倉庫外（預設 `../iw-private/scan-salt.txt`，環境變數 `IW_SCAN_SALT_FILE` 可指定）；沒有鹽（GitHub runner）就跳過這一段，通用樣式與禁止鍵名永遠掃 |
