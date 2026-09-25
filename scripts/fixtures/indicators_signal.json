@@ -1,0 +1,696 @@
+{
+ "cases": {
+  "crash_260_0": {
+   "change10d": -23.474178,
+   "count": 260,
+   "ma20": 160.66,
+   "ma60": 164.12,
+   "price": 130.4,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 174.4,
+    "low": 102.4,
+    "percentile": 38.888889
+   },
+   "rsi14": 2.004454,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 39 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 21.758058,
+   "vsMa20": -18.834806,
+   "vsMa60": -20.545942
+  },
+  "crash_260_1": {
+   "change10d": -19.647887,
+   "count": 260,
+   "ma20": 160.986,
+   "ma60": 164.228667,
+   "price": 136.92,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 174.4,
+    "low": 102.4,
+    "percentile": 47.944444
+   },
+   "rsi14": 7.876555,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 48 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 22.168902,
+   "vsMa20": -14.949126,
+   "vsMa60": -16.628441
+  },
+  "crash_260_2": {
+   "change10d": -28.830986,
+   "count": 260,
+   "ma20": 160.2036,
+   "ma60": 163.967867,
+   "price": 121.272,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 174.4,
+    "low": 102.4,
+    "percentile": 26.211111
+   },
+   "rsi14": 1.665803,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 26 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 33.352243,
+   "vsMa20": -24.301327,
+   "vsMa60": -26.039167
+  },
+  "crash_40_0": {
+   "change10d": -38.314176,
+   "count": 40,
+   "ma20": 94.66,
+   "ma60": null,
+   "price": 64.4,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 108.4,
+    "low": 64.4,
+    "percentile": 0
+   },
+   "rsi14": 2.004454,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 38.740683,
+   "vsMa20": -31.96704,
+   "vsMa60": null
+  },
+  "crash_40_1": {
+   "change10d": -35.229885,
+   "count": 40,
+   "ma20": 94.821,
+   "ma60": null,
+   "price": 67.62,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 108.4,
+    "low": 67.62,
+    "percentile": 0
+   },
+   "rsi14": 2.159309,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 36.502355,
+   "vsMa20": -28.686683,
+   "vsMa60": null
+  },
+  "crash_40_2": {
+   "change10d": -42.632184,
+   "count": 40,
+   "ma20": 94.4346,
+   "ma60": null,
+   "price": 59.892,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 108.4,
+    "low": 59.892,
+    "percentile": 0
+   },
+   "rsi14": 1.821567,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 48.601577,
+   "vsMa20": -36.57833,
+   "vsMa60": null
+  },
+  "down_260_0": {
+   "change10d": -3.927657,
+   "count": 260,
+   "ma20": 36.65055,
+   "ma60": 39.794483,
+   "price": 35.272,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 96.457,
+    "low": 35.272,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於52 週區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 0.017947,
+   "vsMa20": -3.761335,
+   "vsMa60": -11.364599
+  },
+  "down_260_1": {
+   "change10d": 0.87705,
+   "count": 260,
+   "ma20": 36.73875,
+   "ma60": 39.823883,
+   "price": 37.036,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 96.457,
+    "low": 35.413,
+    "percentile": 2.658738
+   },
+   "rsi14": 46.134167,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於52 週區間第 3 百分位 → 低於 25%"
+   },
+   "volatility30": 14.442322,
+   "vsMa20": 0.809091,
+   "vsMa60": -7.000531
+  },
+  "down_260_2": {
+   "change10d": -10.652612,
+   "count": 260,
+   "ma20": 36.5271,
+   "ma60": 39.753333,
+   "price": 32.803,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 96.457,
+    "low": 32.803,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於52 週區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 20.201469,
+   "vsMa20": -10.195444,
+   "vsMa60": -17.483649
+  },
+  "down_40_0": {
+   "change10d": -3.929131,
+   "count": 40,
+   "ma20": 88.5169,
+   "ma60": null,
+   "price": 85.187,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 99.6,
+    "low": 85.187,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 0.006727,
+   "vsMa20": -3.76188,
+   "vsMa60": null
+  },
+  "down_40_1": {
+   "change10d": 0.874017,
+   "count": 40,
+   "ma20": 88.72985,
+   "ma60": null,
+   "price": 89.446,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 99.6,
+    "low": 85.529,
+    "percentile": 27.837396
+   },
+   "rsi14": 46.125765,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於近 2 個月區間第 28 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 14.432633,
+   "vsMa20": 0.807113,
+   "vsMa60": null
+  },
+  "down_40_2": {
+   "change10d": -10.653991,
+   "count": 40,
+   "ma20": 88.21875,
+   "ma60": null,
+   "price": 79.224,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 99.6,
+    "low": 79.224,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 20.206112,
+   "vsMa20": -10.195962,
+   "vsMa60": null
+  },
+  "flat_260_0": {
+   "change10d": 0.1,
+   "count": 260,
+   "ma20": 100.095,
+   "ma60": 100.1,
+   "price": 100.1,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 100.2,
+    "low": 100,
+    "percentile": 50
+   },
+   "rsi14": 47.368421,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 50 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 2.279955,
+   "vsMa20": 0.004995,
+   "vsMa60": 0
+  },
+  "flat_260_1": {
+   "change10d": 5.105,
+   "count": 260,
+   "ma20": 100.34525,
+   "ma60": 100.183417,
+   "price": 105.105,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 105.105,
+    "low": 100,
+    "percentile": 100
+   },
+   "rsi14": 85.517741,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於52 週區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 14.976918,
+   "vsMa20": 4.743374,
+   "vsMa60": 4.912573
+  },
+  "flat_260_2": {
+   "change10d": -6.907,
+   "count": 260,
+   "ma20": 99.74465,
+   "ma60": 99.983217,
+   "price": 93.093,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 100.2,
+    "low": 93.093,
+    "percentile": 0
+   },
+   "rsi14": 9.18801,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於52 週區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 20.135945,
+   "vsMa20": -6.668678,
+   "vsMa60": -6.891373
+  },
+  "flat_40_0": {
+   "change10d": -0.199601,
+   "count": 40,
+   "ma20": 100.1,
+   "ma60": null,
+   "price": 100,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 100.2,
+    "low": 100,
+    "percentile": 0
+   },
+   "rsi14": 47.368421,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 2.279955,
+   "vsMa20": -0.0999,
+   "vsMa60": null
+  },
+  "flat_40_1": {
+   "change10d": 4.790419,
+   "count": 40,
+   "ma20": 100.35,
+   "ma60": null,
+   "price": 105,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 105,
+    "low": 100,
+    "percentile": 100
+   },
+   "rsi14": 87.692308,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於近 2 個月區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 14.037167,
+   "vsMa20": 4.633782,
+   "vsMa60": null
+  },
+  "flat_40_2": {
+   "change10d": -7.185629,
+   "count": 40,
+   "ma20": 99.75,
+   "ma60": null,
+   "price": 93,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 100.2,
+    "low": 93,
+    "percentile": 0
+   },
+   "rsi14": 10.11236,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 20.961938,
+   "vsMa20": -6.766917,
+   "vsMa60": null
+  },
+  "up_260_0": {
+   "change10d": 4.07244,
+   "count": 260,
+   "ma20": 271.90065,
+   "ma60": 251.56965,
+   "price": 282.335,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 282.335,
+    "low": 103.658,
+    "percentile": 100
+   },
+   "rsi14": 100,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於52 週區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 0.001926,
+   "vsMa20": 3.83756,
+   "vsMa60": 12.229357
+  },
+  "up_260_1": {
+   "change10d": 9.276154,
+   "count": 260,
+   "ma20": 272.6065,
+   "ma60": 251.804933,
+   "price": 296.452,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 296.452,
+    "low": 103.658,
+    "percentile": 100
+   },
+   "rsi14": 100,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於52 週區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 14.548672,
+   "vsMa20": 8.747224,
+   "vsMa60": 17.730815
+  },
+  "up_260_2": {
+   "change10d": -3.212465,
+   "count": 260,
+   "ma20": 270.9125,
+   "ma60": 251.240267,
+   "price": 262.572,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 281.211,
+    "low": 103.658,
+    "percentile": 89.502289
+   },
+   "rsi14": 43.279267,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於52 週區間第 90 百分位 → 高於 75%"
+   },
+   "volatility30": 20.369439,
+   "vsMa20": -3.078669,
+   "vsMa60": 4.510317
+  },
+  "up_40_0": {
+   "change10d": 4.072816,
+   "count": 40,
+   "ma20": 112.9779,
+   "ma60": null,
+   "price": 117.314,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 117.314,
+    "low": 100.4,
+    "percentile": 100
+   },
+   "rsi14": 100,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於近 2 個月區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 0.005833,
+   "vsMa20": 3.838007,
+   "vsMa60": null
+  },
+  "up_40_1": {
+   "change10d": 9.276723,
+   "count": 40,
+   "ma20": 113.2712,
+   "ma60": null,
+   "price": 123.18,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 123.18,
+    "low": 100.4,
+    "percentile": 100
+   },
+   "rsi14": 100,
+   "signal": {
+    "label": "相對高檔區",
+    "level": "high",
+    "rule": "位於近 2 個月區間第 100 百分位 → 高於 75%"
+   },
+   "volatility30": 14.551736,
+   "vsMa20": 8.747855,
+   "vsMa60": null
+  },
+  "up_40_2": {
+   "change10d": -3.212299,
+   "count": 40,
+   "ma20": 112.5673,
+   "ma60": null,
+   "price": 109.102,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 116.846,
+    "low": 100.4,
+    "percentile": 52.912562
+   },
+   "rsi14": 43.279865,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於近 2 個月區間第 53 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 20.367665,
+   "vsMa20": -3.078425,
+   "vsMa60": null
+  },
+  "wave_260_0": {
+   "change10d": -14.50112,
+   "count": 260,
+   "ma20": 106.74885,
+   "ma60": 100.091933,
+   "price": 93.163,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 115.746,
+    "low": 85.024,
+    "percentile": 26.492416
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 26 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 18.848021,
+   "vsMa20": -12.726929,
+   "vsMa60": -6.922569
+  },
+  "wave_260_1": {
+   "change10d": -10.226313,
+   "count": 260,
+   "ma20": 106.98175,
+   "ma60": 100.169567,
+   "price": 97.821,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 115.746,
+    "low": 85.024,
+    "percentile": 41.654189
+   },
+   "rsi14": 13.302442,
+   "signal": {
+    "label": "中性",
+    "level": "mid",
+    "rule": "位於52 週區間第 42 百分位 → 落在 25%～75% 之間"
+   },
+   "volatility30": 20.49012,
+   "vsMa20": -8.562909,
+   "vsMa60": -2.344591
+  },
+  "wave_260_2": {
+   "change10d": -20.485665,
+   "count": 260,
+   "ma20": 106.4228,
+   "ma60": 99.98325,
+   "price": 86.642,
+   "range": {
+    "days": 252,
+    "full": true,
+    "high": 115.746,
+    "low": 85.024,
+    "percentile": 5.266584
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於52 週區間第 5 百分位 → 低於 25%"
+   },
+   "volatility30": 30.69831,
+   "vsMa20": -18.586995,
+   "vsMa60": -13.343485
+  },
+  "wave_40_0": {
+   "change10d": -12.830672,
+   "count": 40,
+   "ma20": 98.75655,
+   "ma60": null,
+   "price": 86.465,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 115.68,
+    "low": 86.465,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 13.986964,
+   "vsMa20": -12.446314,
+   "vsMa60": null
+  },
+  "wave_40_1": {
+   "change10d": -8.472457,
+   "count": 40,
+   "ma20": 98.9727,
+   "ma60": null,
+   "price": 90.788,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 115.68,
+    "low": 87.566,
+    "percentile": 11.460482
+   },
+   "rsi14": 15.347242,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 11 百分位 → 低於 25%"
+   },
+   "volatility30": 19.194343,
+   "vsMa20": -8.269654,
+   "vsMa60": null
+  },
+  "wave_40_2": {
+   "change10d": -18.932978,
+   "count": 40,
+   "ma20": 98.4539,
+   "ma60": null,
+   "price": 80.412,
+   "range": {
+    "days": 40,
+    "full": false,
+    "high": 115.68,
+    "low": 80.412,
+    "percentile": 0
+   },
+   "rsi14": 0,
+   "signal": {
+    "label": "相對低檔區",
+    "level": "low",
+    "rule": "位於近 2 個月區間第 0 百分位 → 低於 25%"
+   },
+   "volatility30": 25.332448,
+   "vsMa20": -18.325226,
+   "vsMa60": null
+  }
+ },
+ "generatedFrom": "main",
+ "note": "A1-5 動前端之前用 main（6292af2 之後）的 js/indicators.js 產生；輸入是 scripts/test_indicators.html 裡的合成序列"
+}
