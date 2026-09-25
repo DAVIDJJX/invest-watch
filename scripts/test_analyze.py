@@ -16,6 +16,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -40,7 +41,7 @@ def monday(dstr):
 
 
 def weekly_body(n=60, start="2025-07-07", gran="1wk", step_days=7, closes=None, gmtoffset=-14400,
-                include_open_week=False, dup_tail=False, null_at=(), first_trade=None):
+                include_open_week=False, dup_tail=False, null_at=(), first_trade=None, currency="USD", name=None):
     """假的 Yahoo chart 回應：n 根週棒，從 start（星期一）起、每 step_days 一根，時間戳＝當地 09:30。"""
     t0 = A.epoch_of_day(start) + 9 * 3600 + 1800 - gmtoffset
     ts = [t0 + i * step_days * DAY for i in range(n)]
@@ -54,8 +55,8 @@ def weekly_body(n=60, start="2025-07-07", gran="1wk", step_days=7, closes=None, 
         ts.append(ts[-1] + 2 * DAY)
         cs.append(cs[-1])
     return {"chart": {"error": None, "result": [{
-        "meta": {"dataGranularity": gran, "gmtoffset": gmtoffset, "currency": "USD", "exchangeName": "SNP",
-                 "firstTradeDate": first_trade},
+        "meta": {"dataGranularity": gran, "gmtoffset": gmtoffset, "currency": currency, "exchangeName": "SNP",
+                 "firstTradeDate": first_trade, "longName": name},
         "timestamp": ts, "indicators": {"quote": [{"close": cs}]}}]}}
 
 
@@ -823,6 +824,218 @@ class TestPathsDict(unittest.TestCase):
             self.assertEqual(risk["generatedAt"], A.iso(NOW))
         finally:
             w.close()
+
+
+class FakeFetcher(object):
+    """給 adhoc 用的假連線：回固定的 Yahoo 回應或丟 FetchError；只數請求。"""
+
+    def __init__(self, body=None, error=None):
+        self.body, self.error, self.count, self.urls = body, error, 0, []
+
+    def get(self, url, **kw):
+        self.count += 1
+        self.urls.append(url)
+        if self.error:
+            raise fd.FetchError(self.error)
+        return self.body
+
+
+def adhoc_body(n=300, currency="GBp", base=8000.0, name="Fake Tracker"):
+    start = monday((NOW - timedelta(weeks=n + 1)).strftime("%Y-%m-%d"))
+    return weekly_body(n=n, start=start, closes=[base + i for i in range(n)], currency=currency, name=name)
+
+
+class TestAdhoc(unittest.TestCase):
+    """A1-3 試算：代號與結果只寫到 --out（倉庫外）；便士 ÷100；查無就明確失敗；index.json；status 也在 out。
+    fixture 代號一律 FAKE 開頭。"""
+
+    def setUp(self):
+        self.w = World(patch=False)
+        fill_world(self.w)
+        self.out = tempfile.mkdtemp(prefix="iw-adhoc-out-")
+
+    def tearDown(self):
+        A.WRITE_ROOTS = None
+        self.w.close()
+        shutil.rmtree(self.out, ignore_errors=True)
+
+    def run_adhoc(self, symbol="FAKE.L", currency="GBp", n=300, error=None, cls="index_etf", er="0.07", out=None, now=NOW):
+        f = FakeFetcher(body=adhoc_body(n=n, currency=currency), error=error)
+        with redirect_stdout(io.StringIO()):
+            status, code = A.adhoc_run(symbol, cls, er, out or self.out, now=now, fetcher=f, paths=self.w.paths)
+        return status, code, f
+
+    def result(self, symbol="FAKE.L", day=None):
+        p = os.path.join(self.out, symbol, (day or NOW.strftime("%Y-%m-%d")) + ".json")
+        with io.open(p, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_pence_divided_files_written_index_updated(self):
+        """對照組：便士 ÷100 拿掉 → 這一條會紅。"""
+        status, code, f = self.run_adhoc()
+        self.assertEqual(code, 0, status)
+        self.assertEqual(f.count, 1)
+        self.assertIn("FAKE.L", f.urls[0])
+        self.assertIn("period1=345600", f.urls[0])
+        day = NOW.strftime("%Y-%m-%d")
+        r = self.result()
+        self.assertEqual(r["currency"], "GBP")
+        self.assertIn("便士", r["priceUnitNote"])
+        self.assertAlmostEqual(r["risk"]["currentDrawdown"]["lastValue"], 82.99, places=4)          # 8299 便士 → 82.99 英鎊
+        self.assertEqual(r["expenseRatio"], {"pct": 0.07, "label": "使用者輸入"})
+        self.assertEqual(r["runDate"], day)
+        self.assertEqual(r["dataThrough"], r["risk"]["currentDrawdown"]["dataThrough"])
+        self.assertIsNotNone(r["risk"]["volatility"]["1y"]["pct"])
+        self.assertLessEqual(len(r["correlation"]["top"]), 3)
+        rs = [x["r"] for x in r["correlation"]["all"]]
+        self.assertEqual(rs, sorted(rs, reverse=True))
+        self.assertIn("資料不足", r["valuation"]["reason"])
+        self.assertIn("資料不足", r["premium"]["reason"])
+        self.assertIn("稅務", r["notes"][0])
+        self.assertEqual(r["name"], "Fake Tracker")
+        with io.open(os.path.join(self.out, "index.json"), encoding="utf-8") as fh:
+            idx = json.load(fh)
+        self.assertEqual(idx["symbols"]["FAKE.L"]["latest"], "FAKE.L/%s.json" % day)
+        self.assertEqual(idx["symbols"]["FAKE.L"]["currency"], "GBP")
+        self.assertEqual(idx["symbols"]["FAKE.L"]["dataThrough"], r["dataThrough"])
+        with io.open(os.path.join(self.out, "status.json"), encoding="utf-8") as fh:
+            st = json.load(fh)
+        self.assertTrue(st["ok"])
+        self.assertEqual(st["requests"], 1)
+        self.assertEqual(st["mode"], "adhoc")
+
+    def test_usd_and_pounds_are_not_divided(self):
+        """對照組：把 GBP（英鎊）也當成便士 → 這一條會紅。"""
+        for cur in ("USD", "GBP"):
+            status, code, _ = self.run_adhoc(symbol="FAKE2", currency=cur)
+            self.assertEqual(code, 0, status)
+            r = self.result("FAKE2")
+            self.assertEqual(r["currency"], cur)
+            self.assertIsNone(r["priceUnitNote"])
+            self.assertAlmostEqual(r["risk"]["currentDrawdown"]["lastValue"], 8299.0, places=4)
+
+    def test_out_inside_repo_is_refused_before_any_network(self):
+        """對照組：拿掉「--out 不可以在倉庫裡」的檢查 → 這一條會紅。"""
+        inside = os.path.join(A.ROOT, "data", "adhoc-should-never-exist")
+        status, code, f = self.run_adhoc(out=inside)
+        self.assertEqual(code, 2)
+        self.assertEqual(f.count, 0)                                                         # 連網之前就擋
+        self.assertFalse(os.path.exists(inside))
+        self.assertTrue(any("--out" in e for e in status["errors"]), status["errors"])
+        self.assertIsNone(A.WRITE_ROOTS)
+
+    def test_write_guard_refuses_anything_outside_out(self):
+        """對照組：讓寫檔函式略過允許清單 → 這一條會紅。"""
+        A.WRITE_ROOTS = [self.out]
+        try:
+            with self.assertRaises(A.WriteRefused):
+                A.write_json(os.path.join(A.ANALYSIS_DIR, "adhoc-guard-test.json"), {"x": 1})
+            with self.assertRaises(A.WriteRefused):
+                A.save_long("adhocguard", {"id": "adhocguard"}, [{"d": "2026-09-14", "c": 1.0}], paths=A.default_paths())
+            with self.assertRaises(A.WriteRefused):
+                A.save_nav("adhocguard", "X", [], paths=A.default_paths())
+            A.write_json(os.path.join(self.out, "ok.json"), {"x": 1})                        # out 底下可以
+            self.assertFalse(os.path.exists(os.path.join(A.ANALYSIS_DIR, "adhoc-guard-test.json")))
+            self.assertFalse(os.path.exists(os.path.join(A.LONG_DIR, "adhocguard.json")))
+        finally:
+            A.WRITE_ROOTS = None
+
+    def test_unknown_symbol_fails_loudly_without_any_result_file(self):
+        """對照組：查無代號也產一個空檔 → 這一條會紅。"""
+        status, code, f = self.run_adhoc(symbol="FAKE404", error="HTTP 404")
+        self.assertEqual(code, 2)
+        self.assertEqual(f.count, 1)
+        self.assertTrue(any("查無" in e for e in status["errors"]), status["errors"])
+        self.assertEqual(sorted(os.listdir(self.out)), ["status.json"])                       # 只有狀態，沒有結果、沒有 index
+
+    def test_young_listing_marks_correlation_and_5y_vol_insufficient(self):
+        """對照組：上市未滿 3 年也硬算相關 → 這一條會紅。"""
+        status, code, _ = self.run_adhoc(symbol="FAKE3", n=60, currency="USD")
+        self.assertEqual(code, 0, status)
+        r = self.result("FAKE3")
+        self.assertIn("未滿 3 年", r["correlation"]["reason"])
+        self.assertEqual(r["correlation"]["top"], [])
+        self.assertIsNone(r["risk"]["volatility"]["5y"]["pct"])
+        self.assertIn("資料不足", r["risk"]["volatility"]["5y"]["reason"])
+        self.assertIsNotNone(r["risk"]["volatility"]["1y"]["pct"])
+
+    def test_same_day_rerun_overwrites_the_same_file(self):
+        """對照組：檔名多帶時間、同一天產兩份 → 這一條會紅。"""
+        self.run_adhoc()
+        self.run_adhoc()
+        self.assertEqual(os.listdir(os.path.join(self.out, "FAKE.L")), [NOW.strftime("%Y-%m-%d") + ".json"])
+        with io.open(os.path.join(self.out, "index.json"), encoding="utf-8") as fh:
+            self.assertEqual(sorted(json.load(fh)["symbols"]), ["FAKE.L"])
+
+    def test_status_goes_to_out_and_repo_tree_is_untouched(self):
+        """對照組：adhoc 的 status.json 寫回 data/analysis → 這一條會紅（第二層保險會擋、結果檔也不會產）。"""
+        repo_status = os.path.join(A.ANALYSIS_DIR, "status.json")
+
+        def snap():
+            if not os.path.exists(repo_status):
+                return None
+            with io.open(repo_status, encoding="utf-8") as fh:
+                return (fh.read(), os.path.getmtime(repo_status))
+
+        def porcelain():
+            try:
+                return subprocess.run(["git", "status", "--porcelain"], cwd=A.ROOT, stdout=subprocess.PIPE,
+                                      stderr=subprocess.DEVNULL, timeout=60).stdout
+            except Exception:                             # noqa: B902
+                return None
+        before, git_before = snap(), porcelain()
+        status, code, _ = self.run_adhoc()
+        self.assertEqual(code, 0, status)
+        self.run_adhoc(symbol="FAKE404", error="HTTP 404")
+        self.assertTrue(os.path.exists(os.path.join(self.out, "status.json")))
+        self.assertEqual(snap(), before)                                                     # 倉庫的 status.json 一個位元組沒動
+        if git_before is not None:
+            self.assertEqual(porcelain(), git_before)                                        # 跑前跑後 git status 一樣
+
+    def test_same_symbol_as_a_public_asset_is_skipped_in_correlation(self):
+        assets = self.w.read("assets.json")
+        assets["assets"].append({"id": "fakepub", "name": "假的公開標的", "type": "yahoo", "symbol": "FAKE.PUB", "owner": "cloud",
+                                 "assetClass": "index_etf", "currency": "USD", "enabled": True})
+        self.w.write("assets.json", assets)
+        self.w.write("history-long/fakepub.json", {"id": "fakepub", "points": pts(start="2019-01-07", n=400)})
+        status, code, _ = self.run_adhoc(symbol="FAKE.PUB", currency="USD")
+        self.assertEqual(code, 0, status)
+        r = self.result("FAKE.PUB")
+        self.assertEqual(r["correlation"]["skippedSameSymbol"], ["fakepub"])
+        self.assertFalse(any(x["id"] == "fakepub" for x in r["correlation"]["all"]))
+
+    def test_bad_class_or_expense_ratio_or_symbol_is_refused_before_network(self):
+        for kw in (dict(cls="gold_tw"), dict(cls="other"), dict(er="abc"), dict(er="55"), dict(symbol="../x"), dict(symbol=""), dict(symbol="..")):
+            status, code, f = self.run_adhoc(**kw)
+            self.assertEqual(code, 2, kw)
+            self.assertEqual(f.count, 0, kw)
+            self.assertTrue(status["errors"], kw)
+
+    def test_cli_interface_is_pinned_and_matches_the_private_workflow_example(self):
+        """私人倉庫的 workflow 依賴這些參數名；改了要同時改範本並在 CHANGELOG 標「私人 workflow 需更新」。"""
+        opts = set()
+        for a in A.build_parser()._actions:
+            opts.update(a.option_strings)
+        for flag in ("--adhoc", "--asset-class", "--expense-ratio", "--out", "--now", "--slot"):
+            self.assertIn(flag, opts)
+        self.assertEqual(A.ADHOC_CLASSES, ("stock", "index_etf", "bond_etf", "commodity", "crypto", "fx", "index"))
+        with io.open(os.path.join(ROOT, "docs", "adhoc-workflow.example.yml"), encoding="utf-8") as fh:
+            text = fh.read()
+        for flag in ("--adhoc", "--asset-class", "--expense-ratio", "--out"):
+            self.assertIn(flag, text)
+        self.assertIn("persist-credentials: false", text)
+        self.assertIn("contents: write", text)
+        self.assertIn("repository: davidjjx/invest-watch", text)
+        self.assertIn("SYMBOL: ${{ inputs.symbol }}", text)                                  # 代號經 env 傳、不直接拼進指令
+        for cls in A.ADHOC_CLASSES:
+            self.assertIn("- " + cls + "\n", text)                                            # 下拉七類跟程式一致
+        self.assertNotIn("gold_tw", text)
+
+    def test_normal_mode_still_requires_slot_and_adhoc_requires_class(self):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(A.main(["--offline"]), 2)
+            self.assertEqual(A.main(["--adhoc", "FAKE.L", "--out", self.out]), 2)             # 沒給類別，連網之前就結束
+        self.assertFalse(os.path.exists(os.path.join(self.out, "status.json")))
 
 
 class TestMain(unittest.TestCase):
