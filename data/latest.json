@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-09-25T15:11:07+08:00",
- "updatedAtText": "2026-09-25 15:11",
+ "updatedAt": "2026-09-25T15:17:15+08:00",
+ "updatedAtText": "2026-09-25 15:17",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -11,7 +11,7 @@
   "error": 0,
   "errorIds": []
  },
- "requests": 10,
+ "requests": 8,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -72,7 +72,7 @@
     4433.0,
     4382.0
    ],
-   "fetchedAt": "2026-09-25T15:05:23+08:00",
+   "fetchedAt": "2026-09-25T15:17:12+08:00",
    "error": null,
    "buy": 4330.0,
    "sell": 4382.0,
@@ -80,8 +80,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-25T15:05:23+08:00",
-   "lastSuccessAt": "2026-09-25T15:05:23+08:00",
+   "lastAttemptAt": "2026-09-25T15:17:12+08:00",
+   "lastSuccessAt": "2026-09-25T15:17:12+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-25T15:05:00+08:00",
    "nextDueAt": "2026-09-25T15:30:00+08:00"
@@ -145,7 +145,7 @@
     938.5,
     930.35
    ],
-   "fetchedAt": "2026-09-25T15:05:25+08:00",
+   "fetchedAt": "2026-09-25T15:17:15+08:00",
    "error": null,
    "buy": 920.5,
    "sell": 930.35,
@@ -153,8 +153,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-25T15:05:25+08:00",
-   "lastSuccessAt": "2026-09-25T15:05:25+08:00",
+   "lastAttemptAt": "2026-09-25T15:17:15+08:00",
+   "lastSuccessAt": "2026-09-25T15:17:15+08:00",
    "freshness": "fresh",
    "lastDueAt": "2026-09-25T15:05:00+08:00",
    "nextDueAt": "2026-09-25T15:30:00+08:00"
@@ -241,6 +241,8 @@
    "source": "local",
    "lastAttemptAt": "2026-09-25T15:05:28+08:00",
    "lastSuccessAt": "2026-09-25T15:05:28+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-09-25T15:05:00+08:00",
    "nextDueAt": "2026-09-26T10:05:00+08:00"
@@ -1040,18 +1042,18 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 6,
    "nextDueAt": "2026-09-25T15:30:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-09-25T15:05:28+08:00",
+   "runAt": "2026-09-25T15:17:15+08:00",
    "slot": "light",
-   "mode": "full",
+   "mode": "light",
    "ok": 3,
    "error": 0,
-   "requests": 5,
-   "ageMinutes": 5,
+   "requests": 3,
+   "ageMinutes": 0,
    "nextDueAt": "2026-09-25T15:30:00+08:00",
    "status": "ok"
   }
