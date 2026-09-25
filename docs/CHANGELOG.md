@@ -835,7 +835,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 
 ```bash
 git revert --no-edit 2520c18..stopA1-5          # 合併前：在分支上把 A1-5 的全部 commit 反轉
-git revert -m 1 <合併 commit> && git push        # 合併後：退整個 A1-5
+git revert -m 1 bc028ac && git push        # 合併後：退整個 A1-5（2026-09-26 合併）
 ```
 退回後分析分頁與卡片的摺疊區消失、`analysis-debug.html` 變回原本的表格頁；資料檔不受影響。
 
