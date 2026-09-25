@@ -199,9 +199,14 @@ class FakeNet(object):
 
     def default(self, req):
         u = req.url
+        if "ETFortune/etfInfo/00646" in u:
+            return resp(200, "<html><head><title>ETF e添富</title></head><body>00646 元大S&P500 ETFortune</body></html>",
+                        {"Content-Type": "text/html"})
         if "finance.yahoo.com" in u:
             if "00679B.TW?" in u:
                 return resp(404, YAHOO_404)
+            if "XAUUSD%3DX" in u or "XAU%3DX" in u:
+                return resp(200, yahoo_body("1d", 1, 260, end=int(NOW.timestamp()) - DAY, last_value=4300.0))
             if "range=max" in u:
                 return resp(200, yahoo_body("1mo", 30, 300))
             if "%5EVIX" in u:
@@ -497,7 +502,7 @@ class TestManners(FrozenNow):
             if it["req"] is None:
                 continue
             req = it["req"](ctx)
-            self.assertEqual(req.retry429, it["group"] == "yahoo", it["key"])
+            self.assertEqual(req.retry429, "finance.yahoo.com" in req.url, it["key"])     # 只有 Yahoo 的請求才准重試 429
 
     def test_big_file_is_cut_off_as_soon_as_the_wanted_block_is_read(self):
         xml = (dgbas_xml() + "<Obs><Item>一.食物類(指數基期：民國110年=100)</Item></Obs>" * 40000).encode("utf-8")
@@ -903,6 +908,70 @@ class TestNavCriteria(FrozenNow):
 # --------------------------------------------------------------------------
 # 4. 對照列、結果表、永遠 exit 0、不寫倉庫
 # --------------------------------------------------------------------------
+
+TWSE_BLOCK = ('<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>'
+              '因為安全性考量，您所執行的頁面無法呈現。<BR>FOR SECURITY REASONS, THIS PAGE CANNOT BE DISPLAYED</body></html>')
+
+
+class TestRetestBatch(FrozenNow):
+    """A1-2 的重測批次：六列、最多 7 個請求；cookie 先拿再 POST；現貨代號查無才試第二個。"""
+
+    def test_group_has_six_items_and_sends_at_most_seven_requests(self):
+        payload, net, _ = self.run_all(only={"retest"})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(sorted(states), ["N-04", "N-05a", "N-05b", "Y-14", "Y-15a", "Y-15b"])
+        self.assertEqual(states["N-04"], P.OK)
+        self.assertEqual(states["N-05a"], P.OK)
+        self.assertEqual(states["N-05b"], P.OK)
+        self.assertEqual(states["Y-14"], P.OK)
+        self.assertEqual(states["Y-15a"], P.OK)
+        self.assertEqual(states["Y-15b"], P.SKIPPED)
+        self.assertEqual(len(net.requests), 5)
+        self.assertLessEqual(len([i for i in P.build_items(P.load_yahoo_symbols(), NOW) if i["group"] == "retest"]), 7)
+
+    def test_n04_uses_the_production_headers(self):
+        _, net, _ = self.run_all(only={"retest"})
+        req = [r for r in net.requests if "all_etf.txt" in r.url][0]
+        from fetch_data import BROWSER_HEADERS
+        self.assertEqual(req.headers["User-Agent"], BROWSER_HEADERS["User-Agent"])
+        self.assertEqual(req.headers["Referer"], "https://mis.twse.com.tw/stock/index.jsp")
+        self.assertIn("application/json", req.headers["Accept"])
+
+    def test_page_then_post_in_order_and_post_skipped_when_page_blocked(self):
+        _, net, _ = self.run_all(only={"retest"})
+        urls = [r.url for r in net.requests]
+        self.assertLess(urls.index("https://www.twse.com.tw/zh/ETFortune/etfInfo/00646"),
+                        urls.index("https://www.twse.com.tw/zh/ETFortune/ajaxEtfInfoChart"))
+        payload, net, _ = self.run_all(only={"retest"}, overrides={
+            "ETFortune/etfInfo/00646": resp(307, TWSE_BLOCK, {"Content-Type": "text/html; charset=UTF-8"})})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(states["N-05a"], P.FAILED)
+        self.assertEqual(states["N-05b"], P.SKIPPED)
+        self.assertFalse([r for r in net.requests if "ajaxEtfInfoChart" in r.url])
+        self.assertIn("安全性考量", self.state_of(payload, "N-05a")["note"])
+
+    def test_block_page_is_failed_whatever_the_status_code(self):
+        for code in (200, 307, 502):
+            with self.assertRaises(P.ProbeFail):
+                P.check_all_etf(resp(code, TWSE_BLOCK, {"Content-Type": "text/html"}), {})
+            with self.assertRaises(P.ProbeFail):
+                P.check_twse_etf_chart(resp(code, TWSE_BLOCK, {"Content-Type": "text/html"}), {})
+            with self.assertRaises(P.ProbeFail):
+                P.check_twse_page(resp(code, TWSE_BLOCK, {"Content-Type": "text/html"}), {})
+
+    def test_second_spot_symbol_only_when_the_first_is_not_found(self):
+        payload, net, _ = self.run_all(only={"retest"}, overrides={"XAUUSD%3DX": resp(404, YAHOO_404)})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(states["Y-15a"], P.FAILED)
+        self.assertEqual(states["Y-15b"], P.OK)
+        self.assertEqual(len(net.requests), 6)
+
+    def test_sp500tr_weekly_starts_on_a_monday(self):
+        _, net, _ = self.run_all(only={"retest"})
+        url = [r.url for r in net.requests if "SP500TR" in r.url][0]
+        self.assertIn("period1=345600&period2=", url)
+        self.assertIn("interval=1wk", url)
+
 
 class TestControlsAndOutput(FrozenNow):
     def test_full_run_states(self):

@@ -33,7 +33,9 @@ probe_analysis_sources.py — 分析系列 停點 A0：新資料來源探測（�
     python scripts/probe_analysis_sources.py --only finmind,fred       # 只測某幾組（修 bug 後重測用）
     python scripts/probe_analysis_sources.py --compare a.json b.json   # 兩個環境的結果並排（不連網）
 
-組別：yahoo、finmind、fred、cape、cpi、nav。
+組別：yahoo、finmind、fred、cape、cpi、nav、retest。
+retest 是 A1-2 的重測批次（證交所兩個淨值端點改用正式抓法、S&P 500 總報酬指數、黃金現貨代號），
+在分支上跑：gh workflow run probe-analysis.yml --ref <分支> -f only=retest（workflow 檔本身不用改）。
 正式探測前請先跑離線測試；離線測試紅就不要探測：
     python -m unittest discover -s scripts -p "test_probe_analysis.py"
 """
@@ -66,7 +68,7 @@ WHITESPACE = " " + chr(13) + chr(10) + chr(9)
 
 OK, DEGRADED, FAILED, SKIPPED = "可用", "降級", "失敗", "未測"
 STATES = (OK, DEGRADED, FAILED, SKIPPED)
-GROUPS = ("yahoo", "finmind", "fred", "cape", "cpi", "nav")
+GROUPS = ("yahoo", "finmind", "fred", "cape", "cpi", "nav", "retest")
 
 GAP_SECONDS = 3.0                 # 所有請求之間固定等這麼久（不分主機，最簡單也一定符合「同站 2 秒以上」）
 GAP_SECONDS_TWSE = 3.5            # PLAN 第 7 章：證交所 3 秒以上
@@ -598,6 +600,12 @@ def make_check_fred(series, min_rows, value_range, max_age_days, ctx_key=None):
 MONTHS = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
           "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
 CHALLENGE_MARKS = ("captcha", "cf-challenge", "Just a moment", "Attention Required", "Access denied")
+# 證交所擋資料中心 IP 時回的頁面（A0 在 runner 上看到：HTTP 502／307，內文是這句）
+TWSE_BLOCK_MARKS = ("因為安全性考量", "FOR SECURITY REASONS")
+
+
+def twse_blocked(text):
+    return any(m in text for m in TWSE_BLOCK_MARKS)
 
 
 def check_multpl_current(resp, ctx):
@@ -827,7 +835,23 @@ def to_float(x):
         return None
 
 
+def check_twse_page(resp, ctx):
+    """e添富的 00646 頁面：只是為了讓同一個 session 拿到 cookie。200 而且不是「安全性考量」頁就算可用。"""
+    if twse_blocked(resp.text()[:3000]):
+        raise ProbeFail("證交所回「因為安全性考量，您所執行的頁面無法呈現」（HTTP %s）" % resp.status)
+    need_200(resp)
+    html = resp.text()
+    base = {"earliest": None, "latest": None, "points": None, "fields": [],
+            "metrics": {"bytes": len(resp.body), "looksLikeEtfortune": ("ETFortune" in html) or ("etfInfo" in html)}}
+    if "00646" not in html and "ETF" not in html:
+        raise ProbeDegraded("是 200，但內容看起來不是 e添富的頁面", base)
+    base["note"] = "頁面拿到了；同一個 session 的 cookie 已存起來，N-05b 接著用"
+    return base
+
+
 def check_all_etf(resp, ctx):
+    if twse_blocked(resp.text()[:3000]):
+        raise ProbeFail("證交所回「因為安全性考量，您所執行的頁面無法呈現」（HTTP %s）" % resp.status)
     need_200(resp)
     j = parse_json(resp)                              # 副檔名是 .txt，內容是 JSON
     found, total = {}, 0
@@ -868,6 +892,8 @@ def check_all_etf(resp, ctx):
 
 
 def check_twse_etf_chart(resp, ctx):
+    if twse_blocked(resp.text()[:3000]):
+        raise ProbeFail("證交所回「因為安全性考量，您所執行的頁面無法呈現」（HTTP %s）" % resp.status)
     need_200(resp)
     j = parse_json(resp)
     nav, prem = j.get("netPrice") or [], j.get("atmps") or []
@@ -1053,6 +1079,33 @@ def build_items(symbols, now=None):
         lambda ctx: Req("https://info.tpex.org.tw/api/etfProduct?lang=zh-tw&query=00679B", method="POST",
                         headers=dict(jsonish, Referer="https://info.tpex.org.tw/ETF/zh/detail.html?query=00679B")),
         check_tpex_etf)
+
+    # ---- A1-2 重測批次（retest）：一次 gh 觸發只跑這一組，6 列、最多 7 個請求 ----
+    # 「正式抓法」＝標頭一字不差照 fetch_data.fetch_twse_realtime（BROWSER_HEADERS＋Accept json＋Referer），
+    # 連線層仍用這支腳本自己的（白名單、間隔、計數）；cookie 存在同一個 session，N-05a 拿、N-05b 用。
+    prod_json = dict(jsonish, Referer="https://mis.twse.com.tw/stock/index.jsp")
+    add("N-04", "retest", "A1-2", "證交所 all_etf.txt，正式抓法（fetch_data 的標頭＋Referer mis/stock/index.jsp）",
+        lambda ctx: Req("https://mis.twse.com.tw/stock/data/all_etf.txt", headers=prod_json), check_all_etf)
+    add("N-05a", "retest", "A1-2", "證交所 e添富 00646 頁面（同一個 session 先拿 cookie）",
+        lambda ctx: Req("https://www.twse.com.tw/zh/ETFortune/etfInfo/00646", headers=browser), check_twse_page)
+    add("N-05b", "retest", "A1-2", "證交所 e添富 00646 淨值（拿到 cookie 之後同一個 session POST）",
+        lambda ctx: Req("https://www.twse.com.tw/zh/ETFortune/ajaxEtfInfoChart", method="POST",
+                        headers=dict(jsonish, **{"X-Requested-With": "XMLHttpRequest",
+                                                 "Referer": "https://www.twse.com.tw/zh/ETFortune/etfInfo/00646"}),
+                        data={"id": "00646", "startDate": three_years_ago, "endDate": now.strftime("%Y/%m/%d"),
+                              "type": "fundPric"}), check_twse_etf_chart,
+        when=lambda ctx: (None if ctx.get("state:N-05a") == OK
+                          else "N-05a 沒拿到頁面（%s），不發 POST" % ctx.get("state:N-05a", "未跑")))
+    monday_weekly = "period1=345600&period2=%d&interval=1wk" % epoch_now      # 週一對齊（A1-1 實跑學到的）
+    add("Y-14", "retest", "A1-2", "Yahoo ^SP500TR S&P 500 總報酬指數 週線（period1=1970-01-05 星期一）",
+        yreq("^SP500TR", monday_weekly), wk)
+    spot_daily = lambda r, ctx: check_yahoo(r, "1d", 0.5, 4, 200, value_range=(500, 20000), max_age=6)   # noqa: E731
+    add("Y-15a", "retest", "A1-2", "Yahoo 黃金現貨 XAUUSD=X 日線 range=1y",
+        yreq("XAUUSD=X", "range=1y&interval=1d"), spot_daily)
+    add("Y-15b", "retest", "A1-2", "Yahoo 黃金現貨候選 XAU=X 日線 range=1y（XAUUSD=X 查無才測）",
+        yreq("XAU=X", "range=1y&interval=1d"), spot_daily,
+        when=lambda ctx: (None if ctx.get("state:Y-15a") == FAILED
+                          else "XAUUSD=X 已經%s，不必再試" % ctx.get("state:Y-15a", "未跑")))
     return items
 
 
