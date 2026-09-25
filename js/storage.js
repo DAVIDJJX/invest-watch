@@ -173,34 +173,40 @@
     return new Error('GitHub 回應錯誤：' + msg);
   }
 
-  function ghLoad() {
-    return fetch(apiUrl(FILE) + '?t=' + Date.now(), { headers: ghHeaders() })
+  /*
+   * 讀私人倉庫裡的任何一個 JSON 檔（路徑可含子目錄，例如 adhoc/VT/2026-09-30.json）。
+   * 回 { data, sha, path }；檔案不存在回 { data: null }——那不是錯誤，是「還沒有」。
+   * 分析系列 A1-2 起用它讀 analysis-profile.json；portfolio.json 的 ghLoad 也改走這裡。
+   */
+  function ghLoadPath(path) {
+    return fetch(apiUrl(path) + '?t=' + Date.now(), { headers: ghHeaders() })
       .then(function (res) {
-        if (res.status === 404) return { data: null, sha: null };
+        if (res.status === 404) return { data: null, sha: null, path: path };
         return res.json().then(function (body) {
           if (!res.ok) throw ghError(res, body);
           var text = b64decode(body.content || '');
           var data;
           try { data = JSON.parse(text); }
-          catch (e) { throw new Error('私人倉庫裡的 portfolio.json 內容不是合法 JSON'); }
-          return { data: data, sha: body.sha };
+          catch (e) { throw new Error('私人倉庫裡的 ' + path + ' 內容不是合法 JSON'); }
+          return { data: data, sha: body.sha, path: path };
         });
       });
   }
+
+  function ghLoad() { return ghLoadPath(FILE); }
 
   /*
    * 寫回私人倉庫。寫入前一定先讀最新的 sha——
    * 手機和電腦如果同時在用，這一步才不會互相蓋掉。
    */
-  function ghSave(data) {
-    return ghLoad().then(function (cur) {
+  function ghSavePath(path, data, message) {
+    return ghLoadPath(path).then(function (cur) {
       var body = {
-        message: 'portfolio 更新（' +
-                 new Date().toISOString().slice(0, 16).replace('T', ' ') + '）',
+        message: message,
         content: b64encode(JSON.stringify(data, null, 1))
       };
       if (cur.sha) body.sha = cur.sha;
-      return fetch(apiUrl(FILE), {
+      return fetch(apiUrl(path), {
         method: 'PUT',
         headers: Object.assign({ 'Content-Type': 'application/json' }, ghHeaders()),
         body: JSON.stringify(body)
@@ -211,6 +217,29 @@
         });
       });
     });
+  }
+
+  function stamp() { return new Date().toISOString().slice(0, 16).replace('T', ' '); }
+
+  function ghSave(data) { return ghSavePath(FILE, data, 'portfolio 更新（' + stamp() + '）'); }
+
+  /*
+   * 給分析系列用的唯讀／唯寫入口（只在 github 模式、而且已經貼了金鑰時才會真的連線）。
+   * loadFile：本機模式或沒金鑰 → { data: null, reason: 'not-github' }，讓頁面顯示「未設定」而不是錯誤。
+   * saveFile：commit 訊息由呼叫端固定給（例如「analysis-profile 更新（時間）」），裡面不放任何數字。
+   */
+  function loadFile(path) {
+    if (getMode() !== 'github' || !hasPat()) {
+      return Promise.resolve({ data: null, sha: null, path: path, reason: 'not-github' });
+    }
+    return ghLoadPath(path);
+  }
+
+  function saveFile(path, data, message) {
+    if (getMode() !== 'github' || !hasPat()) {
+      return Promise.reject(new Error('要先在設定頁貼上同步金鑰並開啟雲端同步，才能寫到私人倉庫'));
+    }
+    return ghSavePath(path, data, message || (path + ' 更新（' + stamp() + '）'));
   }
 
   function testConnection() {
@@ -311,6 +340,7 @@
     hasPat: hasPat, maskedPat: maskedPat,
     getRepo: getRepo, setRepo: setRepo, DEFAULT_REPO: DEFAULT_REPO,
     load: load, save: save,
+    loadFile: loadFile, saveFile: saveFile,
     testConnection: testConnection,
     exportJSON: exportJSON, importJSON: importJSON,
     hasLocalData: hasLocalData,

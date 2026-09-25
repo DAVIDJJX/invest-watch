@@ -15,6 +15,8 @@
     .muted { color: #666; font-size: 12px; }
     h2 { margin-top: 28px; border-bottom: 1px solid #ccc; }
     footer { margin-top: 32px; }
+    input[type=number], input[type=text], select { font-size: 13px; padding: 2px 4px; }
+    button { font-size: 13px; padding: 4px 10px; }
   </style>
 </head>
 <body>
@@ -23,15 +25,20 @@
   <section id="status"></section>
   <section id="risk"></section>
   <section id="decompose"></section>
-  <section id="concentration">
-    <h2>個人集中度（只在瀏覽器端）</h2>
-    <p class="muted">A1-2 才會有。資料只從你的私人倉庫讀進瀏覽器計算，不上傳、不寫進任何公開檔；沒有設定時顯示「未設定」。</p>
+  <section id="cost"></section>
+  <section id="concentration"></section>
+  <section id="adhoc">
+    <h2>試算（A1-3）</h2>
+    <p class="muted">預留給 A1-3：臨時分析不在清單上的標的，結果只放在私人倉庫。</p>
   </section>
   <footer class="muted">
     <p>以上為量化整理，未經回測驗證，不構成投資建議。</p>
     <p>資料標籤：估算／單一來源／有對照／多來源一致；方法與定義見 docs/ANALYSIS.md。所有日期都是來源自己的時間戳。</p>
   </footer>
-  <script src="js/analysis-debug.js?v=20260924-1"></script>
+  <script src="js/lock.js?v=20260925-1"></script>
+  <script src="js/storage.js?v=20260925-1"></script>
+  <script src="js/concentration.js?v=20260925-1"></script>
+  <script src="js/analysis-debug.js?v=20260925-1"></script>
   <script>AnalysisDebug.boot();</script>
 </body>
 </html>

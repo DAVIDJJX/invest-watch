@@ -1,0 +1,14 @@
+{
+  "id": "tw00679b",
+  "symbol": "00679B",
+  "source": "證交所 all_etf.txt（15:30 那一輪抓一次）",
+  "note": "estNav／estPremiumPct 是投信的盤中預估（標「預估」）；officialNav 是前一營業日的官方淨值、隔天才拿得到、回填到那一天（標「確定」）；折溢價＝(價格 − 淨值) ÷ 淨值。最多留 400 列。",
+  "count": 2,
+  "firstDate": "2026-09-23",
+  "lastDate": "2026-09-24",
+  "updatedAt": "2026-09-25T14:40:21+08:00",
+  "rows": [
+    {"d":"2026-09-23","officialNav":25.2393,"officialClose":25.68,"officialPremiumPct":1.746,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-09-24"},
+    {"d":"2026-09-24","time":"17:00:00","price":25.28,"estNav":25.1281,"estPremiumPct":0.605,"estTag":"預估","estLabel":"估算","units":6188192000.0,"unitsChange":-4000000.0}
+  ]
+}

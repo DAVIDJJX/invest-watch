@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-24T15:30:59+08:00",
+ "generatedAt": "2026-09-25T14:40:00+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -20,7 +20,9 @@
    "同一天口徑：台銀當天牌價 vs GC=F 當天收盤——美國收盤時台北已是隔天早上，這是事後對照。",
    "前一日口徑：台銀當天牌價 vs GC=F 前一個交易日收盤——台銀 15:00 掛牌時實際看得到的最新收盤。",
    "殘差（%）＝台銀的隱含價差 ＋ 基差 ＋ 時間差 ＋ 四捨五入；正值表示台銀價格高於公式值。",
-   "15:30 算分析時，匯率一定是前一個交易日的（FinMind 當天那一筆晚上才出現）：fxDate 照實寫。"
+   "15:30 算分析時，匯率一定是前一個交易日的（FinMind 當天那一筆晚上才出現）：fxDate 照實寫。",
+   "為什麼殘差常常是負的：黃金現貨口徑暫缺：Yahoo 的 XAUUSD=X 與 XAU=X 在 2026-09-25 的探測都回 404（查無），所以只能用 GC=F 期貨。GC=F 通常是兩三個月後到期的合約，價格比現貨高出大約融資成本（年化幾 %，換成兩三個月就是零點幾 %）：公式值本身就比現貨高，台銀本行賣出低於公式值不代表台銀賣得比現貨便宜。",
+   "拆開來看的話，「GC=F 口徑的殘差 − 現貨口徑的殘差」才是期貨基差、剩下的才是台銀價差；現貨代號查無，這一步暫時做不到。"
   ],
   "daily": [
    {
@@ -2143,52 +2145,67 @@
    },
    {
     "d": "2026-09-23",
-    "goldSell": 4415.0,
-    "goldBuy": 4362.0,
+    "goldSell": 4433.0,
+    "goldBuy": 4384.0,
     "fxDate": "2026-09-23",
     "fxMid": 31.7,
     "gcDate": "2026-09-23",
     "gc": 4318.399902,
     "impliedSameDay": 4401.22,
-    "residualSameDayPct": 0.313,
+    "residualSameDayPct": 0.722,
     "gcPrevDate": "2026-09-22",
     "gcPrev": 4376.399902,
     "impliedPrevDay": 4460.33,
-    "residualPrevDayPct": -1.016
+    "residualPrevDayPct": -0.613
+   },
+   {
+    "d": "2026-09-24",
+    "goldSell": 4382.0,
+    "goldBuy": 4330.0,
+    "fxDate": "2026-09-24",
+    "fxMid": 31.78,
+    "gcDate": "2026-09-24",
+    "gc": 4298.0,
+    "impliedSameDay": 4391.48,
+    "residualSameDayPct": -0.216,
+    "gcPrevDate": "2026-09-23",
+    "gcPrev": 4318.399902,
+    "impliedPrevDay": 4412.32,
+    "residualPrevDayPct": -0.687
    }
   ],
   "summarySameDay": {
    "n": 60,
-   "medianPct": -0.256,
-   "meanPct": -0.266,
+   "medianPct": -0.257,
+   "meanPct": -0.282,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-06-29",
-   "through": "2026-09-23"
+   "from": "2026-06-30",
+   "through": "2026-09-24"
   },
   "summaryPrevDay": {
    "n": 60,
    "medianPct": -0.426,
-   "meanPct": -0.158,
+   "meanPct": -0.144,
    "minPct": -1.477,
    "maxPct": 2.207,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-07-01",
-   "through": "2026-09-23"
+   "from": "2026-07-02",
+   "through": "2026-09-24"
   },
   "live": {
-   "goldSell": 4411.0,
+   "goldSell": 4382.0,
    "goldDate": "2026-09-24",
-   "goldQuoteTime": "2026/09/24 11:59",
-   "gcPrice": 4320.6,
+   "goldQuoteTime": "2026/09/24 19:56",
+   "gcPrice": 4317.8,
    "gcDate": "2026-09-24",
-   "gcFetchedAt": "2026-09-24T15:30:41+08:00",
+   "gcFetchedAt": "2026-09-25T11:24:33+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
-   "fxMid": 31.7,
-   "fxDate": "2026-09-23",
-   "implied": 4403.46,
-   "residualPct": 0.171,
+   "fxMid": 31.78,
+   "fxDate": "2026-09-24",
+   "implied": 4411.71,
+   "residualPct": -0.673,
    "label": "估算"
   },
   "inputs": {
@@ -2201,8 +2218,8 @@
     "lastDate": "2026-09-24"
    },
    "fx_usd": {
-    "points": 144,
-    "lastDate": "2026-09-23",
+    "points": 145,
+    "lastDate": "2026-09-24",
     "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）"
    }
   }

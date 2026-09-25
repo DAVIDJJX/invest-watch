@@ -8,11 +8,16 @@ slot=review 呼叫它），做三件事：
 
   1. 維護 data/history-long/<id>.json：Yahoo 週線全歷史（雲端負責、有 Yahoo 代號的標的）
      ＋ USD/TWD 週線（FinMind 轉載的台銀每日牌價，每週取最後一個營業日）。
-     一週實際只補抓一次：最後一根完成週棒超過 7 天才發請求。
+     一週只補抓一次：存檔最後一根早於「最近一個已完成週」的週一（今天所在 ISO 週的週一減 7 天）才發請求；
+     只有週一那次 review 會抓，週一沒跑到週二會自動補。
   2. 算 data/analysis/risk.json：年化波動（1 年／5 年）、最大回檔、目前距歷史高點的回檔、
      相關係數矩陣（3 年、週報酬、ISO 週對齊、成對可用）。
   3. 算 data/analysis/decompose.json：台銀台幣金價 ≈ 國際金價 × USD/TWD ÷ 31.1035 ＋ 殘差；
      00646 月報酬 ≈ S&P 500 月報酬 ＋ 匯率效果 ＋ 殘差。
+  4. （A1-2）算 data/analysis/cost.json：00646 追蹤差（主口徑 ^SP500TR 總報酬指數、對照口徑 ^GSPC，各 1 年／3 年）、
+     ETF 折溢價（證交所 all_etf.txt 每個交易日存一筆到 data/analysis/nav/<id>.json：預估／確定分開、確定晚一天回填）、
+     黃金存摺價差、實體條塊相對存摺的溢價；靜態成本表 data/analysis/static-costs.json 是手寫的、這裡只引用。
+     ^SP500TR 只是基準序列（EXTRA_LONG_SERIES），不進 assets.json、不做卡片。
 
 每一次都寫 data/analysis/status.json（上次執行時間、有沒有全部產出、錯誤清單）——
 分析壞掉時頁面要看得出來，不能讓人以為數字是新的。
@@ -74,13 +79,35 @@ GRAMS_PER_TROY_OUNCE = 31.1035          # 1 金衡盎司 = 31.1035 公克（台�
 FX_LONG_ID = "fx_usd"
 FX_LONG_START = "2006-01-01"            # FinMind TaiwanExchangeRate 的起點（A0 實測：USD 自 2006-01-03 有效）
 YAHOO_PERIOD1_MONDAY = 345600           # 1970-01-05 00:00 UTC（星期一）：Yahoo 的週會對齊 period1 的星期幾，所以不能用 0
-REFETCH_AFTER_DAYS = 7                  # 最後一根完成週棒超過這麼多天才補抓
 INCREMENTAL_LOOKBACK_DAYS = 21          # 補抓時往前多要三週，讓合併有重疊、不會漏
 WINDOWS_WEEKS = {"1y": 52, "5y": 260}
 MIN_COVERAGE = 0.9                      # 視窗內缺超過 10% 就資料不足
 CORR_WEEKS = 156                        # 3 年
 CORR_MIN_OVERLAP = 100
 TEN_YEARS_WEEKS = 520
+
+# ---- A1-2：成本 ----
+# 不在 assets.json 裡、只當基準用的長歷史序列（2026-09-25 A1-2 探測：^SP500TR 週線 1988-01 起可用）
+EXTRA_LONG_SERIES = [
+    {"id": "sp500tr", "kind": "yahoo", "symbol": "^SP500TR", "name": "S&P 500 總報酬指數（含股息再投資）",
+     "currency": "USD", "unit": "點", "assetClass": "index",
+     "note": "只是 00646 追蹤差的基準序列，不進 assets.json、不做卡片"},
+]
+# 證交所 all_etf.txt：正式抓法＝fetch_data 的標頭＋這個 Referer（2026-09-25 A1-2 探測：runner 上 200；沒有 Referer 會回 502「安全性考量」頁）
+ALL_ETF_URL = "https://mis.twse.com.tw/stock/data/all_etf.txt"
+ALL_ETF_HEADERS = {"Accept": "application/json, text/plain, */*", "Referer": "https://mis.twse.com.tw/stock/index.jsp"}
+NAV_ASSETS = (("tw00646", "00646"), ("tw00679b", "00679B"))      # (assets.json 的 id, 證交所代號)
+NAV_MIN_DAYS = 20                                                # 累積滿 20 個交易日才顯示中位數
+NAV_MAX_ROWS = 400
+# 櫃買 30 日（all_etf 被擋時 00679B 的退路；只回最近 30 個交易日、日期沒有年份）
+TPEX_URL = "https://info.tpex.org.tw/api/etfProduct?lang=zh-tw&query=00679B"
+TPEX_HEADERS = {"Accept": "application/json, text/plain, */*", "Referer": "https://info.tpex.org.tw/ETF/zh/detail.html?query=00679B",
+                "X-Requested-With": "XMLHttpRequest"}
+TD_WINDOWS = {"1y": 52, "3y": 156}                                # 追蹤差視窗（週）
+TD_MAX_BACK_WEEKS = 3                                            # 視窗起點那一週缺資料時，往前最多找幾週
+GOLD_SPOT_NOTE = ("黃金現貨口徑暫缺：Yahoo 的 XAUUSD=X 與 XAU=X 在 2026-09-25 的探測都回 404（查無），"
+                  "所以只能用 GC=F 期貨。GC=F 通常是兩三個月後到期的合約，價格比現貨高出大約融資成本"
+                  "（年化幾 %，換成兩三個月就是零點幾 %）：公式值本身就比現貨高，台銀本行賣出低於公式值不代表台銀賣得比現貨便宜。")
 
 # 資料標籤（David 的裁決：星星只給「方法」，資料的等級用文字）
 LABEL_ESTIMATE, LABEL_SINGLE, LABEL_CROSSCHECKED, LABEL_MULTI = "估算", "單一來源", "有對照", "多來源一致"
@@ -188,6 +215,24 @@ def write_json(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps(obj, ensure_ascii=False, indent=1) + "\n")
+
+
+def default_paths():
+    """所有讀寫的位置都從這一個字典來（A1-3 的 --out <倉庫外> 只要換掉它）。呼叫時才讀模組常數，測試可以改常數。"""
+    return {"long": LONG_DIR, "analysis": ANALYSIS_DIR, "assets": ASSETS_FILE, "latest": LATEST_FILE, "history": fd.HIST_DIR}
+
+
+def load_history_daily(aid, paths=None):
+    """data/history/<id>.json 的 points（日線）；沒有就空清單。"""
+    paths = paths or default_paths()
+    p = os.path.join(paths["history"], "%s.json" % aid)
+    if not os.path.exists(p):
+        return []
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("points") or []
+    except Exception:
+        return []
 
 
 # ==========================================================================
@@ -318,12 +363,12 @@ def fetch_fx_weekly(f, code, start_date, today=None):
 # history-long 的讀寫與更新規則
 # ==========================================================================
 
-def long_path(aid):
-    return os.path.join(LONG_DIR, "%s.json" % aid)
+def long_path(aid, paths=None):
+    return os.path.join((paths or default_paths())["long"], "%s.json" % aid)
 
 
-def load_long(aid):
-    p = long_path(aid)
+def load_long(aid, paths=None):
+    p = long_path(aid, paths)
     if not os.path.exists(p):
         return None
     with open(p, encoding="utf-8") as fh:
@@ -343,14 +388,15 @@ def dump_long(head, points):
     return "\n".join(lines) + "\n"
 
 
-def save_long(aid, head, points):
-    os.makedirs(LONG_DIR, exist_ok=True)
+def save_long(aid, head, points, paths=None):
+    paths = paths or default_paths()
+    os.makedirs(paths["long"], exist_ok=True)
     head = dict(head)
     head["count"] = len(points)
     head["firstDate"] = points[0]["d"] if points else None
     head["lastDate"] = points[-1]["d"] if points else None
     head["updatedAt"] = iso(now_tpe())
-    with open(long_path(aid), "w", encoding="utf-8", newline="\n") as fh:
+    with open(long_path(aid, paths), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(dump_long(head, points))
 
 
@@ -365,21 +411,31 @@ def merge_weekly(old, new, key=None):
     return sorted(table.values(), key=lambda p: p["d"])
 
 
+def last_completed_week_monday(today):
+    """最近一個已完成 ISO 週的週一＝今天所在 ISO 週的週一減 7 天（週一當天，上一週剛走完）。"""
+    return today - timedelta(days=today.weekday() + 7)
+
+
 def refetch_plan(existing_points, today):
     """要不要補抓、從哪裡開始。回傳 (mode, start_date_or_None, reason)。
-    mode：full（整段）／incremental（從最後一根往前 21 天）／skip（最後一根還沒超過 7 天）。"""
+    mode：full（整段）／incremental（從最後一根往前 21 天）／skip（存檔已經有最近一個完成週）。
+    判斷是確定性的、不用年齡門檻：存檔最後一根的日期早於「最近一個已完成週的週一」才補抓——
+    每週只在週一那次 review 抓一次，週一沒跑到，週二會自動補上。（A1-1 原本用「超過 7 天」，
+    結果週二到下週一每天都補抓：最後一根永遠是上週一，年齡 8～13 天。）
+    週棒日期不一定是週一（週一休市會是週二；匯率是該週最後一個營業日），所以比的是「早於週一」而不是「等於週一」。"""
     if not existing_points:
         return "full", None, "沒有長歷史，整段回補"
     last = parse_day(existing_points[-1]["d"])
-    age = (today - last).days
-    if age > REFETCH_AFTER_DAYS:
+    due = last_completed_week_monday(today)
+    if last < due:
         start = last - timedelta(days=INCREMENTAL_LOOKBACK_DAYS)
-        return "incremental", start.strftime("%Y-%m-%d"), "最後一根 %s 已 %d 天，補抓 %s 起" % (last, age, start)
-    return "skip", None, "最後一根 %s 才 %d 天，這週不必抓" % (last, age)
+        return "incremental", start.strftime("%Y-%m-%d"), "最後一根 %s 早於最近一個完成週的週一 %s，補抓 %s 起" % (last, due, start)
+    return "skip", None, "最後一根 %s 已是最近一個完成週（週一 %s），這週不必抓" % (last, due)
 
 
 def long_targets(assets):
-    """要維護長歷史的標的：雲端負責且有 Yahoo 代號的，加上 USD/TWD（FinMind）。"""
+    """要維護長歷史的標的：雲端負責且有 Yahoo 代號的，加上 USD/TWD（FinMind），再加 EXTRA_LONG_SERIES（純基準序列）。
+    「讀清單」跟「算一檔」是分開的：update_long_history 吃的是這裡回的一個 target 字典，A1-3 的試算可以自己組一個。"""
     out = []
     for a in assets:
         if not a.get("enabled", True) or (a.get("owner") or "cloud") != "cloud":
@@ -389,13 +445,15 @@ def long_targets(assets):
             out.append({"id": a["id"], "kind": "yahoo", "symbol": sym, "asset": a})
         elif a["id"] == FX_LONG_ID and a.get("type") == "finmind_fx":
             out.append({"id": a["id"], "kind": "finmind", "symbol": a.get("symbol") or "USD", "asset": a})
+    for e in EXTRA_LONG_SERIES:
+        out.append({"id": e["id"], "kind": e["kind"], "symbol": e["symbol"], "asset": e})
     return out
 
 
-def update_long_history(target, f, now, status, only=None, offline=False, dry_run=False):
+def update_long_history(target, f, now, status, only=None, offline=False, dry_run=False, paths=None):
     """維護一個標的的 history-long。回傳這一項最後的 points（可能是舊的）。"""
     aid, a = target["id"], target["asset"]
-    existing = load_long(aid)
+    existing = load_long(aid, paths)
     old_pts = (existing or {}).get("points") or []
     entry = {"points": len(old_pts), "lastDate": old_pts[-1]["d"] if old_pts else None, "action": None}
     status["longHistory"][aid] = entry
@@ -425,14 +483,14 @@ def update_long_history(target, f, now, status, only=None, offline=False, dry_ru
         head = {"id": aid, "name": a["name"], "symbol": target["symbol"], "interval": "1wk", "source": "yahoo",
                 "sourceLabel": "Yahoo Finance chart API（週線）", "currency": a.get("currency"), "unit": a.get("unit"),
                 "dateSourceNote": DATE_SOURCE_NOTES["yahoo-week"],
-                "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；最後一根完成週棒超過 7 天才補抓。"
+                "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；存檔最後一根早於最近一個完成週的週一才補抓（每週一次）。"
                         "period1 用 1970-01-05（星期一）：Yahoo 把週的起點對齊 period1 的星期幾，用 0 會讓 ^GSPC 變成週四起的週；"
                         "所以只回 1970 以後（Yahoo 對 ^GSPC 其實從 1927 就有，分析用不到更早）。",
                 "barsStartOn": info.get("dominantWeekday"),
                 "firstTradeDateAtYahoo": info.get("firstTradeDate")}
         if a["id"] == "tw00679b":
             head["note"] += " 00679B 只有 2017-01 起，10 年視窗要到 2027-01 才夠。"
-        save_long(aid, head, merged)
+        save_long(aid, head, merged, paths)
         entry.update({"action": "%s：抓到 %d 根（略過進行中 %d 根），合併後 %d 根" % (mode, len(new_pts), info["droppedInProgress"], len(merged)),
                       "points": len(merged), "lastDate": merged[-1]["d"] if merged else None,
                       "barsStartOn": info.get("dominantWeekday")})
@@ -446,7 +504,7 @@ def update_long_history(target, f, now, status, only=None, offline=False, dry_ru
             "sourceLabel": fd.FINMIND_FX_LABEL, "originNote": FX_ORIGIN_NOTE, "currency": a.get("currency"), "unit": a.get("unit"),
             "dateSourceNote": DATE_SOURCE_NOTES["finmind"], "crossCheck": FX_LABEL_NOTE,
             "note": "c 是即期賣出；每個 ISO 週取最後一個營業日那一筆，抓取當週還沒走完所以不收。FinMind 用 -1 代表沒有牌價，那些列在解析時就丟掉了。"}
-    save_long(aid, head, merged)
+    save_long(aid, head, merged, paths)
     entry.update({"action": "%s：抓到 %d 週，合併後 %d 週" % (mode, len(new_pts), len(merged)),
                   "points": len(merged), "lastDate": merged[-1]["d"] if merged else None})
     return merged
@@ -508,7 +566,7 @@ def current_drawdown(points):
     hi = max(points, key=lambda p: p.get("c") or -1)
     last = points[-1]
     return {"pct": round((last["c"] / hi["c"] - 1.0) * 100.0, 2), "highDate": hi["d"], "highValue": hi["c"],
-            "asOf": last["d"], "lastValue": last["c"]}
+            "dataThrough": last["d"], "lastValue": last["c"]}
 
 
 def returns_by_week(points):
@@ -665,6 +723,8 @@ def decompose_gold(gold_pts, gc_pts, fx_pts, live=None):
                "前一日口徑：台銀當天牌價 vs GC=F 前一個交易日收盤——台銀 15:00 掛牌時實際看得到的最新收盤。",
                "殘差（%）＝台銀的隱含價差 ＋ 基差 ＋ 時間差 ＋ 四捨五入；正值表示台銀價格高於公式值。",
                "15:30 算分析時，匯率一定是前一個交易日的（FinMind 當天那一筆晚上才出現）：fxDate 照實寫。",
+               "為什麼殘差常常是負的：" + GOLD_SPOT_NOTE,
+               "拆開來看的話，「GC=F 口徑的殘差 − 現貨口徑的殘差」才是期貨基差、剩下的才是台銀價差；現貨代號查無，這一步暫時做不到。",
            ],
            "daily": daily,
            "summarySameDay": summary("residualSameDayPct"),
@@ -736,14 +796,15 @@ def decompose_00646(p646, pgspc, pfx, current_month=None):
             "monthly": rows, "summaryLast12": summary(rows[-12:]), "summaryAll": summary(rows)}
 
 
-def build_decompose(series, now, problems):
+def build_decompose(series, now, problems, paths=None):
+    paths = paths or default_paths()
     out = {"generatedAt": iso(now), "slot": "review", "labels": LABEL_NOTES,
            "notes": ["拆解全部是估算：公式與殘差的意義寫在各自的 notes；這裡只有事實與資料標籤，沒有任何判斷。"],
            "gold": None, "tw00646": None}
     try:
-        gold_pts = fd.load_history("gold_twd")
-        gc_pts = fd.load_history("gold_intl")
-        fx_pts = fd.load_history("fx_usd")
+        gold_pts = load_history_daily("gold_twd", paths)
+        gc_pts = load_history_daily("gold_intl", paths)
+        fx_pts = load_history_daily("fx_usd", paths)
         if not gold_pts:
             raise AnalyzeError("沒有 gold_twd 的日線歷史（data/history/gold_twd.json）")
         if not gc_pts:
@@ -751,8 +812,8 @@ def build_decompose(series, now, problems):
         if not fx_pts:
             raise AnalyzeError("沒有 fx_usd 的日線歷史")
         latest = None
-        if os.path.exists(LATEST_FILE):
-            with open(LATEST_FILE, encoding="utf-8") as fh:
+        if os.path.exists(paths["latest"]):
+            with open(paths["latest"], encoding="utf-8") as fh:
                 latest = json.load(fh)
         out["gold"] = decompose_gold(gold_pts, gc_pts, fx_pts, live=live_gold_row(latest))
         out["gold"]["inputs"] = {"gold_twd": {"points": len(gold_pts), "lastDate": gold_pts[-1]["d"]},
@@ -775,28 +836,385 @@ def build_decompose(series, now, problems):
 
 
 # ==========================================================================
+# 成本（A1-2）：追蹤差、折溢價、黃金價差、條塊溢價
+# ==========================================================================
+
+def week_map(points, value=None):
+    """{該週星期一(date): (d, value)}；value 預設取 c（匯率給 fx_mid 才會用中價）。"""
+    out = {}
+    for p in points:
+        if p.get("c") is None:
+            continue
+        v = value(p) if value else p["c"]
+        if v is None:
+            continue
+        out[monday_of(p["d"])] = (p["d"], v)
+    return out
+
+
+def tracking_difference(p646, pbench, pfx, weeks):
+    """00646 報酬 − 基準換算台幣的報酬，視窗 weeks 週（ISO 週對齊）。
+    基準換台幣：(1＋基準美元報酬)(1＋USD/TWD 中價變動) − 1。年化用幾何：((1＋r646)/(1＋r基準台幣))^(52/實際週數) − 1。
+    起點那一週三個序列要齊；缺就往前最多找 3 週，還是不齊就資料不足。"""
+    m1, m2, m3 = week_map(p646), week_map(pbench), week_map(pfx, value=fx_mid)
+    common = set(m1) & set(m2) & set(m3)
+    if not common:
+        return {"weeks": weeks, "reason": "資料不足：三個序列沒有共同的週"}
+    end = max(common)
+    target = end - timedelta(weeks=weeks)
+    start = None
+    for k in range(TD_MAX_BACK_WEEKS + 1):
+        key = target - timedelta(weeks=k)
+        if key in common:
+            start = key
+            break
+    if start is None:
+        return {"weeks": weeks, "reason": "資料不足：視窗起點 %s 前後 %d 週內三個序列不齊" % (target, TD_MAX_BACK_WEEKS)}
+    r646 = m1[end][1] / m1[start][1] - 1.0
+    rb = m2[end][1] / m2[start][1] - 1.0
+    rfx = m3[end][1] / m3[start][1] - 1.0
+    rbt = (1.0 + rb) * (1.0 + rfx) - 1.0
+    actual = (end - start).days / 7.0
+    ann = ((1.0 + r646) / (1.0 + rbt)) ** (52.0 / actual) - 1.0 if actual > 0 else None
+    return {"weeks": int(round(actual)), "from": m1[start][0], "through": m1[end][0],
+            "fromWeek": start.strftime("%Y-%m-%d"), "throughWeek": end.strftime("%Y-%m-%d"),
+            "r646Pct": pct(r646, 3), "rBenchPct": pct(rb, 3), "rFxPct": pct(rfx, 3), "rBenchTwdPct": pct(rbt, 3),
+            "diffPct": pct(r646 - rbt, 3), "annualizedDiffPct": pct(ann, 3)}
+
+
+def build_tracking(series):
+    p646, pfx = series.get("tw00646"), series.get(FX_LONG_ID)
+    out = {"asset": "tw00646",
+           "method": "追蹤差＝00646 報酬 − [(1＋基準美元報酬)(1＋USD/TWD 中價變動) − 1]；週線、ISO 週對齊；年化用幾何；每個視窗附起訖日期",
+           "primary": None, "reference": None}
+    for key, bench_id, label, notes in (
+            ("primary", "sp500tr", "^SP500TR", [
+                "基準是含股息再投資的總報酬指數：差額裡沒有股息效果，剩下的是費用、期貨替代、匯率時點差（00646 換匯的時點跟台銀那一週的中價不完全一樣）。",
+                "資料標籤「估算」：兩邊的週棒日期不一定同一天（台股週一起、美股週一起但時區不同），視窗起訖照實列出。"]),
+            ("reference", "gspc", "^GSPC", [
+                "基準是價格指數（不含股息）而 00646 不配息：差額裡含股息效果（約每年 +1%）、費用、期貨替代、匯率時點差；留著當對照。"])):
+        pb = series.get(bench_id)
+        o = {"benchmark": label, "benchmarkId": bench_id, "label": LABEL_ESTIMATE, "available": False, "windows": {}, "notes": notes}
+        missing = [n for n, v in (("tw00646", p646), (bench_id, pb), (FX_LONG_ID, pfx)) if not v]
+        if missing:
+            o["reason"] = "缺長歷史：%s" % "、".join(missing)
+        else:
+            o["available"] = True
+            for name, w in TD_WINDOWS.items():
+                o["windows"][name] = tracking_difference(p646, pb, pfx, w)
+        out[key] = o
+    return out
+
+
+def parse_all_etf(j, codes):
+    """證交所 all_etf.txt（副檔名 .txt、內容 JSON）→ {代號: {...}}。h 是【前一營業日】的官方淨值，未結出時是文字。"""
+    out = {}
+    for grp in ((j or {}).get("a1") or []):
+        for e in (grp.get("msgArray") or []):
+            code = str(e.get("a"))
+            if code not in codes:
+                continue
+            i = str(e.get("i") or "")
+            h = fd.to_float(e.get("h"))
+            out[code] = {"d": "%s-%s-%s" % (i[:4], i[4:6], i[6:]) if len(i) == 8 else None, "time": e.get("j"),
+                         "price": fd.to_float(e.get("e")), "estNav": fd.to_float(e.get("f")),
+                         "prevOfficialNav": h if (h and h > 0) else None,
+                         "units": fd.to_float(e.get("c")), "unitsChange": fd.to_float(e.get("d"))}
+    return out
+
+
+def nav_path(aid, paths=None):
+    return os.path.join((paths or default_paths())["analysis"], "nav", "%s.json" % aid)
+
+
+def load_nav(aid, paths=None):
+    p = nav_path(aid, paths)
+    if not os.path.exists(p):
+        return []
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return (json.load(fh) or {}).get("rows") or []
+    except Exception:
+        return []
+
+
+def save_nav(aid, symbol, rows, paths=None):
+    paths = paths or default_paths()
+    p = nav_path(aid, paths)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    head = {"id": aid, "symbol": symbol, "source": "證交所 all_etf.txt（15:30 那一輪抓一次）",
+            "note": "estNav／estPremiumPct 是投信的盤中預估（標「預估」）；officialNav 是前一營業日的官方淨值、隔天才拿得到、回填到那一天（標「確定」）；"
+                    "折溢價＝(價格 − 淨值) ÷ 淨值。最多留 %d 列。" % NAV_MAX_ROWS,
+            "count": len(rows), "firstDate": rows[0]["d"] if rows else None, "lastDate": rows[-1]["d"] if rows else None,
+            "updatedAt": iso(now_tpe())}
+    lines = ["{"]
+    for k, v in head.items():
+        lines.append("  %s: %s," % (json.dumps(k, ensure_ascii=False), json.dumps(v, ensure_ascii=False)))
+    lines.append('  "rows": [')
+    for i, r in enumerate(rows):
+        lines.append("    " + json.dumps(r, ensure_ascii=False, separators=(",", ":")) + ("," if i < len(rows) - 1 else ""))
+    lines.append("  ]")
+    lines.append("}")
+    with open(p, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
+def premium_pct(price, nav):
+    """折溢價＝(價格 − 淨值) ÷ 淨值 × 100。分母一定是淨值。"""
+    if not price or not nav:
+        return None
+    return round((price - nav) / nav * 100.0, 3)
+
+
+def update_nav_rows(rows, rec, closes):
+    """把今天 all_etf 的一筆併進累積列：今天這列寫預估（標「預估」）；rec 帶來的前一營業日官方淨值回填到上一個交易日那列（標「確定」）。
+    上一個交易日＝data/history 裡最後一個早於今天、已定案的收盤日；那天的收盤價拿來算確定口徑的折溢價。"""
+    by_d = dict((r["d"], dict(r)) for r in rows if r.get("d"))
+    d = rec.get("d")
+    if d and rec.get("price") and rec.get("estNav"):
+        row = by_d.setdefault(d, {"d": d})
+        row.update({"time": rec.get("time"), "price": rec["price"], "estNav": rec["estNav"],
+                    "estPremiumPct": premium_pct(rec["price"], rec["estNav"]), "estTag": "預估", "estLabel": LABEL_ESTIMATE,
+                    "units": rec.get("units"), "unitsChange": rec.get("unitsChange")})
+    h = rec.get("prevOfficialNav")
+    if h and d:
+        prev = [p for p in closes if p.get("d") and p["d"] < d and p.get("c") and not p.get("provisional")]
+        if prev:
+            pp = max(prev, key=lambda p: p["d"])
+            row = by_d.setdefault(pp["d"], {"d": pp["d"]})
+            row.update({"officialNav": h, "officialClose": pp["c"], "officialPremiumPct": premium_pct(pp["c"], h),
+                        "officialTag": "確定", "officialLabel": LABEL_SINGLE, "officialNavSeenOn": d})
+    return [by_d[k] for k in sorted(by_d)][-NAV_MAX_ROWS:]
+
+
+def premium_summary(rows, key):
+    vals = [(r["d"], r[key]) for r in rows if isinstance(r.get(key), (int, float))]
+    n = len(vals)
+    if n < NAV_MIN_DAYS:
+        return {"n": n, "reason": "累積不到 %d 個交易日（目前 %d），先不顯示中位數" % (NAV_MIN_DAYS, n)}
+    xs = [v for _d, v in vals]
+    return {"n": n, "from": vals[0][0], "through": vals[-1][0], "medianPct": round(median(xs), 3),
+            "meanPct": round(mean(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3)}
+
+
+def latest_premium_rows(rows):
+    out = []
+    est = [r for r in rows if isinstance(r.get("estPremiumPct"), (int, float))]
+    off = [r for r in rows if isinstance(r.get("officialPremiumPct"), (int, float))]
+    if est:
+        r = est[-1]
+        out.append({"d": r["d"], "price": r["price"], "nav": r["estNav"], "premiumPct": r["estPremiumPct"], "tag": "預估"})
+    if off:
+        r = off[-1]
+        out.append({"d": r["d"], "price": r["officialClose"], "nav": r["officialNav"], "premiumPct": r["officialPremiumPct"], "tag": "確定"})
+    return out
+
+
+def policed_post(f, url, headers, data=None):
+    """PolicedFetcher 只有 get；櫃買的端點要 POST。一樣先查白名單、一樣守同站間隔。"""
+    net_policy.assert_host_allowed(url)
+    host = re.sub(r"^https?://([^/]+).*$", r"\1", url)
+    f._wait(host, 3.0)
+    f.count += 1
+    hdrs = dict(fd.BROWSER_HEADERS)
+    hdrs.update(headers or {})
+    r = f.session.post(url, headers=hdrs, data=data, timeout=30)
+    if r.status_code != 200:
+        raise fd.FetchError("HTTP %d" % r.status_code)
+    try:
+        return r.json()
+    except Exception:
+        raise fd.FetchError("回應不是合法 JSON")
+
+
+def tpex_dates_with_year(md_list, today):
+    """櫃買的日期只有 MM/DD：晚於今天的月日就是去年。"""
+    out = []
+    for md in md_list:
+        try:
+            m, d = [int(x) for x in str(md).split("/")]
+        except ValueError:
+            out.append(None)
+            continue
+        y = today.year
+        if (m, d) > (today.month, today.day):
+            y -= 1
+        out.append("%04d-%02d-%02d" % (y, m, d))
+    return out
+
+
+def fetch_tpex_30d(f, today):
+    """all_etf 被擋時 00679B 的退路：櫃買最近 30 個交易日的官方折溢價（atmps，%）。"""
+    j = policed_post(f, TPEX_URL, TPEX_HEADERS)
+    at = j.get("atmps") or []
+    dates = tpex_dates_with_year([x.get("date") for x in at], today)
+    vals = [(d, fd.to_float(x.get("count"))) for d, x in zip(dates, at) if d and fd.to_float(x.get("count")) is not None]
+    if not vals:
+        raise AnalyzeError("櫃買回應裡沒有折溢價")
+    xs = [v for _d, v in vals]
+    return {"title": "櫃買 30 日（僅 30 日）", "n": len(vals), "from": vals[0][0], "through": vals[-1][0],
+            "medianPct": round(median(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3),
+            "label": LABEL_SINGLE, "note": "只有最近 30 個交易日、日期沒有年份（年份是推的）；長期百分位得靠每天累積"}
+
+
+def build_premium(f, offline, paths, problems, now):
+    out = {}
+    codes = dict((sym, aid) for aid, sym in NAV_ASSETS)
+    fetched, err = None, None
+    if not offline and f is not None:
+        try:
+            j = f.get(ALL_ETF_URL, delay=3.0, expect_json=True, headers=ALL_ETF_HEADERS)
+            fetched = parse_all_etf(j, set(codes))
+        except (fd.FetchError, net_policy.HostNotAllowed) as e:
+            err = sanitize(e)
+            problems.append("折溢價：all_etf.txt 抓不到（%s）" % err)
+    for aid, sym in NAV_ASSETS:
+        rows = load_nav(aid, paths)
+        entry = {"file": "data/analysis/nav/%s.json" % aid, "symbol": sym,
+                 "notes": ["預估口徑＝(all_etf.txt 那一筆的成交價 − 投信盤中預估淨值) ÷ 預估淨值，檔內的日期與時間照抄，標「預估」；確定口徑＝(前一營業日收盤 − 官方淨值) ÷ 官方淨值，官方淨值隔天才拿得到、回填到那一天，標「確定」。",
+                           "累積滿 %d 個交易日才顯示中位數。" % NAV_MIN_DAYS]}
+        if offline:
+            entry["status"] = "offline：沒有連網，只列既有累積"
+        elif fetched is None:
+            blocked = bool(err and ("HTTP" in err or "安全性" in err))
+            entry["status"] = "未接（來源在雲端被擋）" if blocked else "未接（抓取失敗）"
+            entry["reason"] = err
+            if aid == "tw00679b" and f is not None:
+                try:
+                    entry["short"] = fetch_tpex_30d(f, now.date())
+                    entry["status"] = "僅 30 日"
+                except (fd.FetchError, net_policy.HostNotAllowed, AnalyzeError) as e:
+                    entry["short"] = {"title": "櫃買 30 日", "reason": sanitize(e)}
+                    problems.append("折溢價 00679B：櫃買退路也抓不到（%s）" % sanitize(e))
+        elif sym not in fetched:
+            entry["status"] = "未接（all_etf.txt 裡沒有 %s）" % sym
+            problems.append("折溢價 %s：all_etf.txt 裡沒有這一檔" % aid)
+        else:
+            rec = fetched[sym]
+            rows = update_nav_rows(rows, rec, load_history_daily(aid, paths))
+            save_nav(aid, sym, rows, paths)
+            entry["status"] = "接了（每個交易日存一筆）"
+            entry["today"] = {"d": rec["d"], "time": rec["time"], "price": rec["price"], "estNav": rec["estNav"], "prevOfficialNav": rec["prevOfficialNav"]}
+        entry["rows"] = len(rows)
+        entry["latest"] = latest_premium_rows(rows)
+        entry["estimated"] = dict(premium_summary(rows, "estPremiumPct"), label=LABEL_ESTIMATE)
+        entry["official"] = dict(premium_summary(rows, "officialPremiumPct"), label=LABEL_SINGLE)
+        entry["label"] = "預估口徑「估算」；確定口徑「單一來源」"
+        out[aid] = entry
+    return out
+
+
+def gold_spread(gold_pts):
+    """黃金存摺價差＝(本行賣出 − 本行買入) ÷ 中價，每日一筆。"""
+    rows = []
+    for p in gold_pts:
+        b, s_ = p.get("buy"), p.get("sell")
+        if p.get("d") and b and s_:
+            mid = (b + s_) / 2.0
+            rows.append({"d": p["d"], "buy": b, "sell": s_, "spreadPct": round((s_ - b) / mid * 100.0, 3)})
+    rows = rows[-NAV_MAX_ROWS:]
+    if not rows:
+        return {"reason": "沒有黃金存摺的本行買入／本行賣出資料"}
+    xs = [r["spreadPct"] for r in rows]
+    return {"label": LABEL_SINGLE, "latest": rows[-1], "daily": rows,
+            "summary": {"n": len(rows), "from": rows[0]["d"], "through": rows[-1]["d"], "medianPct": round(median(xs), 3),
+                        "meanPct": round(mean(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3)},
+            "notes": ["台銀黃金存摺沒有手續費，成本就是這個價差；資料來自家用電腦抓的台銀牌價（data/history/gold_twd.json）。"]}
+
+
+def bar_premium(bar_pts, gold_pts):
+    """實體條塊相對存摺的溢價＝(整條價 ÷ 公克) ÷ 存摺本行賣出 − 1，各規格每日一筆。跟卡片上的 premiumPct 同一個定義。"""
+    sell_by_d = dict((p["d"], p["sell"]) for p in gold_pts if p.get("d") and p.get("sell"))
+    daily, latest = [], None
+    for p in bar_pts:
+        d = p.get("d")
+        gold = sell_by_d.get(d)
+        if not d or not gold:
+            continue
+        row, specs = {"d": d, "goldSell": gold}, []
+        for label, key, grams in fd.BAR_SPECS:
+            price = p.get(key)
+            if price and grams:
+                per_gram = price / grams
+                prem = round((per_gram / gold - 1.0) * 100.0, 3)
+                row[key + "Pct"] = prem
+                specs.append({"spec": label, "grams": grams, "price": price, "perGram": round(per_gram, 2), "premiumPct": prem})
+        daily.append(row)
+        latest = {"d": d, "goldSell": gold, "rows": specs}
+    daily = daily[-NAV_MAX_ROWS:]
+    if not daily:
+        return {"reason": "條塊與存摺沒有同一天的資料"}
+    return {"label": LABEL_SINGLE, "n": len(daily), "from": daily[0]["d"], "through": daily[-1]["d"], "latest": latest, "daily": daily,
+            "notes": ["台銀不公布條塊的歷史牌價，本站自 2026-08-31 起自己每天記；天數少的時候照實標。",
+                      "1 台兩＝37.5 公克（跟 fetch_data 的 BAR_SPECS 同一份）。"]}
+
+
+def build_cost(series, now, problems, paths=None, f=None, offline=False):
+    paths = paths or default_paths()
+    cost = {"generatedAt": iso(now), "slot": "review", "labels": LABEL_NOTES,
+            "notes": ["成本全部是事實或估算，資料標籤寫在各段；這裡只有事實與資料標籤，沒有任何判斷。"],
+            "trackingDifference": None, "premium": {}, "goldSpread": None, "barPremium": None, "staticCosts": None}
+    try:
+        cost["trackingDifference"] = build_tracking(series)
+    except Exception as e:                                # noqa: B902
+        problems.append("成本（追蹤差）：%s：%s" % (e.__class__.__name__, sanitize(e)))
+        cost["trackingDifference"] = {"reason": sanitize(e)}
+    cost["premium"] = build_premium(f, offline, paths, problems, now)
+    gold_pts = load_history_daily("gold_twd", paths)
+    try:
+        if not gold_pts:
+            raise AnalyzeError("沒有 gold_twd 的日線歷史")
+        cost["goldSpread"] = gold_spread(gold_pts)
+    except AnalyzeError as e:
+        problems.append("成本（黃金價差）：%s" % e)
+        cost["goldSpread"] = {"reason": str(e)}
+    try:
+        bars = load_history_daily("gold_bar", paths)
+        if not bars:
+            raise AnalyzeError("沒有 gold_bar 的日線歷史")
+        cost["barPremium"] = bar_premium(bars, gold_pts)
+    except AnalyzeError as e:
+        problems.append("成本（條塊溢價）：%s" % e)
+        cost["barPremium"] = {"reason": str(e)}
+    sc = os.path.join(paths["analysis"], "static-costs.json")
+    info = {"file": "data/analysis/static-costs.json", "present": os.path.exists(sc)}
+    if info["present"]:
+        try:
+            with open(sc, encoding="utf-8") as fh:
+                entries = (json.load(fh) or {}).get("entries") or []
+            info["entries"] = len(entries)
+            info["checkedOn"] = max([e.get("checkedOn") or "" for e in entries] or [""]) or None
+        except Exception as e:                            # noqa: B902
+            info["reason"] = "讀不到：%s" % sanitize(e)
+    cost["staticCosts"] = info
+    return cost
+
+
+# ==========================================================================
 # 主流程
 # ==========================================================================
 
-def load_assets():
-    with open(ASSETS_FILE, encoding="utf-8") as fh:
+def load_assets(paths=None):
+    with open((paths or default_paths())["assets"], encoding="utf-8") as fh:
         return json.load(fh)["assets"]
 
 
-def run(slot, offline=False, dry_run=False, only=None, now=None):
+def run(slot, offline=False, dry_run=False, only=None, now=None, paths=None):
     now = now or now_tpe()
+    paths = paths or default_paths()
     status = {"generatedAt": iso(now), "lastRun": iso(now), "slot": slot, "ok": False, "mode": "dry-run" if dry_run else "offline" if offline else "live",
               "errors": [], "warnings": [], "produced": [], "requests": 0, "longHistory": {},
               "note": "分析只在 review（15:30）那一輪跑；出錯不影響行情與報告。錯誤訊息不含機器名與路徑。"}
     code = 0
     try:
-        assets = load_assets()
+        assets = load_assets(paths)
         by_id = {a["id"]: a for a in assets}
+        by_id.update({e["id"]: e for e in EXTRA_LONG_SERIES})
         f = None if (offline or dry_run) else PolicedFetcher(verbose=True)
         series = {}
         for t in long_targets(assets):
             try:
-                pts = update_long_history(t, f, now, status, only=only, offline=offline, dry_run=dry_run)
+                pts = update_long_history(t, f, now, status, only=only, offline=offline, dry_run=dry_run, paths=paths)
                 if pts:
                     series[t["id"]] = pts
                 print("[%s] %s" % (t["id"], status["longHistory"][t["id"]]["action"]))
@@ -804,7 +1222,7 @@ def run(slot, offline=False, dry_run=False, only=None, now=None):
                 status["errors"].append("history-long %s：%s" % (t["id"], sanitize(e)))
                 status["longHistory"][t["id"]]["action"] = "失敗：%s" % sanitize(e)
                 print("[%s] 失敗：%s" % (t["id"], sanitize(e)))
-                old = load_long(t["id"])
+                old = load_long(t["id"], paths)
                 if old and old.get("points"):
                     series[t["id"]] = old["points"]
                     status["warnings"].append("history-long %s 這次沒更新，風險用的是到 %s 的舊檔" % (t["id"], old["points"][-1]["d"]))
@@ -819,11 +1237,16 @@ def run(slot, offline=False, dry_run=False, only=None, now=None):
         problems = []
         risk, rp = build_risk(series, by_id, now)
         problems += rp
-        write_json(os.path.join(ANALYSIS_DIR, "risk.json"), risk)
+        write_json(os.path.join(paths["analysis"], "risk.json"), risk)
         status["produced"].append("data/analysis/risk.json")
-        dec = build_decompose(series, now, problems)
-        write_json(os.path.join(ANALYSIS_DIR, "decompose.json"), dec)
+        dec = build_decompose(series, now, problems, paths)
+        write_json(os.path.join(paths["analysis"], "decompose.json"), dec)
         status["produced"].append("data/analysis/decompose.json")
+        cost = build_cost(series, now, problems, paths, f=f, offline=offline)
+        write_json(os.path.join(paths["analysis"], "cost.json"), cost)
+        status["produced"].append("data/analysis/cost.json")
+        if f is not None:
+            status["requests"] = f.count
         status["errors"] += [sanitize(p) for p in problems]
     except AnalyzeError as e:                             # 算不出來是「結果」（結束碼 2），不是程式壞掉
         status["errors"].append(sanitize(e))
@@ -834,7 +1257,7 @@ def run(slot, offline=False, dry_run=False, only=None, now=None):
     status["ok"] = not status["errors"]
     status["finishedAt"] = iso(now_tpe())
     if not dry_run:
-        write_json(os.path.join(ANALYSIS_DIR, "status.json"), status)
+        write_json(os.path.join(paths["analysis"], "status.json"), status)
     if code == 0 and status["errors"]:
         code = 2
     return status, code

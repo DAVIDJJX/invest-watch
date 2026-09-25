@@ -97,6 +97,12 @@ class TestOwnedPaths(unittest.TestCase):
         self.assertIn("data/analysis/status.json", publish.ANALYSIS_PATHS)
         self.assertIn("data/analysis/risk.json", publish.ANALYSIS_PATHS)
         self.assertIn("data/analysis/decompose.json", publish.ANALYSIS_PATHS)
+        for p in ("data/analysis/cost.json", "data/analysis/static-costs.json", "data/analysis/nav/tw00646.json",
+                  "data/analysis/nav/tw00679b.json", "data/history-long/sp500tr.json"):
+            self.assertIn(p, publish.ANALYSIS_PATHS)                                           # A1-2
+        import analyze
+        for e in analyze.EXTRA_LONG_SERIES:
+            self.assertIn("data/history-long/%s.json" % e["id"], cloud)                    # 基準序列也要歸雲端
 
     def test_latest_json_belongs_to_both(self):
         """latest.json 是衍生檔，兩邊都會重算後提交，所以兩邊都要列。

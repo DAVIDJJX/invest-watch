@@ -10,8 +10,12 @@
   <section id="status"></section>
   <section id="risk"></section>
   <section id="decompose"></section>
+  <section id="cost"></section>
+  <section id="concentration"></section>
   <footer><p>以上為量化整理，未經回測驗證，不構成投資建議。</p></footer>
   <pre id="result"></pre>
+  <script src="../js/storage.js"></script>
+  <script src="../js/concentration.js"></script>
   <script src="../js/analysis-debug.js"></script>
   <script>
     (function () {
@@ -26,13 +30,13 @@
                           volatility: { '1y': { pct: 12.34, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
                                         '5y': { pct: 17.8, weeks: 260, window: '260 週', from: '2021-09-20', through: '2026-09-14', label: '單一來源' } },
                           maxDrawdown: { pct: -56.78, peakDate: '2007-10-08', troughDate: '2009-03-09', recoveredDate: '2013-03-25', label: '單一來源' },
-                          currentDrawdown: { pct: -1.2, highDate: '2026-08-31', asOf: '2026-09-14', label: '單一來源' },
+                          currentDrawdown: { pct: -1.2, highDate: '2026-08-31', dataThrough: '2026-09-14', label: '單一來源' },
                           tenYearWindow: { available: true, bars: 2961 } },
                   tw00679b: { name: '00679B', assetClass: 'bond_etf', currency: 'TWD', bars: 508, firstBar: '2017-01-09', lastBar: '2026-09-14', lastWeek: '2026-W38', dataLabel: '單一來源',
                           volatility: { '1y': { pct: 15.1, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
                                         '5y': { pct: null, weeks: 40, window: '260 週', reason: '資料不足：只有 40 週（至少要 234 週）' } },
                           maxDrawdown: { pct: -48.9, peakDate: '2020-03-09', troughDate: '2023-10-23', recoveredDate: null, label: '單一來源' },
-                          currentDrawdown: { pct: -40.1, highDate: '2020-03-09', asOf: '2026-09-14', label: '單一來源' },
+                          currentDrawdown: { pct: -40.1, highDate: '2020-03-09', dataThrough: '2026-09-14', label: '單一來源' },
                           tenYearWindow: { available: false, bars: 508, reason: '資料不足，2027-01 起才滿 10 年' } } },
                 correlation: { window: '3 年（156 週）', label: '單一來源', note: 'n 是重疊週數', ids: ['gspc', 'tw00679b'],
                                matrix: { gspc: { gspc: { r: 1, n: 156, from: '2023-09-25', through: '2026-09-08' }, tw00679b: { r: -0.123, n: 150, from: '2023-09-25', through: '2026-09-08' } },
@@ -51,14 +55,41 @@
                                 monthly: [ { month: '2026-07', d646: '2026-07-27', r646Pct: 3.1, dGspc: '2026-07-27', rGspcPct: 2.5, dFx: '2026-07-31', rFxPct: 0.4, combinedPct: 2.91, residualPct: 0.19 },
                                            { month: '2026-08', d646: '2026-08-31', r646Pct: -1.0, dGspc: '2026-08-31', rGspcPct: -0.8, dFx: '2026-08-28', rFxPct: -0.3, combinedPct: -1.098, residualPct: 0.098 } ] } }
       };
+      FIX.cost = { generatedAt: '2026-09-24T15:35:14+08:00', notes: ['測試用'],
+        trackingDifference: {
+          primary: { benchmark: '^SP500TR', available: true, label: '估算', notes: ['含股息再投資的基準'],
+                     windows: { '1y': { weeks: 52, from: '2025-09-15', through: '2026-09-14', r646Pct: 14.1, rBenchTwdPct: 15.6, diffPct: -1.5, annualizedDiffPct: -1.5 },
+                                '3y': { weeks: 156, from: '2023-09-18', through: '2026-09-14', r646Pct: 60.2, rBenchTwdPct: 65.0, diffPct: -4.8, annualizedDiffPct: -1.0 } } },
+          reference: { benchmark: '^GSPC', available: false, reason: '資料不足（測試）', label: '估算' } },
+        premium: { tw00646: { status: '未接（來源在雲端被擋）', label: '估算', reason: 'N-04 在 runner 上回 502' },
+                   tw00679b: { status: '僅 30 日', label: '單一來源',
+                               latest: [ { d: '2026-09-23', price: 25.69, nav: 25.7842, premiumPct: -0.37, tag: '確定' } ],
+                               short: { title: '櫃買 30 日', n: 30, from: '2026-08-11', through: '2026-09-23', medianPct: -0.44, minPct: -1.1, maxPct: 0.2 } } },
+        goldSpread: { label: '單一來源', latest: { d: '2026-09-24', buy: 4330, sell: 4382, spreadPct: 1.194 },
+                      summary: { n: 261, from: '2025-09-01', through: '2026-09-24', medianPct: 1.19, minPct: 1.05, maxPct: 1.35 } },
+        barPremium: { label: '單一來源', n: 12, from: '2026-08-31', notes: ['條塊只有 12 天'],
+                      latest: { d: '2026-09-24', goldSell: 4382, rows: [ { spec: '1 公斤', grams: 1000, price: 4441200, perGram: 4441.2, premiumPct: 1.35 },
+                                                                          { spec: '100 公克', grams: 100, price: 447022, perGram: 4470.2, premiumPct: 2.01 } ] } } };
+      FIX.staticCosts = { note: '每筆帶官方出處與查核日期', entries: [
+        { asset: 'tw00646', item: '經理費', value: '0.30', unit: '%／年', label: '官方公告', source: 'https://example.invalid/00646', sourceTitle: '測試出處', checkedOn: '2026-09-25', note: '' },
+        { asset: 'tw00679b', item: '總費用率（最近一年）', value: null, nullReason: '測試：沒有查到', label: '官方公告', source: '', checkedOn: '2026-09-25', note: '' } ] };
+      // 假的設定檔：權重一看就是假的（10／20／30 遞增），代理標的台積電
+      // 假的設定檔用 fromForm 組（設定檔的鍵名只准在 concentration.js 裡出現）
+      var FAKE_PROFILE = Concentration.fromForm({ stock: '10', index_etf: '20', bond_etf: '30', commodity: '15', crypto: '5', fx: '5', gold_tw: '10', other: '5', proxy: 'tw2330', month: '2026-09' });
+      var CORR = { ids: ['tw2330', 'tw00646', 'tw00679b', 'gold_intl', 'btc', 'fx_usd'], matrix: {
+        tw2330: { tw2330: { r: 1, n: 156 }, tw00646: { r: 0.51, n: 156 }, tw00679b: { r: 0.03, n: 156 }, gold_intl: { r: 0.11, n: 156 }, btc: { r: 0.10, n: 156 }, fx_usd: { r: -0.32, n: 154 } },
+        tw00646: { tw2330: { r: 0.51, n: 156 } }, tw00679b: { tw2330: { r: 0.03, n: 156 } }, gold_intl: { tw2330: { r: 0.11, n: 156 } }, btc: { tw2330: { r: 0.10, n: 156 } }, fx_usd: { tw2330: { r: -0.32, n: 154 } } } };
+      FIX.risk.correlation.ids = FIX.risk.correlation.ids.concat(CORR.ids); FIX.risk.correlation.matrix = Object.assign(FIX.risk.correlation.matrix, CORR.matrix);
       var results = [];
       function check(name, fn) {
         var problems = [];
         try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
         results.push({ name: name, ok: problems.length === 0, problems: problems });
       }
-      var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render);
+      var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render && window.Concentration && window.Storage);
       if (loaded) {
+        var facts = Concentration.facts(FAKE_PROFILE, FIX.risk.correlation);
+        FIX.concentration = { status: 'set', facts: facts, formValues: Concentration.toFormValues(FAKE_PROFILE), canEdit: true };
         AnalysisDebug.render(FIX);
         var $ = function (sel) { return document.querySelector(sel); };
         var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
@@ -108,6 +139,60 @@
           ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數'].forEach(function (w) {
             if (t.indexOf(w) >= 0) p.push('頁面上出現「' + w + '」');
           });
+        });
+        check('cost_section_rendered', function (p) {
+          var t = $('#cost').innerText;
+          if (t.indexOf('^SP500TR') < 0) p.push('主口徑沒顯示');
+          if (t.indexOf('-1.50%') < 0 && t.indexOf('−1.50%') < 0) p.push('1 年追蹤差沒顯示');
+          if (t.indexOf('未接（來源在雲端被擋）') < 0) p.push('未接狀態沒顯示');
+          if (t.indexOf('僅 30 日') < 0) p.push('僅 30 日沒顯示');
+          if (t.indexOf('1.19%') < 0) p.push('黃金價差沒顯示');
+          if (t.indexOf('1.35%') < 0) p.push('條塊溢價沒顯示');
+          if (t.indexOf('null（測試：沒有查到）') < 0) p.push('靜態成本的 null 沒有寫原因');
+          if (t.indexOf('2026-09-25') < 0) p.push('查核日期沒顯示');
+        });
+        check('concentration_three_facts_with_fake_profile', function (p) {
+          var t = $('#concentration').innerText;
+          if (!facts.ok) { p.push('facts 沒算出來'); return; }
+          if (facts.maxClass.pct !== 30) p.push('最大單一類別應為 30，得到 ' + facts.maxClass.pct);
+          if (facts.topTwo.pct !== 50) p.push('前二合計應為 50，得到 ' + facts.topTwo.pct);
+          if (facts.aligned.pct !== 30) p.push('同向合計應為 30（個股 10＋指數 ETF 20），得到 ' + facts.aligned.pct);
+          if (t.indexOf('30.00%') < 0 || t.indexOf('50.00%') < 0) p.push('三個事實沒顯示在頁面上');
+          if (facts.aligned.rows.some(function (r) { return r.cls === 'other'; })) p.push('other 不該出現在同向列表');
+          if (facts.aligned.otherExcluded !== true) p.push('有 other 權重時 otherExcluded 應為 true');
+          if (t.indexOf('0.510') < 0) p.push('相關係數本身沒顯示');
+          if (t.indexOf('未納入同向計算') < 0) p.push('other 排除同向的註記沒顯示');
+          if (!$('#w_stock') || !$('#proxy_sel') || !$('#profile-save')) p.push('表單沒畫出來');
+          if ($('#w_bond_etf').value !== '30') p.push('表單沒有帶入設定值');
+        });
+        check('concentration_unset_state', function (p) {
+          var box = document.createElement('div');
+          box.innerHTML = AnalysisDebug.renderConcentration({ status: 'unset', reason: '私人倉庫裡還沒有設定檔' });
+          if (box.innerText.indexOf('未設定') < 0) p.push('沒有顯示未設定');
+          if (box.querySelector('#profile-form')) p.push('未設定且不能編輯時不該有表單');
+          var box2 = document.createElement('div');
+          box2.innerHTML = AnalysisDebug.renderConcentration({ status: 'unset', reason: 'x', showForm: true, canEdit: true, formValues: Concentration.toFormValues(Concentration.emptyTemplate()) });
+          if (!box2.querySelector('#profile-form')) p.push('可以編輯時應該顯示建立設定檔的表單');
+        });
+        check('validation_blocks_bad_numbers_and_only_warns_on_sum', function (p) {
+          var bad = Concentration.validate(Concentration.fromForm({ stock: '-5', index_etf: 'abc', proxy: 'tw2330' }));
+          if (bad.ok || bad.errors.length !== 2) p.push('負數與非數字應該各給一個錯誤');
+          var low = Concentration.validate(Concentration.fromForm({ stock: '40', index_etf: '40', proxy: 'tw2330' }));
+          if (!low.ok) p.push('總和 80 不該是錯誤');
+          if (!low.warnings.some(function (w) { return w.indexOf('95') >= 0; })) p.push('總和不在 95～105 應該警告');
+          var f = Concentration.fromForm({ stock: '10', index_etf: '20', bond_etf: '30', commodity: '15', crypto: '5', fx: '5', gold_tw: '10', other: '5', proxy: 'tw2330', month: '2026-09' });
+          if (Concentration.facts(f, FIX.risk.correlation).topTwo.pct !== 50) p.push('fromForm → facts 不一致');
+        });
+        check('profile_key_names_never_reach_the_dom', function (p) {
+          var html = document.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/g, '');
+          ['wei' + 'ghts', 'salaryProxy' + 'AssetId', 'as' + 'Of'].forEach(function (k) {
+            if (html.indexOf(k) >= 0) p.push('渲染出來的 DOM 裡出現設定檔鍵名「' + k + '」');
+          });
+          if (html.indexOf('FAKE_PROFILE') >= 0) p.push('fixture 名稱洩進 DOM');
+        });
+        check('storage_exposes_loadFile_and_saveFile', function (p) {
+          if (typeof Storage.loadFile !== 'function' || typeof Storage.saveFile !== 'function') p.push('storage.js 沒有 loadFile／saveFile');
+          if (typeof Concentration.facts !== 'function' || Concentration.FILE !== 'analysis-profile.json') p.push('concentration.js 介面不對');
         });
         check('missing_status_is_loud', function (p) {
           var box = document.createElement('div');
