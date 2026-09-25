@@ -965,6 +965,11 @@ class TestRetestBatch(FrozenNow):
         self.assertEqual(states["Y-15a"], P.FAILED)
         self.assertEqual(states["Y-15b"], P.OK)
         self.assertEqual(len(net.requests), 6)
+        payload, net, _ = self.run_all(only={"retest"})                                     # 第一個代號可用 → 第二個不發
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(states["Y-15a"], P.OK)
+        self.assertEqual(states["Y-15b"], P.SKIPPED)
+        self.assertEqual(len(net.requests), 5)
 
     def test_sp500tr_weekly_starts_on_a_monday(self):
         _, net, _ = self.run_all(only={"retest"})
