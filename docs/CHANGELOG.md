@@ -784,6 +784,74 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-09-25 · 分析系列 A1-2 成本＋集中度（標籤 `stopA1-2`）
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `scripts/probe_analysis_sources.py`、`scripts/test_probe_analysis.py` | 探測加 `retest` 組（分支上跑、workflow 一字未改）：N-04 證交所 all_etf.txt 改正式標頭＋Referer、N-05a 先拿 e添富頁面 cookie → N-05b 才 POST（頁面被擋就不 POST）、Y-14 `^SP500TR` 週線（period1=345600 星期一）、Y-15a/b 黃金現貨兩個代號（第一個 404 才發第二個）；「安全性考量」擋頁不管 HTTP 200／307／502 一律判失敗。離線測試 100 → 106 條 |
+| `scripts/analyze.py` | 新增成本 `data/analysis/cost.json`：00646 追蹤差（主基準 `^SP500TR` 總報酬、對照 `^GSPC`；累計差＝00646 台幣報酬 −[(1＋基準)(1＋匯率)−1]，年化幾何；1 年／3 年視窗、ISO 週對齊、起點缺了往前找最多 3 週、輸出實際起訖日期）；折溢價每個交易日累積一列到 `data/analysis/nav/<id>.json`（all_etf.txt 正式抓法；「預估」＝當筆成交價對投信盤中預估淨值、「確定」＝前一營業日收盤對官方淨值、隔天回填；分母都是淨值；滿 20 個交易日才給中位數；被擋寫「未接」，00679B 退路櫃買 30 日標「僅 30 日」）；黃金存摺價差＝(本行賣出−本行買入)÷中價；條塊溢價含金鑽 1 台兩＝37.5 公克；靜態費用表只引用不產生。`^SP500TR` 進 `EXTRA_LONG_SERIES`（`data/history-long/sp500tr.json`，不在 assets.json）。`run(paths=…)`／`default_paths()`：所有讀寫可指到倉庫外（A1-3 預留）。risk.json 的 `asOf` 改名 `dataThrough`（撞到設定檔鍵名）。拆解的 notes 加「殘差為什麼常是負的」（期貨基差） |
+| `scripts/test_analyze.py` | 48 → 61 條：追蹤差（含匯率換算、中價、往前找起點、資料不足、缺基準）、all_etf 解析與「確定」回填到前一交易日、分母是淨值、滿 20 天才有中位數、黃金價差、條塊台兩、櫃買日期補年份、正式標頭、被擋不假裝接了、`paths` 字典只寫到指定位置、離線跑會產 cost.json |
+| `scripts/publish.py`、`scripts/test_publish.py` | 雲端擁有清單加 cost.json、static-costs.json、nav/ 兩檔、history-long/sp500tr.json |
+| `js/concentration.js`（新） | 集中度純函式：`validate`（負數／非數字擋下、總和不在 95～105 只警告）、`facts`（最大單一類別、前二合計、與收入代理同向的合計；門檻 0.5、顯示相關係數本身；`other` 不入同向）、`fromForm`／`toFormValues`／`emptyTemplate`。設定檔的三個鍵名只准出現在這個檔 |
+| `js/storage.js` | 加 `loadFile(path)`（回 `{data, sha, path}`，404 → `data:null`）與 `saveFile(path, data, message)`；只有私人倉庫模式可用；既有 `ghLoad`／`ghSave` 改成呼叫同一組函式 |
+| `js/analysis-debug.js`、`analysis-debug.html` | 檢視頁加成本區（追蹤差兩個口徑、折溢價、價差、條塊、靜態費用表）與集中度區（未設定／有設定／表單；表單欄位 id 用 `w_<類別>`；先測連線再存；commit 訊息「analysis-profile 更新（時間）」不含數字；不 console.log 任何值）；預留 `<section id="adhoc">`；風險表改讀 `dataThrough` |
+| `scripts/test_analysis_debug.html`、`scripts/test_analysis_debug_js.py` | 13 項頁面檢查（Chrome 無頭）：成本區有畫、三個事實 30／50／30、`other` 不在同向列表、未設定狀態、表單驗證、設定檔鍵名不進 DOM、storage 有 loadFile／saveFile、腳本順序與 adhoc 區 |
+| `scripts/test_analysis_guards.py` | 14 → 16 條：`js/concentration.js` 進掃描清單；設定檔鍵名（分開寫的字串）只准在 `js/concentration.js`；**離線跑一次 analyze、產出的每個 JSON 也掃**（禁用鍵名、判斷用語、設定檔鍵名）；掃描器自己的對照組 |
+| `data/analysis/static-costs.json`（新，手抄） | 11 筆：00646／00679B 的經理費與保管費分級費率（元大投信官網）、證券交易稅（股票千分之三、ETF 千分之一、債券 ETF 停徵至 2026-12-31；全國法規資料庫）；「目前適用級距」與「最近一年總費用率」留 null 並寫原因；每筆帶網址、查核日期、標籤「官方公告」 |
+| `data/analysis/cost.json`、`data/analysis/nav/tw00646.json`、`data/analysis/nav/tw00679b.json`、`data/history-long/sp500tr.json`、`data/analysis/status.json`／`risk.json`／`decompose.json` | 種子資料：筆電沙盒 2026-09-25 11:40 的一次真實跑（11 次請求）；合併後由雲端 15:30 那一輪接手維護。status／risk／decompose 也一起換成這一次的（risk 的欄位已是 `dataThrough`） |
+| `docs/ANALYSIS.md`、`README.md` | 5.5 成本、5.6 集中度、5.7 資料條款（證交所／櫃買／靜態表）、第 6 節改 A1-3 起；三個錯字（籌碼、矩陣、口徑）；README 檔案結構、進度、回滾表 |
+| `index.html`、`history.html`、`records.html`、`settings.html`、`analysis-debug.html` | 只有 `bump_assets.py` 的版本號（20260925-1） |
+
+**怎麼驗的**
+
+- 單元測試 **362 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome：`IW_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"`）。
+- 探測 retest 組真的跑了一次（分支上 `gh workflow run probe-analysis.yml --ref feat/stopA1-2 -f only=retest`，run 36084006372，2026-09-25 09:54 台北，6 個請求）：N-04／N-05a／N-05b／Y-14 可用，Y-15a／Y-15b 404（黃金現貨拿不到）。台銀 0 次。
+- 筆電沙盒真實跑兩次（worktree 副本，真倉庫不碰）：11:24（11 次請求、結束碼 0、cost.json 產出）與 11:40（換上最終版程式與費用表，再 11 次）。追蹤差 1 年：00646 22.27% vs `^SP500TR` 台幣 22.28%（差 −0.01%）、3 年年化 −1.02%；折溢價 00646 預估 +0.23%（9/24）、確定 +0.96%（9/23）；存摺價差 1.19%；條塊溢價 1.35%（1 公斤）～2.13%（1 台兩）。
+- 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**28 組全部符合預期**（4 組基準綠、24 組紅）：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | M1 追蹤差的幣別換算改壞（基準只用美元報酬） | 1 條紅 |
+  | M2 追蹤差用即期賣出而不是中價 | 1 條紅 |
+  | M3 追蹤差不給視窗起訖日期 | 2 條紅 |
+  | M4 折溢價分母改錯（用價格） | 2 條紅 |
+  | M5 預估與確定的標籤對調 | 1 條紅 |
+  | M6 官方淨值填到今天而不是前一交易日 | 1 條紅 |
+  | M7 不到 20 個交易日也顯示中位數 | 1 條紅 |
+  | M8 被擋時把舊資料當成接了 | 1 條紅 |
+  | M9 all_etf 不帶正式標頭（拿掉 Referer） | 1 條紅 |
+  | M10 台兩的公克數改壞 | 1 條紅 |
+  | M11 黃金價差分母改成本行賣出價 | 1 條紅 |
+  | M12 拆解 notes 少了期貨基差的解釋 | 1 條紅 |
+  | M13 paths 字典沒被尊重（status.json 寫回模組常數的位置） | 1 條紅 |
+  | M14 基準序列 ^SP500TR 從清單拿掉 | 2 條紅 |
+  | M15 other 混進同向計算 | 1 條紅（第一版沒紅：other 沒有代理標的、混進去結果也一樣，已補「other 不得出現在同向列表」的檢查） |
+  | M16 同向門檻比較改壞（> 0 就算同向） | 1 條紅 |
+  | M17 表單欄位改用設定檔的鍵名當 id | 1 條紅 |
+  | M18 驗證：負數也放行 | 1 條紅 |
+  | M19 驗證：總和不在 95～105 變成錯誤而不是警告 | 1 條紅 |
+  | M20 設定檔鍵名出現在公開輸出（cost.json 多印一個鍵） | 1 條紅（第一版沒紅：守門只掃倉庫裡現成的檔；已補「離線產出的檔也掃」） |
+  | M21 守門：設定檔鍵名的檢查整個關掉 | 1 條紅（第一版沒紅：掃描器沒有對照組；已補） |
+  | M22 探測：N-05b 不等 N-05a 就 POST | 1 條紅 |
+  | M23 探測：Y-15b 不管 Y-15a 結果都發 | 2 條紅（第一版只被別條抓到；已把兩個方向都釘進同一條） |
+  | M24 publish 擁有清單少了 nav 檔 | 1 條紅 |
+
+- 守門：`data/analysis/*.json`、`data/history-long/*`、頁面靜態內容、畫出來的 DOM 都掃過設定檔鍵名——0 次；分析系列檔案沒有判斷用語（第一版全套跑出 `analyze.py` 一個裸的「賣出」，已改成牌價欄位名「本行賣出」）。
+- 截圖（假設定檔 10／20／30…）：成本區、未設定、有設定＋表單，見驗收報告。
+- 觀察到但**沒有動**（不在 A1-2 範圍）：週線長歷史「最後一根超過 7 天才補抓」的規則，實際上從星期二到下週一每天都會補抓（最後一根永遠是上週一、年齡 8～13 天），只有星期一不抓——一天 9 次 Yahoo 請求，不是一週一次。要改成「超過 14 天」才是真的一週一次。等裁決。
+
+**怎麼退回**
+
+```bash
+git revert -m 1 <合併 commit> && git push        # 退整個 A1-2（合併後）
+git revert --no-edit 9ea8f65..stopA1-2           # 或在分支上逐個 commit 反轉（探測 + 主體）
+```
+退回後雲端下一輪不再產生 cost.json 與 nav/，已產生的檔案可另外刪；risk.json 的欄位會變回 `asOf`（檢視頁舊版讀得懂）。
+
+---
+
 ## 2026-09-24 · A1-1 資料層＋風險＋拆解（assetClass、國際金價、週線長歷史、risk／decompose、檢視頁、守門）
 
 **為什麼要做**：分析系列 A1～A4 的每一個面向都要 10 年等級的長歷史，這個專案原本只存 400 點日線；

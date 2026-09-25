@@ -63,6 +63,7 @@ invest-watch/
 │   ├─ records.js        「我的紀錄」頁邏輯
 │   ├─ settings.js       設定頁邏輯
 │   ├─ lock.js           密碼鎖（把本機資料與金鑰加密）
+│   ├─ concentration.js  集中度（只在瀏覽器裡算；設定檔的鍵名只准出現在這一個檔案）
 │   └─ analysis-debug.js 分析檢視頁的表格（只列事實與日期，不算任何東西）
 ├─ lib/chart.umd.min.js  Chart.js 4.4.4，下載到本地，不依賴 CDN
 ├─ data/
@@ -70,8 +71,8 @@ invest-watch/
 │   ├─ latest.json       每次更新寫入：所有標的的最新報價與狀態
 │   ├─ history/<id>.json 各標的日線歷史（最多 400 點）
 │   ├─ archive/          每天的報告與行情快照（歷史頁讀這裡）
-│   ├─ history-long/     各標的的週線全歷史（分析系列；只由雲端 15:30 那一輪維護、一週補一次）
-│   ├─ analysis/         分析輸出：status.json（上次算的狀態與錯誤）、risk.json、decompose.json
+│   ├─ history-long/     各標的的週線全歷史（分析系列；只由雲端 15:30 那一輪維護、一週補一次；含追蹤差的基準序列 sp500tr.json）
+│   ├─ analysis/         分析輸出：status.json（上次算的狀態與錯誤）、risk.json、decompose.json、cost.json、static-costs.json（手抄的官方費用表）、nav/<id>.json（折溢價每日累積）
 │   └─ report-latest.json 最新一份報告（首頁入口用）
 ├─ scripts/
 │   ├─ fetch_data.py     抓資料腳本（只用 requests）
@@ -81,7 +82,7 @@ invest-watch/
 │   ├─ update_local.ps1  家用電腦排程用的補抓腳本
 │   ├─ probe_analysis_sources.py  分析系列 A0：新資料來源探測（只讀、只測不接；結果只進 job summary）
 │   ├─ test_probe_analysis.py     上一支的離線測試（餵假回應、不連網；判準改壞必須紅）
-│   ├─ analyze.py        分析系列：週線長歷史、風險、拆解（只在 15:30 review 那一輪跑；出錯不卡行情與報告）
+│   ├─ analyze.py        分析系列：週線長歷史、風險、拆解、成本（只在 15:30 review 那一輪跑；出錯不卡行情與報告）
 │   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
 │   └─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
 ├─ docs/ANALYSIS.md      分析方法（公開版）：五個面向、方法證據★、資料標籤、assetClass 對應、已實作的定義
@@ -386,6 +387,7 @@ git push
 | 2026-09-18 | 停點 8 其餘（probe 彙整、互斥鎖、舊資料標示、schedule.json） | `git revert -m 1 3ffe155 && git push`；或照 `docs/CHANGELOG.md` 用 `stop8-N` 標籤逐段退 |
 | 2026-09-21 | 分析系列 A0（一）：探測腳本＋離線測試＋手動 workflow（只讀，沒有正式流程引用） | `git revert -m 1 3782bbe && git push` |
 | 2026-09-24 | 分析系列 A1-1：assetClass、國際金價卡片、週線長歷史、risk／decompose、檢視頁、守門測試 | `git revert -m 1 <合併 commit> && git push`（它是 7459b34 之後的第一個合併；退回後雲端下一輪就不再產生 data/history-long 與 data/analysis，已產生的檔案可另外刪） |
+| 2026-09-25 | 分析系列 A1-2：成本（追蹤差、折溢價累積、黃金價差、條塊溢價、靜態費用表）＋集中度（只在瀏覽器） | `git revert -m 1 <合併 commit> && git push`（它是 d5b9d55 之後的第一個合併；退回後雲端下一輪不再產生 cost.json 與 nav/，已產生的檔案可另外刪；risk.json 的 `dataThrough` 欄會變回舊名） |
 | 2026-09-23 | 分析系列 A0（二）：CHANGELOG、README、`.gitignore`（擋分析方法目錄的原始版本） | `git revert -m 1 <第二次合併的 commit> && git push`（它是 3782bbe 之後的第一個合併，`git log --oneline --merges -3` 可查；先退這一次，再退上一列） |
 
 ### 排錯：某天起每天固定某個時段，雲端那幾項資料全部標示過期
@@ -769,7 +771,16 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - **守門**：分析系列的檔案由測試自動掃——不准出現投資判斷用語（頁尾那句固定聲明是唯一例外），不准出現個人持倉數字、具名字串（加鹽 HMAC 比對，鹽不在倉庫裡）；分析出錯絕不卡住行情與報告
   - **實跑學到的**：Yahoo 會把「一週」的起點對齊 `period1` 那一天的星期幾，`period1=0`（星期四）會讓 S&P 500 變成週四起的週——一律改用 1970-01-05（星期一）
   - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-1`
-- [ ] 分析系列 A1-2 — 成本（追蹤差、折溢價、黃金價差、靜態費用表）＋ 個人集中度（只在瀏覽器裡算）
+- [x] **分析系列 A1-2 — 成本＋集中度**（2026-09-25 完成）
+  - **成本** `data/analysis/cost.json`：00646 追蹤差（基準 ^SP500TR 總報酬指數為主、^GSPC 對照；含匯率換算；1 年與 3 年視窗都輸出實際起訖日期）；
+    00646／00679B 折溢價每個交易日累積一列（`data/analysis/nav/`，來源證交所 all_etf.txt 用正式抓法；「預估」與「確定」兩個口徑分開標，滿 20 個交易日才顯示中位數；被擋就寫「未接」，00679B 另有櫃買 30 日退路）；
+    黃金存摺價差與實體條塊溢價（含金鑽 1 台兩＝37.5 公克）；手抄的官方費用表 `static-costs.json`（每筆帶網址與查核日期，讀不到就留 null 寫原因）
+  - **集中度**（只在瀏覽器）：設定檔放私人倉庫，只有八個類別的權重百分比、收入來源代理標的、月份；檢視頁顯示三個事實（最大單一類別、前二合計、與收入代理同向的合計，用 risk.json 的相關係數、門檻 0.5）；
+    表單只在私人倉庫模式可用、先測連線再存；設定檔的鍵名只在 `js/concentration.js` 出現，公開輸出與 DOM 都有測試掃
+  - **探測**：在分支上跑 retest 組（證交所端點用正式標頭＋Referer → 可用；e添富先取頁面 cookie 再 POST → 可用；^SP500TR 週線 → 可用；黃金現貨兩個代號 → 404，所以拆解的殘差仍含期貨基差、notes 有解釋）；`probe-analysis.yml` 一字未改
+  - risk.json 的 `asOf` 欄改名 `dataThrough`（跟設定檔的鍵名撞名）；`analyze.py run(paths=…)` 可把輸出指到倉庫外（A1-3 預留）
+  - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-2`
+- [ ] 分析系列 A1-3 — 試算清單（只是預告，內容等停點說明）
 - [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、正式的五面向卡片與狀態快照（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
