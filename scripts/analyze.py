@@ -8,7 +8,8 @@ slot=review 呼叫它），做三件事：
 
   1. 維護 data/history-long/<id>.json：Yahoo 週線全歷史（雲端負責、有 Yahoo 代號的標的）
      ＋ USD/TWD 週線（FinMind 轉載的台銀每日牌價，每週取最後一個營業日）。
-     一週實際只補抓一次：最後一根完成週棒超過 7 天才發請求。
+     一週只補抓一次：存檔最後一根早於「最近一個已完成週」的週一（今天所在 ISO 週的週一減 7 天）才發請求；
+     只有週一那次 review 會抓，週一沒跑到週二會自動補。
   2. 算 data/analysis/risk.json：年化波動（1 年／5 年）、最大回檔、目前距歷史高點的回檔、
      相關係數矩陣（3 年、週報酬、ISO 週對齊、成對可用）。
   3. 算 data/analysis/decompose.json：台銀台幣金價 ≈ 國際金價 × USD/TWD ÷ 31.1035 ＋ 殘差；
@@ -78,7 +79,6 @@ GRAMS_PER_TROY_OUNCE = 31.1035          # 1 金衡盎司 = 31.1035 公克（台�
 FX_LONG_ID = "fx_usd"
 FX_LONG_START = "2006-01-01"            # FinMind TaiwanExchangeRate 的起點（A0 實測：USD 自 2006-01-03 有效）
 YAHOO_PERIOD1_MONDAY = 345600           # 1970-01-05 00:00 UTC（星期一）：Yahoo 的週會對齊 period1 的星期幾，所以不能用 0
-REFETCH_AFTER_DAYS = 7                  # 最後一根完成週棒超過這麼多天才補抓
 INCREMENTAL_LOOKBACK_DAYS = 21          # 補抓時往前多要三週，讓合併有重疊、不會漏
 WINDOWS_WEEKS = {"1y": 52, "5y": 260}
 MIN_COVERAGE = 0.9                      # 視窗內缺超過 10% 就資料不足
@@ -411,17 +411,26 @@ def merge_weekly(old, new, key=None):
     return sorted(table.values(), key=lambda p: p["d"])
 
 
+def last_completed_week_monday(today):
+    """最近一個已完成 ISO 週的週一＝今天所在 ISO 週的週一減 7 天（週一當天，上一週剛走完）。"""
+    return today - timedelta(days=today.weekday() + 7)
+
+
 def refetch_plan(existing_points, today):
     """要不要補抓、從哪裡開始。回傳 (mode, start_date_or_None, reason)。
-    mode：full（整段）／incremental（從最後一根往前 21 天）／skip（最後一根還沒超過 7 天）。"""
+    mode：full（整段）／incremental（從最後一根往前 21 天）／skip（存檔已經有最近一個完成週）。
+    判斷是確定性的、不用年齡門檻：存檔最後一根的日期早於「最近一個已完成週的週一」才補抓——
+    每週只在週一那次 review 抓一次，週一沒跑到，週二會自動補上。（A1-1 原本用「超過 7 天」，
+    結果週二到下週一每天都補抓：最後一根永遠是上週一，年齡 8～13 天。）
+    週棒日期不一定是週一（週一休市會是週二；匯率是該週最後一個營業日），所以比的是「早於週一」而不是「等於週一」。"""
     if not existing_points:
         return "full", None, "沒有長歷史，整段回補"
     last = parse_day(existing_points[-1]["d"])
-    age = (today - last).days
-    if age > REFETCH_AFTER_DAYS:
+    due = last_completed_week_monday(today)
+    if last < due:
         start = last - timedelta(days=INCREMENTAL_LOOKBACK_DAYS)
-        return "incremental", start.strftime("%Y-%m-%d"), "最後一根 %s 已 %d 天，補抓 %s 起" % (last, age, start)
-    return "skip", None, "最後一根 %s 才 %d 天，這週不必抓" % (last, age)
+        return "incremental", start.strftime("%Y-%m-%d"), "最後一根 %s 早於最近一個完成週的週一 %s，補抓 %s 起" % (last, due, start)
+    return "skip", None, "最後一根 %s 已是最近一個完成週（週一 %s），這週不必抓" % (last, due)
 
 
 def long_targets(assets):
@@ -474,7 +483,7 @@ def update_long_history(target, f, now, status, only=None, offline=False, dry_ru
         head = {"id": aid, "name": a["name"], "symbol": target["symbol"], "interval": "1wk", "source": "yahoo",
                 "sourceLabel": "Yahoo Finance chart API（週線）", "currency": a.get("currency"), "unit": a.get("unit"),
                 "dateSourceNote": DATE_SOURCE_NOTES["yahoo-week"],
-                "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；最後一根完成週棒超過 7 天才補抓。"
+                "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；存檔最後一根早於最近一個完成週的週一才補抓（每週一次）。"
                         "period1 用 1970-01-05（星期一）：Yahoo 把週的起點對齊 period1 的星期幾，用 0 會讓 ^GSPC 變成週四起的週；"
                         "所以只回 1970 以後（Yahoo 對 ^GSPC 其實從 1927 就有，分析用不到更早）。",
                 "barsStartOn": info.get("dominantWeekday"),

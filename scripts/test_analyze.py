@@ -6,7 +6,7 @@ test_analyze.py — scripts/analyze.py 的離線測試（完全不連網）
 釘住的事（把 analyze.py 的判準改壞，這裡一定要紅；對照組見 docs/CHANGELOG.md 分析系列 A1-1）：
   1. Yahoo 週線只收「宣告 1wk、實際間距 6～8 天、已完成」的 K 棒；range=max 那種月線回應整批不收。
   2. 匯率週線每個 ISO 週只取最後一個營業日；FinMind 的 -1 哨兵列不進來。
-  3. 補抓規則：沒有檔案→整段；最後一根超過 7 天→從它往前 21 天補；否則這週不發請求。
+  3. 補抓規則：沒有檔案→整段；最後一根早於最近一個完成週的週一→從它往前 21 天補；否則這週不發請求（每週只抓一次）。
   4. 波動、最大回檔、目前回檔、相關矩陣的算法；視窗不夠就「資料不足」；對角線不是 1 要喊出來。
   5. 拆解：盎司→公克用 31.1035；同一天／前一日兩個口徑；00646 = S&P × 匯率 + 殘差。
   6. 主機白名單：台銀連線都不發；不在名單的主機也不發。
@@ -20,7 +20,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, time as dtime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -178,16 +178,54 @@ class TestFxWeeklyAndPlan(unittest.TestCase):
         self.assertEqual([r["date"] for r in parsed], ["2006-01-03"])
 
     def test_refetch_plan(self):
-        today = NOW.date()
+        today = NOW.date()                                                                     # 2026-09-24 星期四
+        self.assertEqual(A.last_completed_week_monday(today), A.parse_day("2026-09-14"))
+        self.assertEqual(A.last_completed_week_monday(A.parse_day("2026-09-21")), A.parse_day("2026-09-14"))   # 週一當天
+        self.assertEqual(A.last_completed_week_monday(A.parse_day("2026-09-27")), A.parse_day("2026-09-14"))   # 週日還是同一週
         self.assertEqual(A.refetch_plan([], today)[0], "full")
-        recent = [{"d": (today - timedelta(days=3)).strftime("%Y-%m-%d"), "c": 1}]
-        self.assertEqual(A.refetch_plan(recent, today)[0], "skip")
-        old = [{"d": (today - timedelta(days=8)).strftime("%Y-%m-%d"), "c": 1}]
-        mode, start, _ = A.refetch_plan(old, today)
+        have_last_week = [{"d": "2026-09-14", "c": 1}]                                         # 上週的週棒已經在 → 這週不抓
+        self.assertEqual(A.refetch_plan(have_last_week, today)[0], "skip")
+        tuesday_bar = [{"d": "2026-09-15", "c": 1}]                                            # 週一休市、週棒落在週二也算有
+        self.assertEqual(A.refetch_plan(tuesday_bar, today)[0], "skip")
+        fx_friday = [{"d": "2026-09-18", "c": 1}]                                              # 匯率是該週最後一個營業日
+        self.assertEqual(A.refetch_plan(fx_friday, today)[0], "skip")
+        two_weeks_old = [{"d": "2026-09-07", "c": 1}]
+        mode, start, _ = A.refetch_plan(two_weeks_old, today)
         self.assertEqual(mode, "incremental")
-        self.assertEqual(start, (today - timedelta(days=8 + 21)).strftime("%Y-%m-%d"))
-        exactly7 = [{"d": (today - timedelta(days=7)).strftime("%Y-%m-%d"), "c": 1}]
-        self.assertEqual(A.refetch_plan(exactly7, today)[0], "skip")
+        self.assertEqual(start, "2026-08-17")                                                  # 往前 21 天
+        eight_days = [{"d": (today - timedelta(days=8)).strftime("%Y-%m-%d"), "c": 1}]        # 舊規則會抓的情況，現在不抓
+        self.assertEqual(A.refetch_plan(eight_days, today)[0], "skip")
+
+    def test_fourteen_daily_reviews_fetch_exactly_twice(self):
+        """對照組：把判斷改壞成每天抓 → 這一條會紅。連續 14 天每天 15:30 跑一次 review，只有兩個週一該發請求。"""
+        w = World()
+        try:
+            w.write("assets.json", ASSETS)
+            d0 = A.parse_day("2026-09-07")                                                     # 星期一；存檔停在兩週前
+            w.write("history-long/gspc.json", {"id": "gspc", "points": [{"d": (d0 - timedelta(days=14)).strftime("%Y-%m-%d"), "c": 1.0, "dateSource": "x"}]})
+            calls = []
+
+            def fake_fetch(f, symbol, p1, p2, now_epoch=None):
+                now_day = datetime.fromtimestamp(now_epoch, tz=A.TPE).date()
+                due = A.last_completed_week_monday(now_day)
+                calls.append(now_day.strftime("%Y-%m-%d"))
+                out = [{"d": (due - timedelta(days=7 * k)).strftime("%Y-%m-%d"), "c": 2.0, "dateSource": "x"} for k in (3, 2, 1, 0)]
+                return out, {"droppedInProgress": 1, "dominantWeekday": "Mon", "firstTradeDate": None}
+            target = {"id": "gspc", "kind": "yahoo", "symbol": "^GSPC", "asset": {"id": "gspc", "name": "S&P 500", "currency": "USD", "unit": "點"}}
+            orig = A.fetch_yahoo_weekly
+            A.fetch_yahoo_weekly = fake_fetch
+            try:
+                for i in range(14):
+                    now = datetime.combine(d0 + timedelta(days=i), dtime(15, 30), tzinfo=A.TPE)
+                    status = {"longHistory": {}, "warnings": []}
+                    A.update_long_history(target, None, now, status, paths=w.paths)
+            finally:
+                A.fetch_yahoo_weekly = orig
+            self.assertEqual(calls, ["2026-09-07", "2026-09-14"])                             # 只有兩個週一
+            last = json.load(io.open(os.path.join(w.data, "history-long", "gspc.json"), encoding="utf-8"))["points"][-1]["d"]
+            self.assertEqual(last, "2026-09-07")                                               # 第二次抓到的是 9/7 那一週
+        finally:
+            w.close()
 
     def test_merge_keeps_one_point_per_week_and_prefers_new(self):
         old = [{"d": "2026-09-07", "c": 1}, {"d": "2026-09-14", "c": 2}]
