@@ -833,7 +833,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 
 ```bash
 git revert --no-edit 936b28c..stopA1-3          # 合併前：在分支上把 A1-3 的全部 commit 反轉
-git revert -m 1 <合併 commit> && git push        # 合併後：退整個 A1-3（合併排在 A1-2 第二段驗收之後）
+git revert -m 1 6292af2 && git push        # 合併後：退整個 A1-3（2026-09-25 晚上合併，A1-2 第二段通過之後）
 ```
 退回後私人倉庫的 workflow 會因為公開倉庫沒有 `--adhoc` 而失敗（結束碼 2），私人倉庫已有的 adhoc/ 結果不受影響。
 

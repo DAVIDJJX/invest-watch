@@ -396,6 +396,7 @@ git push
 | 2026-09-18 | 停點 8 其餘（probe 彙整、互斥鎖、舊資料標示、schedule.json） | `git revert -m 1 3ffe155 && git push`；或照 `docs/CHANGELOG.md` 用 `stop8-N` 標籤逐段退 |
 | 2026-09-21 | 分析系列 A0（一）：探測腳本＋離線測試＋手動 workflow（只讀，沒有正式流程引用） | `git revert -m 1 3782bbe && git push` |
 | 2026-09-24 | 分析系列 A1-1：assetClass、國際金價卡片、週線長歷史、risk／decompose、檢視頁、守門測試 | `git revert -m 1 d5b9d55 && git push`（它是 7459b34 之後的第一個合併；退回後雲端下一輪就不再產生 data/history-long 與 data/analysis，已產生的檔案可另外刪） |
+| 2026-09-25 | 分析系列 A1-3：試算清單（`--adhoc` 入口、結構性禁寫、檢視頁試算區、私人 workflow 範本） | `git revert -m 1 6292af2 && git push`（它是 d398775 之後的第一個合併；退回後私人倉庫的 adhoc-analyze workflow 會因為公開倉庫沒有 `--adhoc` 而失敗，已有的結果不受影響） |
 | 2026-09-25 | 分析系列 A1-2：成本（追蹤差、折溢價累積、黃金價差、條塊溢價、靜態費用表）＋集中度（只在瀏覽器）＋週線補抓規則修正 | `git revert -m 1 d398775 && git push`（它是 d5b9d55 之後的第一個合併；退回後雲端下一輪不再產生 cost.json 與 nav/，已產生的檔案可另外刪；risk.json 的 `dataThrough` 欄會變回舊名） |
 | 2026-09-23 | 分析系列 A0（二）：CHANGELOG、README、`.gitignore`（擋分析方法目錄的原始版本） | `git revert -m 1 <第二次合併的 commit> && git push`（它是 3782bbe 之後的第一個合併，`git log --oneline --merges -3` 可查；先退這一次，再退上一列） |
 
