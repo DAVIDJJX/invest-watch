@@ -73,6 +73,30 @@
       FIX.staticCosts = { note: '每筆帶官方出處與查核日期', entries: [
         { asset: 'tw00646', item: '經理費', value: '0.30', unit: '%／年', label: '官方公告', source: 'https://example.invalid/00646', sourceTitle: '測試出處', checkedOn: '2026-09-25', note: '' },
         { asset: 'tw00679b', item: '總費用率（最近一年）', value: null, nullReason: '測試：沒有查到', label: '官方公告', source: '', checkedOn: '2026-09-25', note: '' } ] };
+      // 試算（A1-3）的假資料：代號一律 FAKE 開頭
+      FIX.adhocIndex = { version: 1, updatedAt: '2026-09-25T20:10:00+08:00', symbols: {
+        'FAKE.L': { latest: 'adhoc/FAKE.L/2026-09-25.json', runDate: '2026-09-25', dataThrough: '2026-09-14', assetClass: 'index_etf', currency: 'GBP', bars: 300,
+                    vol1yPct: 12.3, vol5yPct: null, maxDrawdownPct: -33.3, currentDrawdownPct: -4.4, top1: { id: 'gspc', r: 0.912 },
+                    priceUnitNote: 'Yahoo 的報價單位是便士（GBp），已 ÷100 換成英鎊（GBP）' },
+        'FAKE2': { latest: 'adhoc/FAKE2/2026-09-24.json', runDate: '2026-09-24', dataThrough: '2026-09-14', assetClass: 'stock', currency: 'USD', bars: 60,
+                   vol1yPct: 30.1, vol5yPct: null, maxDrawdownPct: -12.0, currentDrawdownPct: -1.0, top1: null, priceUnitNote: null } } };
+      FIX.adhocList = [ { symbol: 'FAKE.L', latest: '2026-09-25.json', path: 'adhoc/FAKE.L/2026-09-25.json' },
+                        { symbol: 'FAKE2', latest: '2026-09-24.json', path: 'adhoc/FAKE2/2026-09-24.json' } ];
+      FIX.adhocDetail = { symbol: 'FAKE.L', name: 'Fake FTSE Tracker', assetClass: 'index_etf', currency: 'GBP',
+        priceUnitNote: 'Yahoo 的報價單位是便士（GBp），已 ÷100 換成英鎊（GBP）', runDate: '2026-09-25', dataThrough: '2026-09-14', firstBar: '2019-01-07', bars: 300, dataLabel: '單一來源',
+        expenseRatio: { pct: 0.07, label: '使用者輸入' },
+        risk: { volatility: { '1y': { pct: 12.3, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
+                              '5y': { pct: null, weeks: 200, window: '260 週', reason: '資料不足：只有 200 週（至少要 234 週）', label: '單一來源' } },
+                maxDrawdown: { pct: -33.3, peakDate: '2020-02-17', troughDate: '2020-03-16', recoveredDate: '2021-01-04', label: '單一來源' },
+                currentDrawdown: { pct: -4.4, highDate: '2026-08-31', dataThrough: '2026-09-14', label: '單一來源' },
+                tenYearWindow: { available: false, reason: '資料不足，2029-01 起才滿 10 年' } },
+        correlation: { window: '3 年（156 週）', label: '單一來源',
+                       top: [ { id: 'gspc', name: 'S&P 500', assetClass: 'index', r: 0.912, n: 156, from: '2023-09-25', through: '2026-09-08' },
+                              { id: 'tw00646', name: '00646', assetClass: 'index_etf', r: 0.88, n: 156 },
+                              { id: 'nvda', name: 'NVIDIA', assetClass: 'stock', r: 0.61, n: 156 } ],
+                       all: [], insufficient: [ { id: 'btc', reason: '資料不足：重疊只有 40 週（至少要 100 週）' } ] },
+        valuation: { reason: '資料不足：試算不做估值' }, premium: { reason: '資料不足：試算不做折溢價' }, trend: { reason: 'A2 完成後才有趨勢面' },
+        notes: ['註冊地造成的稅務差異（股息預扣稅、遺產稅）本系統不計算，需另查最新規定', '相關係數是各自幣別的週報酬，不含匯率換算。'] };
       // 假的設定檔：權重一看就是假的（10／20／30 遞增），代理標的台積電
       // 假的設定檔用 fromForm 組（設定檔的鍵名只准在 concentration.js 裡出現）
       var FAKE_PROFILE = Concentration.fromForm({ stock: '10', index_etf: '20', bond_etf: '30', commodity: '15', crypto: '5', fx: '5', gold_tw: '10', other: '5', proxy: 'tw2330', month: '2026-09' });
@@ -193,6 +217,45 @@
         check('storage_exposes_loadFile_and_saveFile', function (p) {
           if (typeof Storage.loadFile !== 'function' || typeof Storage.saveFile !== 'function') p.push('storage.js 沒有 loadFile／saveFile');
           if (typeof Concentration.facts !== 'function' || Concentration.FILE !== 'analysis-profile.json') p.push('concentration.js 介面不對');
+        });
+        check('adhoc_index_state_lists_symbols_with_summary', function (p) {
+          var box = document.createElement('div');
+          box.innerHTML = AnalysisDebug.renderAdhoc({ status: 'index', index: FIX.adhocIndex });
+          var t = box.innerText;
+          if (t.indexOf('FAKE.L') < 0 || t.indexOf('FAKE2') < 0) p.push('index 狀態沒列出兩個代號');
+          if (t.indexOf('12.30%') < 0) p.push('1 年波動沒顯示');
+          if (t.indexOf('gspc 0.912') < 0) p.push('相關最高沒顯示');
+          if (box.querySelectorAll('.adhoc-open').length !== 2) p.push('每個代號要有「看詳細」');
+          if (!box.querySelector('#adhoc-load')) p.push('沒有讀取按鈕');
+          if (t.indexOf('稅務差異') < 0) p.push('固定的稅務註記沒顯示');
+        });
+        check('adhoc_no_index_fallback_lists_latest_file_per_symbol', function (p) {
+          var box = document.createElement('div');
+          box.innerHTML = AnalysisDebug.renderAdhoc({ status: 'list', entries: FIX.adhocList });
+          var t = box.innerText;
+          if (t.indexOf('沒有 adhoc/index.json') < 0) p.push('沒說明是備援清單');
+          if (t.indexOf('FAKE2') < 0 || t.indexOf('2026-09-24.json') < 0) p.push('備援清單沒列出代號與最新檔名');
+          if (box.querySelectorAll('.adhoc-open').length !== 2) p.push('備援清單每個代號要有「看詳細」');
+          var box2 = document.createElement('div');
+          box2.innerHTML = AnalysisDebug.renderAdhoc({ status: 'empty' });
+          if (box2.innerText.indexOf('還沒有任何試算') < 0) p.push('空狀態沒顯示');
+          var box3 = document.createElement('div');
+          box3.innerHTML = AnalysisDebug.renderAdhoc({ status: 'unset', reason: '本機模式' });
+          if (box3.innerText.indexOf('未設定') < 0) p.push('未設定沒顯示');
+          if (typeof Storage.listDir !== 'function') p.push('storage.js 沒有 listDir');
+        });
+        check('adhoc_detail_shows_facts_labels_and_tax_note', function (p) {
+          var box = document.createElement('div');
+          box.innerHTML = AnalysisDebug.renderAdhoc({ status: 'index', index: FIX.adhocIndex, detail: FIX.adhocDetail });
+          var t = box.innerText;
+          if (t.indexOf('便士') < 0) p.push('便士換算的說明沒顯示');
+          if (t.indexOf('使用者輸入') < 0 || t.indexOf('0.07%') < 0) p.push('費用率與「使用者輸入」標籤沒顯示');
+          if (t.indexOf('0.912') < 0 || t.indexOf('0.610') < 0) p.push('相關前三名沒顯示');
+          if (t.indexOf('-33.30%') < 0 && t.indexOf('−33.30%') < 0) p.push('最大回檔沒顯示');
+          if (t.indexOf('資料不足：試算不做估值') < 0) p.push('估值資料不足沒顯示');
+          if (t.indexOf('至少要 234 週') < 0) p.push('5 年波動資料不足的原因沒顯示');
+          if (t.indexOf('重疊只有 40 週') < 0) p.push('相關資料不足的標的沒列');
+          if (t.indexOf('稅務差異') < 0) p.push('稅務註記沒顯示');
         });
         check('missing_status_is_loud', function (p) {
           var box = document.createElement('div');
