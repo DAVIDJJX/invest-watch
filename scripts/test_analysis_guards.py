@@ -36,8 +36,9 @@ TERMS_FILE = os.environ.get("IW_SCAN_TERMS_FILE") or os.path.join(ROOT, "..", "i
 # 分析系列要進公開倉庫的檔案。核心檔一定要存在（不存在＝測試紅）；data 底下的看有什麼就掃什麼。
 CORE_FILES = [
     "scripts/analyze.py", "scripts/net_policy.py", "scripts/test_analyze.py", "scripts/test_analysis_guards.py",
-    "scripts/test_analysis_debug.html", "scripts/test_analysis_debug_js.py",
-    "analysis-debug.html", "js/analysis-debug.js", "js/concentration.js", "docs/ANALYSIS.md",
+    "scripts/test_analysis_page.html", "scripts/test_analysis_page_js.py",
+    "scripts/test_card_analysis.html", "scripts/test_card_analysis_js.py", "scripts/test_indicators.html",
+    "analysis.html", "analysis-debug.html", "js/analysis.js", "js/card-analysis.js", "js/concentration.js", "docs/ANALYSIS.md",
     "docs/adhoc-workflow.example.yml",
 ]
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
@@ -410,7 +411,7 @@ class TestAdhocStaysOutOfThePublicRepo(unittest.TestCase):
             self.assertNotIn("--adhoc", read_text(os.path.relpath(p, ROOT).replace(os.sep, "/")), p)
 
     def test_fixture_symbols_are_obviously_fake(self):
-        for rel in ("scripts/test_analysis_debug.html", "scripts/test_analyze.py"):
+        for rel in ("scripts/test_analysis_page.html", "scripts/test_analyze.py"):
             for m in re.findall(r"adhoc/([A-Za-z0-9.^=\-]+)/", read_text(rel)):
                 self.assertTrue(m.startswith("FAKE"), "%s 裡的試算 fixture 代號不是 FAKE 開頭：%s" % (rel, m))
 
@@ -460,6 +461,48 @@ class TestProfileKeyNamesStayInOnePlace(unittest.TestCase):
         text = read_text(PROFILE_KEY_HOME)
         for k in PROFILE_KEYS:
             self.assertIn(k, text)
+
+
+# docs/ 底下每個 .md 的大小上限（位元組）。2026-09-25 A1-3 的文件腳本把 ANALYSIS.md 塞成 24 MB、守門沒擋下（它只掃字），所以加這一條。
+# 上限取當時實際大小的 5 倍左右（ANALYSIS.md 24 KB → 120 KB；CHANGELOG.md 101 KB → 512 KB；scheduler-setup.md 6 KB → 32 KB；
+# 其他 .md 預設 128 KB）：正常改一次文件不會長 5 倍，接近上限時要有意識地調高這裡的數字，而不是靜靜地長過去。
+DOC_SIZE_LIMITS = {"docs/ANALYSIS.md": 120 * 1024, "docs/CHANGELOG.md": 512 * 1024, "docs/scheduler-setup.md": 32 * 1024}
+DOC_SIZE_DEFAULT = 128 * 1024
+
+
+def oversized_docs(root, limits=None, default=None):
+    limits = DOC_SIZE_LIMITS if limits is None else limits
+    default = DOC_SIZE_DEFAULT if default is None else default
+    bad = []
+    for path in sorted(glob.glob(os.path.join(root, "docs", "*.md"))):
+        rel = "docs/" + os.path.basename(path)
+        size, cap = os.path.getsize(path), limits.get(rel, default)
+        if size > cap:
+            bad.append("%s：%d 位元組，超過上限 %d" % (rel, size, cap))
+    return bad
+
+
+class TestDocsStaySmall(unittest.TestCase):
+    """文件不會一夕長 5 倍：超過上限就是腳本出事（A1-3 的 24 MB 事故），不是文件寫太多。"""
+
+    def test_every_markdown_under_docs_is_within_its_size_cap(self):
+        self.assertTrue(glob.glob(os.path.join(ROOT, "docs", "*.md")))
+        self.assertEqual(oversized_docs(ROOT), [], "docs/ 底下有檔案超過大小上限（腳本出事？）：%s" % oversized_docs(ROOT))
+
+    def test_size_cap_scanner_catches_an_oversized_file(self):
+        import tempfile
+        import shutil
+        d = tempfile.mkdtemp(prefix="iw-docs-cap-")
+        try:
+            os.makedirs(os.path.join(d, "docs"))
+            with io.open(os.path.join(d, "docs", "big.md"), "w", encoding="utf-8") as fh:
+                fh.write("x" * 2000)
+            with io.open(os.path.join(d, "docs", "small.md"), "w", encoding="utf-8") as fh:
+                fh.write("ok")
+            self.assertEqual(oversized_docs(d, {}, 1000), ["docs/big.md：2000 位元組，超過上限 1000"])
+            self.assertEqual(oversized_docs(d, {"docs/big.md": 5000}, 1000), [])
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 class TestPrivateSpecStaysOut(unittest.TestCase):

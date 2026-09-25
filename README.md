@@ -50,7 +50,8 @@ invest-watch/
 ├─ history.html          歷史頁（Phase 2）
 ├─ records.html          我的紀錄（Phase 3）
 ├─ settings.html         設定（Phase 3 / 4）
-├─ analysis-debug.html   分析檢視（暫時頁，純表格；分析系列 A4 會用正式的面向卡片取代）
+├─ analysis.html         分析分頁：狀態、風險總表（可排序）、相關矩陣（色階）、成本、拆解、集中度、試算（A1-5）
+├─ analysis-debug.html   舊網址，只做跳轉到 analysis.html
 ├─ css/style.css         深色系樣式，手機優先 RWD
 ├─ js/
 │   ├─ indicators.js     指標計算（MA / RSI / 百分位…），純函式
@@ -64,7 +65,8 @@ invest-watch/
 │   ├─ settings.js       設定頁邏輯
 │   ├─ lock.js           密碼鎖（把本機資料與金鑰加密）
 │   ├─ concentration.js  集中度（只在瀏覽器裡算；設定檔的鍵名只准出現在這一個檔案）
-│   └─ analysis-debug.js 分析檢視頁的表格（只列事實與日期，不算任何東西）
+│   ├─ card-analysis.js  儀表板卡片裡的「分析」摺疊區：從 risk／cost 挑這一張卡的事實（純函式，展開才讀取）
+│   └─ analysis.js       分析分頁的表格與矩陣（只列事實與日期，不算任何東西）
 ├─ lib/chart.umd.min.js  Chart.js 4.4.4，下載到本地，不依賴 CDN
 ├─ data/
 │   ├─ assets.json       監控清單設定檔 ← 要增減標的只改這一個檔
@@ -777,7 +779,7 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
 - [x] **分析系列 A1-1 — 資料層＋風險＋拆解**（2026-09-24 完成）
   - **做了什麼**：`assets.json` 每個標的加 `assetClass`（分析方法照類別自動套用；跟 `type` 並存）；新增雲端資產 **國際金價 gold_intl**（GC=F，只在四個報時更新，`cadence: full` 從此對所有 type 通用）；
     `data/history-long/` 十個週線全歷史（Yahoo 九個標的＋USD/TWD 經 FinMind，2006 起，標原始出處）；每天 15:30 review 那一輪跑 `scripts/analyze.py` 算 **風險**（年化波動 1／5 年、最大回檔、目前距高點、3 年相關矩陣）與 **拆解**
-    （台銀金價＝國際金價×匯率÷31.1035＋殘差；00646＝S&P 500×匯率＋殘差）；`data/analysis/status.json` 記上次算的狀態與錯誤；暫時檢視頁 `analysis-debug.html`；公開版方法文件 `docs/ANALYSIS.md`
+    （台銀金價＝國際金價×匯率÷31.1035＋殘差；00646＝S&P 500×匯率＋殘差）；`data/analysis/status.json` 記上次算的狀態與錯誤；檢視頁 `analysis-debug.html`（A1-5 起併入分析分頁）；公開版方法文件 `docs/ANALYSIS.md`
   - **守門**：分析系列的檔案由測試自動掃——不准出現投資判斷用語（頁尾那句固定聲明是唯一例外），不准出現個人持倉數字、具名字串（加鹽 HMAC 比對，鹽不在倉庫裡）；分析出錯絕不卡住行情與報告
   - **實跑學到的**：Yahoo 會把「一週」的起點對齊 `period1` 那一天的星期幾，`period1=0`（星期四）會讓 S&P 500 變成週四起的週——一律改用 1970-01-05（星期一）
   - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-1`
@@ -796,6 +798,12 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - **結構性禁寫**：`--out` 在倉庫裡就在連網前結束；adhoc 模式所有寫檔都經「允許寫入根目錄」檢查；`status.json` 也只寫到 out；公開 workflow 有測試釘住不得出現 `--adhoc`；跑前跑後 `git status` 一樣
   - **私人倉庫這一邊**：`docs/adhoc-workflow.example.yml` 複製到 invest-data 的 `.github/workflows/adhoc-analyze.yml`（只有 `contents: write`；checkout 公開 main 唯讀、不留 credential）；結果寫 `adhoc/<代號>/<執行日>.json`＋`adhoc/index.json`；網站檢視頁「試算」區先讀 index（1 個請求），沒有 index 才用 `listDir` 列目錄
   - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-3`
+- [x] **分析系列 A1-5 — 儀表板整合（第一版）**（2026-09-26 完成）
+  - **卡片層**：每張可展開的資產卡多一個預設收合的「分析」摺疊區：年化波動 1／5 年、最大回檔（高點、低點、回到高點的日期）、目前距高點（小橫條，刻度 0 到該標的歷史最大回檔；週線日期與日線報價日期並列）、
+    最同向、最不相關（|r| 最接近 0）、反向最強（r < −0.3 才顯示）、成本有才顯示（追蹤差、折溢價含「累積中 n/20」、存摺價差、條塊溢價）；每個數字旁有資料標籤與日期；第一次展開才抓 risk.json／cost.json，首屏請求數不變（多的只是 1 個靜態檔）
+  - **頁面層**：新分頁 `analysis.html`：狀態列、風險總表可排序、相關矩陣色階（數字為主、顏色輔助、手機橫向捲動）、成本、拆解、集中度、試算；舊網址 `analysis-debug.html` 只做跳轉
+  - **一項不減**：改前改後儀表板 DOM 比對只有新增行；燈號邏輯用改前的 fixture 釘住；既有前端測試全綠
+  - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-5`
 - [ ] 分析系列 A1-4 — 00646 官方淨值回補（小停點）
 - [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、正式的五面向卡片與狀態快照（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA

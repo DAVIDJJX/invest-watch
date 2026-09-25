@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>js/card-analysis.js 離線測試頁</title>
+</head>
+<body>
+  <!-- 這一頁不連網、不讀資料檔：把假的 risk／cost 餵給 js/card-analysis.js，逐題檢查算出來的事實與畫出來的 HTML。
+       結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_card_analysis_js.py 讀。假資料的數字一看就是假的。 -->
+  <div id="mount"></div>
+  <pre id="result"></pre>
+  <script src="../js/card-analysis.js"></script>
+  <script>
+    (function () {
+      var RISK = { generatedAt: '2026-09-25T15:30:56+08:00',
+        assets: {
+          tw00646: { name: '元大 S&P500', assetClass: 'index_etf', currency: 'TWD', bars: 563, firstBar: '2015-11-30', lastBar: '2026-09-14', dataLabel: '單一來源',
+                     volatility: { '1y': { pct: 11.11, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
+                                   '5y': { pct: 16.66, weeks: 260, window: '260 週', from: '2021-09-20', through: '2026-09-14', label: '單一來源' } },
+                     maxDrawdown: { pct: -40, peakDate: '2020-02-17', troughDate: '2020-03-16', recoveredDate: '2020-08-24', label: '單一來源' },
+                     currentDrawdown: { pct: -10, highDate: '2026-08-31', dataThrough: '2026-09-14', label: '單一來源' } },
+          tw00679b: { name: '元大美債20年', assetClass: 'bond_etf', currency: 'TWD', bars: 506, firstBar: '2017-01-09', lastBar: '2026-09-14', dataLabel: '單一來源',
+                      volatility: { '1y': { pct: 14.4, weeks: 52, window: '52 週', from: '2025-09-15', through: '2026-09-14', label: '單一來源' },
+                                    '5y': { pct: null, weeks: 40, window: '260 週', reason: '資料不足：只有 40 週（至少要 234 週）' } },
+                      maxDrawdown: { pct: -50, peakDate: '2020-03-09', troughDate: '2023-10-23', recoveredDate: null, label: '單一來源' },
+                      currentDrawdown: { pct: -45, highDate: '2020-03-09', dataThrough: '2026-09-14', label: '單一來源' } },
+          gspc: { name: 'S&P 500', assetClass: 'index', currency: 'USD', bars: 2959, lastBar: '2026-09-14', dataLabel: '單一來源',
+                  volatility: { '1y': { pct: 12.0, from: '2025-09-15', through: '2026-09-14', label: '單一來源' }, '5y': { pct: 17.0, from: '2021-09-20', through: '2026-09-14', label: '單一來源' } },
+                  maxDrawdown: { pct: -56, peakDate: '2007-10-08', troughDate: '2009-03-09', recoveredDate: '2013-03-25', label: '單一來源' },
+                  currentDrawdown: { pct: -1, highDate: '2026-08-31', dataThrough: '2026-09-14', label: '單一來源' } },
+          fx_usd: { name: 'USD/TWD', assetClass: 'fx', currency: 'TWD', bars: 1080, lastBar: '2026-09-18', dataLabel: '有對照',
+                    volatility: { '1y': { pct: 4.0, from: '2025-09-15', through: '2026-09-18', label: '有對照' }, '5y': { pct: 5.0, from: '2021-09-20', through: '2026-09-18', label: '有對照' } },
+                    maxDrawdown: { pct: -12, peakDate: '2022-10-24', troughDate: '2024-05-06', recoveredDate: null, label: '有對照' },
+                    currentDrawdown: { pct: -3, highDate: '2022-10-24', dataThrough: '2026-09-18', label: '有對照' } } },
+        correlation: { window: '3 年（156 週）', label: '單一來源', ids: ['fx_usd', 'gspc', 'tw00646', 'tw00679b'],
+          matrix: {
+            tw00646:  { tw00646: { r: 1, n: 156 }, gspc: { r: 0.9, n: 156, through: '2026-09-08' }, tw00679b: { r: 0.05, n: 156, through: '2026-09-08' }, fx_usd: { r: -0.35, n: 154, through: '2026-09-08' } },
+            tw00679b: { tw00679b: { r: 1, n: 156 }, tw00646: { r: 0.05, n: 156, through: '2026-09-08' }, gspc: { r: 0.02, n: 156, through: '2026-09-08' }, fx_usd: { r: -0.2, n: 154, through: '2026-09-08' } },
+            gspc:     { gspc: { r: 1, n: 156 }, tw00646: { r: 0.9, n: 156 }, tw00679b: { r: 0.02, n: 156 }, fx_usd: { r: null, n: 40, reason: '資料不足' } },
+            fx_usd:   { fx_usd: { r: 1, n: 154 }, tw00646: { r: -0.35, n: 154 }, tw00679b: { r: -0.2, n: 154 }, gspc: { r: null, n: 40, reason: '資料不足' } } } } };
+      var COST = { generatedAt: '2026-09-25T15:30:56+08:00',
+        trackingDifference: { primary: { benchmark: '^SP500TR', available: true, label: '估算',
+                                         windows: { '1y': { diffPct: -0.5, annualizedDiffPct: -0.5, from: '2025-09-15', through: '2026-09-14' },
+                                                    '3y': { diffPct: -3.0, annualizedDiffPct: -1.0, from: '2023-09-18', through: '2026-09-14' } } },
+                              reference: { benchmark: '^GSPC', available: true, label: '估算', windows: {} } },
+        premium: { tw00646: { status: '接了（每個交易日存一筆）', latest: [ { d: '2026-09-24', price: 77.15, nav: 76.97, premiumPct: 0.5, tag: '預估' },
+                                                                               { d: '2026-09-23', price: 77.6, nav: 76.86, premiumPct: 1.0, tag: '確定' } ],
+                              estimated: { n: 1, reason: '累積不到 20 個交易日（目前 1），先不顯示中位數', label: '估算' },
+                              official: { n: 1, reason: '累積不到 20 個交易日（目前 1），先不顯示中位數', label: '單一來源' } },
+                   tw00679b: { status: '接了（每個交易日存一筆）', latest: [ { d: '2026-09-24', price: 25.28, nav: 25.1281, premiumPct: 0.6, tag: '預估' } ],
+                               estimated: { n: 30, medianPct: 0.4, label: '估算' }, official: { n: 0, reason: '累積不到 20 個交易日（目前 0）', label: '單一來源' } } },
+        goldSpread: { label: '單一來源', latest: { d: '2026-09-24', buy: 4330, sell: 4382, spreadPct: 1.19 }, summary: { n: 262, medianPct: 1.1, minPct: 1.05, maxPct: 1.2 } },
+        barPremium: { label: '單一來源', n: 12, from: '2026-08-31', latest: { d: '2026-09-24', goldSell: 4382, rows: [ { spec: '1 公斤', grams: 1000, price: 4441200, perGram: 4441.2, premiumPct: 1.35 }, { spec: '金鑽 1 台兩', grams: 37.5, price: 167822, perGram: 4475.3, premiumPct: 2.13 } ] } } };
+      var A646 = { id: 'tw00646', name: '元大 S&P500', date: '2026-09-24' };
+      var results = [];
+      function check(name, fn) {
+        var problems = [];
+        try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
+        results.push({ name: name, ok: problems.length === 0, problems: problems });
+      }
+      function box(html) { var d = document.createElement('div'); d.innerHTML = html; document.getElementById('mount').appendChild(d); return d; }
+      var loaded = !!(window.CardAnalysis && window.CardAnalysis.facts && window.CardAnalysis.render);
+      if (loaded) {
+        var CA = window.CardAnalysis;
+        var f646 = CA.facts(A646, RISK, COST);
+        var h646 = CA.render(f646);
+        var d646 = box(h646);
+
+        check('expanded_card_has_risk_correlation_and_cost', function (p) {
+          var t = d646.innerText;
+          if (!f646.any) p.push('00646 應該有分析項目');
+          if (f646.risk.items.length !== 3) p.push('風險應有波動 1 年、5 年、最大回檔三列，得到 ' + f646.risk.items.length);
+          if (t.indexOf('11.11%') < 0 || t.indexOf('16.66%') < 0) p.push('波動沒顯示');
+          if (t.indexOf('-40.00%') < 0 && t.indexOf('−40.00%') < 0) p.push('最大回檔沒顯示');
+          if (t.indexOf('追蹤差') < 0 || t.indexOf('-1.00%') < 0 && t.indexOf('−1.00%') < 0) p.push('追蹤差（3 年年化）沒顯示');
+          if (t.indexOf('折溢價（預估）') < 0 || t.indexOf('折溢價（確定）') < 0) p.push('折溢價兩個口徑沒顯示');
+          if (t.indexOf('累積中 1/20') < 0) p.push('累積不到 20 天要標「累積中 n/20」');
+          if (!d646.querySelector('.ana-row')) p.push('沒有任何一列');
+        });
+        check('every_row_has_a_label_and_a_date', function (p) {
+          /* 對照組：把資料標籤拿掉 → 這一條會紅。 */
+          var rows = d646.querySelectorAll('.ana-row');
+          if (rows.length < 7) p.push('列數太少：' + rows.length);
+          Array.prototype.forEach.call(rows, function (r) {
+            var tg = r.querySelector('.ana-tag');
+            var txt = tg ? tg.innerText.trim() : '';
+            if (!txt || txt === '—') p.push('這一列沒有資料標籤：' + r.innerText.slice(0, 30));
+            if (!/\d{4}-\d{2}-\d{2}/.test(txt)) p.push('這一列的標籤沒有日期：' + txt);
+            if (!/(估算|單一來源|有對照|多來源一致)/.test(txt)) p.push('標籤不是四種之一：' + txt);
+          });
+        });
+        check('drawdown_bar_scaled_to_max_drawdown_with_both_dates', function (p) {
+          /* 對照組：橫條刻度改錯（用 100% 當刻度）→ 這一條會紅。 */
+          var cu = f646.risk.current;
+          if (!cu || Math.abs(cu.fillPct - 25) > 0.01) p.push('目前 −10%、歷史最大 −40% → 橫條應填 25%，得到 ' + (cu && cu.fillPct));
+          var fill = d646.querySelector('.ana-bar-fill');
+          if (!fill || Math.abs(parseFloat(fill.style.width) - 25) > 0.01) p.push('橫條寬度不是 25%：' + (fill && fill.style.width));
+          var t = d646.innerText;
+          if (t.indexOf('2026-09-14') < 0 || t.indexOf('2026-09-24') < 0) p.push('週線日期與日線報價日期要並列印出');
+          if (t.indexOf('歷史最大回檔 -40.00%') < 0 && t.indexOf('歷史最大回檔 −40.00%') < 0) p.push('刻度說明沒印歷史最大回檔');
+          var f679 = CA.facts({ id: 'tw00679b', date: '2026-09-24' }, RISK, COST);
+          if (Math.abs(f679.risk.current.fillPct - 90) > 0.01) p.push('−45／−50 應填 90%，得到 ' + f679.risk.current.fillPct);
+        });
+        check('correlation_most_aligned_least_related_and_strongest_inverse', function (p) {
+          /* 對照組：「最不相關」改成取最負的 → 這一條會紅。 */
+          var c = f646.correlation;
+          if (!c || !c.available) { p.push('00646 應有相關事實'); return; }
+          if (c.mostAligned.id !== 'gspc') p.push('最同向應是 gspc（0.9），得到 ' + c.mostAligned.id);
+          if (c.leastRelated.id !== 'tw00679b') p.push('最不相關應是 |r| 最接近 0 的 tw00679b（0.05），得到 ' + c.leastRelated.id);
+          if (!c.strongestInverse || c.strongestInverse.id !== 'fx_usd') p.push('fx_usd −0.35 低於 −0.3，應顯示反向最強');
+          var t = d646.innerText;
+          if (t.indexOf('最同向') < 0 || t.indexOf('0.900') < 0) p.push('最同向沒印係數本身');
+          if (t.indexOf('反向最強') < 0 || t.indexOf('-0.350') < 0) p.push('反向最強沒顯示');
+          var c679 = CA.facts({ id: 'tw00679b' }, RISK, COST).correlation;
+          if (c679.strongestInverse) p.push('00679B 最負只有 −0.2，不到 −0.3，不該顯示反向最強');
+          if (c679.leastRelated.id !== 'gspc') p.push('00679B 最不相關應是 gspc（0.02）');
+        });
+        check('cards_without_long_history_show_only_cost_or_nothing', function (p) {
+          var gold = CA.facts({ id: 'gold_twd', date: '2026-09-24' }, RISK, COST);
+          var goldHtml = CA.render(gold);
+          if (gold.risk) p.push('黃金存摺沒有週線長歷史，不該有風險列');
+          if (!gold.any || goldHtml.indexOf('存摺價差') < 0 || goldHtml.indexOf('1.19%') < 0) p.push('黃金存摺應只顯示價差');
+          if (goldHtml.indexOf('不在相關矩陣') < 0) p.push('沒有長歷史的卡要寫「不在相關矩陣」');
+          var bar = CA.facts({ id: 'gold_bar', date: '2026-09-24' }, RISK, COST);
+          var barHtml = CA.render(bar);
+          if (bar.cost.length !== 2 || barHtml.indexOf('金鑽 1 台兩') < 0 || barHtml.indexOf('2.13%') < 0) p.push('條塊卡應列每個規格的溢價');
+          var cny = CA.facts({ id: 'gold_cny', date: '2026-09-24' }, RISK, COST);
+          if (cny.any || CA.render(cny).indexOf('這個標的目前沒有分析項目') < 0) p.push('人民幣存摺應顯示「這個標的目前沒有分析項目」');
+          var fxc = CA.facts({ id: 'fx_cny' }, RISK, COST);
+          if (fxc.any) p.push('人民幣匯率也應該沒有項目');
+          var none = CA.render(null);
+          if (none.indexOf('讀不到') < 0) p.push('沒有資料時要說讀不到');
+        });
+        check('premium_median_shown_only_after_twenty_days', function (p) {
+          var f = CA.facts({ id: 'tw00679b', date: '2026-09-24' }, RISK, COST);
+          var html = CA.render(f);
+          if (html.indexOf('30 個交易日中位數 0.40%') < 0) p.push('累積滿 20 天要顯示中位數');
+          if (html.indexOf('累積中') >= 0) p.push('滿 20 天不該再標累積中');
+        });
+        check('no_judgement_words_or_totals_in_rendered_text', function (p) {
+          /* 對照組：把數字換成一個假的加總數字 → 這一條會紅。 */
+          var all = [A646, { id: 'tw00679b' }, { id: 'gold_twd' }, { id: 'gold_bar' }, { id: 'gold_cny' }, { id: 'gspc' }].map(function (a) { return CA.render(CA.facts(a, RISK, COST)); }).join('\n');
+          var t = document.createElement('div'); t.innerHTML = all; var text = t.innerText;
+          ['本行賣' + '出', '本行買入'].forEach(function (e) { text = text.split(e).join(''); });
+          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數', '評分', '幾分'].forEach(function (w) {
+            if (text.indexOf(w) >= 0) p.push('畫出來的文字出現「' + w + '」');
+          });
+          if (/\d+\s*分\b/.test(text)) p.push('出現「N 分」這種寫法');
+        });
+      }
+      document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });
+    })();
+  </script>
+</body>
+</html>
