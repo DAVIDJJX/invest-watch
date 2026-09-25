@@ -38,6 +38,7 @@ CORE_FILES = [
     "scripts/analyze.py", "scripts/net_policy.py", "scripts/test_analyze.py", "scripts/test_analysis_guards.py",
     "scripts/test_analysis_debug.html", "scripts/test_analysis_debug_js.py",
     "analysis-debug.html", "js/analysis-debug.js", "js/concentration.js", "docs/ANALYSIS.md",
+    "docs/adhoc-workflow.example.yml",
 ]
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
 PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
@@ -168,19 +169,37 @@ def strings_only(text):
     return "\n".join(out)
 
 
+def has_cjk(s):
+    return any(chr(0x4E00) <= ch <= chr(0x9FFF) for ch in s)
+
+
 def named_term_hits(text, salt, entries):
-    """對每一個長度 L，把文字的每一個長度 L 的片段算 HMAC 比對。文字很短、長度很少，幾十毫秒的事。"""
+    """對每一個長度 L，把文字的每一個長度 L 的片段算 HMAC 比對。
+    提速（2026-09-25）：清單裡某個長度的字串都含中文字時（digest 清單的 cjk 旗標），只對「蓋到中文字」的片段算——
+    程式碼幾十萬個純 ASCII 位置直接跳過，從兩分多鐘變幾秒；舊格式沒有旗標就照舊整段掃。"""
     if not salt or not entries:
         return []
     want = {}
     for e in entries:
-        want.setdefault(int(e["len"]), set()).add(e["hmac"])
+        L = int(e["len"])
+        d = want.setdefault(L, [set(), True])
+        d[0].add(e["hmac"])
+        d[1] = d[1] and bool(e.get("cjk", False))
     hits = []
     compact = re.sub(r"\s+", "", text)          # 去空白再比，「第一金 AI」與「第一金AI」都算同一個
-    for L, digests in want.items():
+    cjk_pos = [i for i, ch in enumerate(compact) if chr(0x4E00) <= ch <= chr(0x9FFF)]
+    for L, (digests, need_cjk) in want.items():
         if L <= 0 or L > len(compact):
             continue
-        for i in range(len(compact) - L + 1):
+        if need_cjk:
+            starts = set()
+            for i in cjk_pos:
+                for st in range(max(0, i - L + 1), min(i, len(compact) - L) + 1):
+                    starts.add(st)
+            starts = sorted(starts)
+        else:
+            starts = range(len(compact) - L + 1)
+        for i in starts:
             frag = compact[i:i + L]
             if hmac_hex(salt, frag) in digests:
                 hits.append("具名字串（長度 %d，位置 %d）" % (L, i))
@@ -200,11 +219,11 @@ def regen_digests():
             t = re.sub(r"\s+", "", line.split("#", 1)[0])
             if t:
                 terms.append(t)
-    entries = sorted({(len(t), hmac_hex(salt, t)) for t in terms})
+    entries = sorted({(len(t), hmac_hex(salt, t), has_cjk(t)) for t in terms})
     with io.open(DIGEST_FILE, "w", encoding="utf-8", newline="\n") as fh:
         json.dump({"algorithm": "HMAC-SHA256(salt, term)；salt 在倉庫外，term 先去空白",
-                   "note": "只存長度與 HMAC；沒有鹽算不回原文，有鹽也只能驗證「是不是那幾個字串」",
-                   "entries": [{"len": L, "hmac": h} for L, h in entries]}, fh, ensure_ascii=False, indent=1)
+                   "note": "只存長度、HMAC 與「有沒有中文字」的旗標；沒有鹽算不回原文，有鹽也只能驗證「是不是那幾個字串」",
+                   "entries": [{"len": L, "hmac": h, "cjk": c} for L, h, c in entries]}, fh, ensure_ascii=False, indent=1)
         fh.write("\n")
     print("寫入 %d 筆到 %s" % (len(entries), os.path.relpath(DIGEST_FILE, ROOT)))
     return 0
@@ -254,6 +273,11 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(named_term_hits("……裡面提到 假基金 五字 這個東西", salt, entries))
         self.assertEqual(named_term_hits("完全無關的一段話", salt, entries), [])
         self.assertEqual(named_term_hits("有字串但沒有鹽 假基金五字", None, entries), [])
+        cjk = [{"len": 5, "hmac": hmac_hex(salt, "假基金五字"), "cjk": True}]                 # 提速路徑：只掃蓋到中文字的片段
+        self.assertTrue(named_term_hits("x = 1  # 假基金五字 在註解裡", salt, cjk))
+        self.assertTrue(named_term_hits("假基金五字", salt, cjk))
+        self.assertEqual(named_term_hits("pure ascii code without any cjk at all " * 50, salt, cjk), [])
+        self.assertEqual(named_term_hits("有中文但不是那個字串", salt, cjk), [])
 
     def test_local_terms_are_caught_when_salt_is_present(self):
         """本機才會跑的正向對照：倉庫外清單裡的第一個字串，掃描要抓得到；runner 上沒有鹽就跳過這一條。"""
@@ -311,18 +335,41 @@ class TestPublicFilesAreClean(unittest.TestCase):
         if not salt:
             self.skipTest("沒有鹽（runner 上就是這樣）；通用樣式與鍵名檢查照樣跑了")
         self.assertTrue(entries, "有鹽卻沒有 HMAC 清單：請跑 --regen-digests")
-        bad = {}
+        # 快取（放在鹽旁邊、倉庫外）：同一份內容、同一份清單、同一把鹽掃過就不重掃；改過的檔才重掃
+        cache_file = os.path.join(os.path.dirname(SALT_FILE), "scan-cache.json")
+        try:
+            with io.open(cache_file, encoding="utf-8") as fh:
+                cache = json.load(fh) or {}
+        except Exception:                                 # noqa: B902
+            cache = {}
+        stamp = hashlib.sha256(salt + json.dumps(entries, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+        bad, changed = {}, False
         for rel in self.files:
-            hits = named_term_hits(text_for_named_terms(rel), salt, entries)
+            text = text_for_named_terms(rel)
+            key = rel + "@" + hashlib.sha256(text.encode("utf-8")).hexdigest()[:16] + "@" + stamp
+            if cache.get(key) == "clean":
+                continue
+            hits = named_term_hits(text, salt, entries)
             if hits:
                 bad[rel] = hits
+            else:
+                cache[key] = "clean"
+                changed = True
+        if changed:
+            try:
+                keep = dict(list(cache.items())[-400:])
+                with io.open(cache_file, "w", encoding="utf-8") as fh:
+                    json.dump(keep, fh, indent=0)
+            except Exception:                             # noqa: B902
+                pass
         self.assertEqual(bad, {}, "分析系列的檔案裡出現具名字串：%s" % bad)
 
     def test_digest_file_has_no_plaintext(self):
         text = read_text("scripts/sensitive_terms_hmac.json")
         obj = json.loads(text)
         for e in obj.get("entries") or []:
-            self.assertEqual(set(e.keys()), {"len", "hmac"})
+            self.assertEqual(set(e.keys()), {"len", "hmac", "cjk"})                        # cjk 只是「有沒有中文字」的旗標
+            self.assertIsInstance(e["cjk"], bool)
             self.assertRegex(e["hmac"], r"^[0-9a-f]{64}$")
         self.assertNotIn("基金", text)
 
@@ -350,6 +397,48 @@ class TestProducedOutputsAreClean(unittest.TestCase):
             self.assertEqual(bad, {}, "離線產出的分析檔裡有不該有的東西：%s" % bad)
         finally:
             w.close()
+
+
+class TestAdhocStaysOutOfThePublicRepo(unittest.TestCase):
+    """A1-3：試算只在私人倉庫的 Actions 跑；公開倉庫的 workflow 不得出現 --adhoc；fixture 代號一律 FAKE 開頭；
+    離線跑一次 adhoc 到暫存目錄，產出的檔也掃。"""
+
+    def test_public_workflows_never_run_adhoc(self):
+        files = glob.glob(os.path.join(ROOT, ".github", "workflows", "*.yml"))
+        self.assertTrue(files)
+        for p in files:
+            self.assertNotIn("--adhoc", read_text(os.path.relpath(p, ROOT).replace(os.sep, "/")), p)
+
+    def test_fixture_symbols_are_obviously_fake(self):
+        for rel in ("scripts/test_analysis_debug.html", "scripts/test_analyze.py"):
+            for m in re.findall(r"adhoc/([A-Za-z0-9.^=\-]+)/", read_text(rel)):
+                self.assertTrue(m.startswith("FAKE"), "%s 裡的試算 fixture 代號不是 FAKE 開頭：%s" % (rel, m))
+
+    def test_offline_adhoc_outputs_are_clean(self):
+        import tempfile
+        import shutil
+        import test_analyze as T
+        w = T.World(patch=False)
+        out = tempfile.mkdtemp(prefix="iw-adhoc-guard-")
+        try:
+            T.fill_world(w)
+            f = T.FakeFetcher(body=T.adhoc_body(currency="GBp"))
+            with T.redirect_stdout(io.StringIO()):
+                _status, code = T.A.adhoc_run("FAKE.L", "index_etf", "0.07", out, now=T.NOW, fetcher=f, paths=w.paths)
+            self.assertEqual(code, 0)
+            bad = {}
+            files = glob.glob(os.path.join(out, "**", "*.json"), recursive=True)
+            self.assertGreaterEqual(len(files), 3)                                            # 結果、index、status
+            for p in files:
+                text = io.open(p, encoding="utf-8").read()
+                hits = judgement_hits(text) + json_key_hits(json.loads(text)) + profile_key_hits(text)
+                if hits:
+                    bad[os.path.relpath(p, out).replace(os.sep, "/")] = hits
+            self.assertEqual(bad, {}, "試算產出的檔裡有不該有的東西：%s" % bad)
+        finally:
+            T.A.WRITE_ROOTS = None
+            w.close()
+            shutil.rmtree(out, ignore_errors=True)
 
 
 class TestProfileKeyNamesStayInOnePlace(unittest.TestCase):
