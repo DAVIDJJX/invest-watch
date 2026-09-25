@@ -784,6 +784,61 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-09-25 · 分析系列 A1-3 試算清單（標籤 `stopA1-3`；合併排在 A1-2 第二段驗收之後）
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `scripts/analyze.py` | 新增 `--adhoc 代號 --asset-class 類別 [--expense-ratio 值] --out 倉庫外目錄` 試算入口（`build_parser()`，參數名有測試釘住；`--slot` 在 adhoc 模式不用給）。三層結構性禁寫：`--out` 落在倉庫裡就在連網之前結束碼 2；adhoc 模式設 `WRITE_ROOTS`，`write_json`／`save_long`／`save_nav` 都先 `assert_write_allowed`，不在 out 底下就丟 `WriteRefused`；adhoc 的 `status.json` 也只寫到 out。算法沿用 risk.json 那一套：年化波動 1／5 年、最大回檔、目前距高點、對每個公開標的各算一次 3 年週報酬相關（列前三名；同代號在公開清單就略過不跟自己算）；上市未滿 3 年相關與 5 年波動寫資料不足；估值與折溢價一律資料不足；費用率標「使用者輸入」；固定稅務註記。便士：`meta.currency` 完全等於 `GBp` 才 ÷100 並記錄，`GBP` 不動。代號查無（Yahoo 404）明確失敗、不產檔。結果寫 `<out>/<代號>/<執行日>.json`（同一天重跑覆蓋）並更新 `<out>/index.json`（每個代號的最新檔與摘要數字） |
+| `scripts/test_analyze.py` | 62 → 74 條：便士、英鎊與美元不動、`--out` 在倉庫裡連網前就擋、寫檔允許清單、查無不產檔、未滿 3 年、同日覆蓋、status 只到 out 且跑前跑後 `git status` 一樣、同代號略過、輸入檢查、介面釘住（含範本檔的四個參數、`persist-credentials: false`、`contents: write`、七類下拉）、正式模式仍要 `--slot`。fixture 代號一律 FAKE.* |
+| `js/storage.js` | `listDir(path)`：contents API 對目錄回陣列，只留 name／type／path／sha；不存在回空陣列；非私人倉庫模式回 `entries: null` |
+| `js/analysis-debug.js`、`analysis-debug.html` | 「試算」區：按一下先讀 `adhoc/index.json`（1 個請求）列表，點「看詳細」才讀那一檔；沒有 index 用 `listDir` 列目錄當備援（每個代號取檔名最新一筆，最多 20 個代號）；狀態：未設定／還沒有任何試算／有 index／備援清單／詳細／讀不到；固定稅務註記。代號只出現在瀏覽器裡 |
+| `scripts/test_analysis_debug.html`、`scripts/test_analysis_debug_js.py` | 頁面檢查 13 → 16 項：有 index 的清單、無 index 的備援清單與空狀態、詳細頁（便士說明、使用者輸入標籤、相關前三名、資料不足原因、稅務註記） |
+| `scripts/test_analysis_guards.py`、`scripts/sensitive_terms_hmac.json` | 17 → 20 條：公開 `.github/workflows/*.yml` 不得出現 `--adhoc`；fixture 代號要 FAKE 開頭；離線跑一次 adhoc、產出的檔也掃。具名字串掃描提速：HMAC 清單每筆多存 `cjk` 旗標（只是「有沒有中文字」），含中文的字串只對蓋到中文字的片段算；掃過的內容以雜湊記在鹽旁邊的 `scan-cache.json`（倉庫外），改過的檔才重掃——兩分多鐘變十秒 |
+| `scripts/probe_analysis_sources.py`、`scripts/test_probe_analysis.py` | 探測加 `adhoc` 組：Y-16 用 ISF.L（iShares Core FTSE 100 UCITS ETF，倫敦掛牌；**格式探測用、非追蹤標的**）看 `meta.currency`；106 → 108 條 |
+| `docs/adhoc-workflow.example.yml`（新） | 私人倉庫 invest-data 用的 workflow 範本：只有 `permissions: contents: write`；checkout 公開倉庫 main 唯讀、不另外給 token、`persist-credentials: false`；代號經環境變數傳、不拼進指令；結果 commit 訊息不含代號；查無代號時 workflow 紅、不產空結果 |
+| `docs/ANALYSIS.md`、`README.md` | 5.8 試算清單、5.7 資料條款補一條、第 6 節改 A1-4（淨值回補）起；README 檔案結構、進度、「試算清單怎麼用」三步驟 |
+| `index.html`、`history.html`、`records.html`、`settings.html`、`analysis-debug.html` | 只有 `bump_assets.py` 的版本號 |
+
+**怎麼驗的**
+
+- 單元測試 **384 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome）。
+- 探測 adhoc 組在分支上真的跑了一次（`gh workflow run probe-analysis.yml --ref feat/stopA1-3 -f only=adhoc`，run 36118690062，2026-09-25 17:29 台北，1 個請求）：Y-16 可用，`meta.currency` 是 **`GBp`**、exchange LSE、最新值 1044.8 便士＝10.448 英鎊、926 根（2009-01-01 起）。台銀 0 次。
+- 筆電真跑一次試算（在 worktree 裡、`--out` 指到倉庫外的暫存目錄）：`--adhoc VT --asset-class index_etf --expense-ratio 0.06`——1 個請求、結束碼 0；952 根（2008-06-23 起）、USD、1 年波動 12.89%、5 年 15.56%、最大回檔 −49.64%（2008-06-23 → 2009-03-02）、距高點 −2.28%、相關前三名 gspc 0.961／sp500tr 0.961／nvda 0.63；out 裡只有 `VT/2026-09-25.json`、`index.json`、`status.json`；**跑前跑後 `git status --porcelain` 完全一樣**。
+- 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**19 組全部符合預期**（4 組基準綠、15 組紅）：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | M1 禁寫第一層：拿掉「--out 不可以在倉庫裡」的檢查 | 1 條紅 |
+  | M2 禁寫第二層：寫檔函式略過允許清單 | 1 條紅 |
+  | M3 禁寫第三層：公開 workflow 出現 --adhoc | 1 條紅 |
+  | M4 便士 ÷100 拿掉 | 1 條紅 |
+  | M5 GBP（英鎊）誤當便士 | 1 條紅 |
+  | M6 代號查無仍產檔 | 1 條紅 |
+  | M7 上市未滿 3 年也硬算相關 | 1 條紅 |
+  | M8 adhoc 的 status.json 寫回 data/analysis | 7 條紅（第二層保險擋下，連結果檔都不產） |
+  | M9 同一天重跑不覆蓋、多產一份 | 2 條紅 |
+  | M10 index.json 不更新 | 2 條紅 |
+  | M11 介面改名（--asset-class 改成 --class）、範本沒跟著改 | 1 條紅 |
+  | M12 檢視頁：備援清單少列代號 | 1 條紅 |
+  | M13 檢視頁：詳細頁少了「使用者輸入」標籤 | 1 條紅 |
+  | M14 探測：Y-16 的 note 不帶 currency | 2 條紅 |
+  | M15 fixture 代號不是 FAKE 開頭 | 1 條紅 |
+
+- 守門：公開 workflow 一字未改（`update-data.yml`、`probe-analysis.yml`、`probe-bot.yml`）；隱私掃描綠；fixture 代號一律 FAKE.*。
+- 截圖（假 fixture）：有 index 的清單、無 index 的備援清單、詳細頁，見驗收報告。
+
+**怎麼退回**
+
+```bash
+git revert --no-edit 936b28c..stopA1-3          # 合併前：在分支上把 A1-3 的全部 commit 反轉
+git revert -m 1 <合併 commit> && git push        # 合併後：退整個 A1-3（合併排在 A1-2 第二段驗收之後）
+```
+退回後私人倉庫的 workflow 會因為公開倉庫沒有 `--adhoc` 而失敗（結束碼 2），私人倉庫已有的 adhoc/ 結果不受影響。
+
+---
+
 ## 2026-09-25 · 分析系列 A1-2 成本＋集中度（標籤 `stopA1-2`）
 
 **改了什麼**
