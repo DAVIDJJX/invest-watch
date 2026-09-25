@@ -847,7 +847,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 **怎麼退回**
 
 ```bash
-git revert -m 1 <合併 commit> && git push        # 退整個 A1-2（合併後）
+git revert -m 1 d398775 && git push        # 退整個 A1-2（合併後；含 tag 之後的補抓修正）
 git revert --no-edit 9ea8f65..stopA1-2           # 或在分支上逐個 commit 反轉（探測 + 主體）
 ```
 退回後雲端下一輪不再產生 cost.json 與 nav/，已產生的檔案可另外刪；risk.json 的欄位會變回 `asOf`（檢視頁舊版讀得懂）。
