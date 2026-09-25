@@ -58,7 +58,7 @@ def resp(status=200, body="", headers=None, seconds=0.5, truncated=False):
 
 
 def yahoo_body(granularity="1wk", step_days=7, points=700, end=None, first_trade=-1325583000,
-               null_at=(), tail_dup=False, last_value=100.0):
+               null_at=(), tail_dup=False, last_value=100.0, currency="USD"):
     end = end or int(NOW.timestamp()) - 3 * DAY
     ts = [end - (points - 1 - i) * step_days * DAY for i in range(points)]
     closes = [50.0 + i * 0.1 for i in range(points)]
@@ -69,7 +69,7 @@ def yahoo_body(granularity="1wk", step_days=7, points=700, end=None, first_trade
         ts.append(ts[-1] + 2 * DAY)
         closes.append(closes[-1])
     return {"chart": {"error": None, "result": [{
-        "meta": {"dataGranularity": granularity, "range": "", "gmtoffset": -14400, "currency": "USD",
+        "meta": {"dataGranularity": granularity, "range": "", "gmtoffset": -14400, "currency": currency,
                  "exchangeName": "SNP", "firstTradeDate": first_trade},
         "timestamp": ts, "indicators": {"quote": [{"close": closes}]}}]}}
 
@@ -205,6 +205,8 @@ class FakeNet(object):
         if "finance.yahoo.com" in u:
             if "00679B.TW?" in u:
                 return resp(404, YAHOO_404)
+            if "ISF.L" in u:
+                return resp(200, yahoo_body("1wk", 7, 700, currency="GBp"))
             if "XAUUSD%3DX" in u or "XAU%3DX" in u:
                 return resp(200, yahoo_body("1d", 1, 260, end=int(NOW.timestamp()) - DAY, last_value=4300.0))
             if "range=max" in u:
@@ -976,6 +978,26 @@ class TestRetestBatch(FrozenNow):
         url = [r.url for r in net.requests if "SP500TR" in r.url][0]
         self.assertIn("period1=345600&period2=", url)
         self.assertIn("interval=1wk", url)
+
+
+class TestAdhocProbe(FrozenNow):
+    """A1-3 的便士格式探測：一列、一個請求、note 裡要有 currency=…。"""
+
+    def test_group_has_one_item_and_reports_currency(self):
+        payload, net, _ = self.run_all(only={"adhoc"})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(sorted(states), ["Y-16"])
+        self.assertEqual(states["Y-16"], P.OK)
+        self.assertEqual(len(net.requests), 1)
+        self.assertIn("ISF.L", net.requests[0].url)
+        self.assertIn("period1=345600", net.requests[0].url)
+        row = [r for r in payload["results"] if r["key"] == "Y-16"][0]
+        self.assertIn("currency=GBp", row["note"])
+
+    def test_currency_missing_is_reported_as_none_not_guessed(self):
+        payload, _, _ = self.run_all(only={"adhoc"}, overrides={"ISF.L": resp(200, yahoo_body("1wk", 7, 700, currency=None))})
+        row = [r for r in payload["results"] if r["key"] == "Y-16"][0]
+        self.assertIn("currency=None", row["note"])
 
 
 class TestControlsAndOutput(FrozenNow):

@@ -36,6 +36,7 @@ probe_analysis_sources.py — 分析系列 停點 A0：新資料來源探測（�
 組別：yahoo、finmind、fred、cape、cpi、nav、retest。
 retest 是 A1-2 的重測批次（證交所兩個淨值端點改用正式抓法、S&P 500 總報酬指數、黃金現貨代號），
 在分支上跑：gh workflow run probe-analysis.yml --ref <分支> -f only=retest（workflow 檔本身不用改）。
+adhoc 組（A1-3）：Y-16 用一支人盡皆知的倫敦掛牌 ETF 看 meta.currency 是不是 GBp（便士）——格式探測用、非追蹤標的。
 正式探測前請先跑離線測試；離線測試紅就不要探測：
     python -m unittest discover -s scripts -p "test_probe_analysis.py"
 """
@@ -68,7 +69,7 @@ WHITESPACE = " " + chr(13) + chr(10) + chr(9)
 
 OK, DEGRADED, FAILED, SKIPPED = "可用", "降級", "失敗", "未測"
 STATES = (OK, DEGRADED, FAILED, SKIPPED)
-GROUPS = ("yahoo", "finmind", "fred", "cape", "cpi", "nav", "retest")
+GROUPS = ("yahoo", "finmind", "fred", "cape", "cpi", "nav", "retest", "adhoc")
 
 GAP_SECONDS = 3.0                 # 所有請求之間固定等這麼久（不分主機，最簡單也一定符合「同站 2 秒以上」）
 GAP_SECONDS_TWSE = 3.5            # PLAN 第 7 章：證交所 3 秒以上
@@ -1106,6 +1107,20 @@ def build_items(symbols, now=None):
         yreq("XAU=X", "range=1y&interval=1d"), spot_daily,
         when=lambda ctx: (None if ctx.get("state:Y-15a") == FAILED
                           else "XAUUSD=X 已經%s，不必再試" % ctx.get("state:Y-15a", "未跑")))
+
+    # ---- A1-3：便士格式探測。ISF.L＝iShares Core FTSE 100 UCITS ETF，倫敦掛牌、人盡皆知、跟使用者無關；只看 meta.currency 的長相
+    def wk_currency(r, ctx):
+        base = check_yahoo(r, "1wk", 6, 8, 52)
+        cur = None
+        try:
+            cur = ((((json.loads(r.text()) or {}).get("chart") or {}).get("result") or [{}])[0].get("meta") or {}).get("currency")
+        except Exception:                                 # noqa: B902
+            pass
+        base["currency"] = cur
+        base["note"] = ("currency=%s" % cur) + ("；" + base["note"] if base.get("note") else "")
+        return base
+    add("Y-16", "adhoc", "A1-3", "Yahoo ISF.L（iShares Core FTSE 100 UCITS ETF，倫敦掛牌；格式探測用、非追蹤標的）週線，看 meta.currency",
+        yreq("ISF.L", monday_weekly), wk_currency)
     return items
 
 
