@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-test_analysis_debug_js.py — 分析系列 A1 的暫時檢視頁（analysis-debug.html ＋ js/analysis-debug.js）
+test_analysis_page_js.py — 分析系列 A1 的暫時檢視頁（analysis-debug.html ＋ js/analysis-debug.js）
 
-作法比照 test_freshness_js.py：用機器上的 Edge／Chrome 無頭模式開 scripts/test_analysis_debug.html
+作法比照 test_freshness_js.py：用機器上的 Edge／Chrome 無頭模式開 scripts/test_analysis_page.html
 （不連網、不讀資料檔，把假的 status／risk／decompose 塞進 render()），把 DOM 倒出來逐題檢查。
 ★ 找不到瀏覽器時這一組是【紅】的，不是跳過。要指定瀏覽器：環境變數 IW_BROWSER=完整路徑。
 
@@ -26,7 +26,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-PAGE = os.path.join(HERE, "test_analysis_debug.html")
+PAGE = os.path.join(HERE, "test_analysis_page.html")
 sys.path.insert(0, HERE)
 
 from test_freshness_js import find_browser   # noqa: E402  同一份瀏覽器搜尋規則
@@ -67,10 +67,17 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 16)
+        self.assertEqual(self.report.get("total"), 18)
 
     def test_status_on_top(self):
         self.case("status_shows_last_run_and_errors_on_top")
+
+    def test_matrix_cells_and_colors(self):
+        """對照組：矩陣少畫一列 → 這一條會紅。"""
+        self.case("correlation_matrix_has_ids_squared_cells_with_numbers_first")
+
+    def test_risk_table_sorting(self):
+        self.case("risk_table_sorts_and_puts_insufficient_last")
 
     def test_adhoc_index_state(self):
         self.case("adhoc_index_state_lists_symbols_with_summary")
@@ -130,19 +137,53 @@ class TestPageWiring(unittest.TestCase):
         with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
             return fh.read()
 
-    def test_debug_page_loads_the_script_and_has_the_fixed_footer(self):
-        src = self.read("analysis-debug.html")
-        self.assertIn("js/analysis-debug.js", src)
+    def test_analysis_page_loads_the_scripts_and_has_the_fixed_footer(self):
+        src = self.read("analysis.html")
+        self.assertIn("js/analysis.js", src)
         for dep in ("js/lock.js", "js/storage.js", "js/concentration.js"):
             self.assertIn(dep, src)
-            self.assertLess(src.index(dep), src.index("js/analysis-debug.js"))
-        self.assertIn('id="adhoc"', src)
+            self.assertLess(src.index(dep), src.index("js/analysis.js"))
+        for sec in ("status", "risk", "cost", "decompose", "concentration", "adhoc"):
+            self.assertIn('id="%s"' % sec, src)
         self.assertIn("以上為量化整理，未經回測驗證，不構成投資建議。", src)
-        self.assertIn("暫時", src)
-        self.assertIn("A4", src)
+        self.assertIn('<a href="analysis.html" class="active">分析</a>', src)
+        self.assertNotIn("暫時", src)
 
-    def test_index_footer_links_to_the_debug_page(self):
-        self.assertIn('href="analysis-debug.html"', self.read("index.html"))
+    def test_every_page_nav_has_the_analysis_tab(self):
+        for page in ("index.html", "history.html", "analysis.html", "records.html", "settings.html"):
+            self.assertIn('href="analysis.html"', self.read(page), page)
+
+    def test_old_debug_url_redirects_instead_of_404(self):
+        src = self.read("analysis-debug.html")
+        self.assertIn('http-equiv="refresh"', src)
+        self.assertIn("url=analysis.html", src)
+        self.assertIn("location.replace('analysis.html')", src)
+        self.assertIn("此頁已搬到分析分頁", src)
+        self.assertNotIn("<script src=", src)                                                    # 不載任何程式，只跳轉
+
+    def test_dashboard_first_screen_loads_seven_static_files_and_stays_lazy(self):
+        """對照組：懶載入改成首屏載入（boot 就抓 risk.json）→ 這一條會紅。"""
+        src = self.read("index.html")
+        tags = re.findall(r'<(?:link rel="stylesheet"|script src=)', src)
+        self.assertEqual(len(tags), 7, "首屏靜態檔應為 7 個（css 1、Chart.js 1、js 5），得到 %d" % len(tags))
+        self.assertIn("js/card-analysis.js", src)
+        self.assertLess(src.index("js/card-analysis.js"), src.index("js/app.js"))
+        app = self.read("js/app.js")
+        boot = app[app.index("function boot()"):app.index("if (document.readyState === 'loading')")]
+        self.assertNotIn("analysis", boot.lower(), "boot() 不可以碰任何分析檔，也不可以叫 ensureAnalysis")
+        histories = app[app.index("function loadHistories("):app.index("/* 頂部那條")]
+        self.assertNotIn("analysis", histories.lower())
+        self.assertEqual(app.count("fetchJSON('data/analysis/"), 2)                             # 只有 risk 與 cost，而且都在 ensureAnalysis 裡
+        ensure = app[app.index("function ensureAnalysis("):app.index("function wireAnalysis(")]
+        self.assertIn("fetchJSON('data/analysis/risk.json')", ensure)
+        self.assertIn("fetchJSON('data/analysis/cost.json')", ensure)
+        self.assertNotIn("fetchJSON('data/analysis/decompose", app)                             # 儀表板永遠不抓拆解與週線長歷史
+        self.assertNotIn("fetchJSON('data/history-long", app)
+
+    def test_docs_no_longer_call_it_a_temporary_page(self):
+        for rel in ("README.md", "docs/ANALYSIS.md", "index.html"):
+            self.assertNotIn("暫時頁", self.read(rel), rel)
+            self.assertNotIn("暫時檢視頁", self.read(rel), rel)
 
     def test_app_js_overseas_note_keys_on_type_not_group(self):
         src = self.read("js/app.js")

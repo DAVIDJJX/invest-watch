@@ -36,8 +36,9 @@ TERMS_FILE = os.environ.get("IW_SCAN_TERMS_FILE") or os.path.join(ROOT, "..", "i
 # 分析系列要進公開倉庫的檔案。核心檔一定要存在（不存在＝測試紅）；data 底下的看有什麼就掃什麼。
 CORE_FILES = [
     "scripts/analyze.py", "scripts/net_policy.py", "scripts/test_analyze.py", "scripts/test_analysis_guards.py",
-    "scripts/test_analysis_debug.html", "scripts/test_analysis_debug_js.py",
-    "analysis-debug.html", "js/analysis-debug.js", "js/concentration.js", "docs/ANALYSIS.md",
+    "scripts/test_analysis_page.html", "scripts/test_analysis_page_js.py",
+    "scripts/test_card_analysis.html", "scripts/test_card_analysis_js.py", "scripts/test_indicators.html",
+    "analysis.html", "analysis-debug.html", "js/analysis.js", "js/card-analysis.js", "js/concentration.js", "docs/ANALYSIS.md",
     "docs/adhoc-workflow.example.yml",
 ]
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
@@ -410,7 +411,7 @@ class TestAdhocStaysOutOfThePublicRepo(unittest.TestCase):
             self.assertNotIn("--adhoc", read_text(os.path.relpath(p, ROOT).replace(os.sep, "/")), p)
 
     def test_fixture_symbols_are_obviously_fake(self):
-        for rel in ("scripts/test_analysis_debug.html", "scripts/test_analyze.py"):
+        for rel in ("scripts/test_analysis_page.html", "scripts/test_analyze.py"):
             for m in re.findall(r"adhoc/([A-Za-z0-9.^=\-]+)/", read_text(rel)):
                 self.assertTrue(m.startswith("FAKE"), "%s 裡的試算 fixture 代號不是 FAKE 開頭：%s" % (rel, m))
 

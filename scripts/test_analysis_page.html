@@ -5,7 +5,7 @@
   <title>analysis-debug.js 離線測試頁</title>
 </head>
 <body>
-  <!-- 這一頁不連網、不讀資料檔：把假的 status／risk／decompose 塞進 js/analysis-debug.js 的 render()，
+  <!-- 這一頁不連網、不讀資料檔：把假的 status／risk／decompose 塞進 js/analysis.js（分析分頁）的 render()，
        再逐題檢查畫出來的東西，結果以 JSON 放在下面那個 id 叫 result 的區塊，給 test_analysis_debug_js.py 讀。 -->
   <section id="status"></section>
   <section id="risk"></section>
@@ -16,7 +16,7 @@
   <pre id="result"></pre>
   <script src="../js/storage.js"></script>
   <script src="../js/concentration.js"></script>
-  <script src="../js/analysis-debug.js"></script>
+  <script src="../js/analysis.js"></script>
   <script>
     (function () {
       var FIX = {
@@ -256,6 +256,34 @@
           if (t.indexOf('至少要 234 週') < 0) p.push('5 年波動資料不足的原因沒顯示');
           if (t.indexOf('重疊只有 40 週') < 0) p.push('相關資料不足的標的沒列');
           if (t.indexOf('稅務差異') < 0) p.push('稅務註記沒顯示');
+        });
+        check('correlation_matrix_has_ids_squared_cells_with_numbers_first', function (p) {
+          /* 對照組：矩陣少畫一列 → 這一條會紅。 */
+          var ids = FIX.risk.correlation.ids;
+          var cells = $$('#risk .matrix-wrap td.corr');
+          if (cells.length !== ids.length * ids.length) p.push('矩陣格子數應為 ' + (ids.length * ids.length) + '，得到 ' + cells.length);
+          var numeric = cells.filter(function (c) { return /^-?\d\.\d{3}/.test(c.innerText.trim()); });
+          if (!numeric.length) p.push('格子裡沒有印出三位小數的係數');
+          if (!$('#risk .matrix-wrap')) p.push('矩陣沒有可橫向捲動的容器');
+          var neg = AnalysisDebug.corrColor(-0.8), pos = AnalysisDebug.corrColor(0.8), zero = AnalysisDebug.corrColor(0.01);
+          if (neg.indexOf('91, 156, 248') < 0) p.push('負相關應是藍色系');
+          if (pos.indexOf('255, 159, 67') < 0) p.push('正相關應是橙色系');
+          if (zero !== 'transparent') p.push('接近 0 應是中性（透明）');
+          if (AnalysisDebug.corrColor(null) !== 'transparent') p.push('資料不足的格不該上色');
+        });
+        check('risk_table_sorts_and_puts_insufficient_last', function (p) {
+          var table = $('#risk table.sortable');
+          if (!table) { p.push('風險總表不是可排序的表'); return; }
+          var ths = table.querySelectorAll('th.sortable');
+          if (ths.length !== 11) p.push('表頭應有 11 個可排序欄，得到 ' + ths.length);
+          AnalysisDebug.sortTable(table, 6, 'desc');                      // 年化波動 5 年：gspc 17.8、tw00679b 資料不足
+          var first = table.tBodies[0].rows[0].cells[0].innerText;
+          var last = table.tBodies[0].rows[table.tBodies[0].rows.length - 1].cells[6].innerText;
+          if (first.indexOf('gspc') < 0) p.push('降冪後第一列應是 gspc，得到 ' + first);
+          if (last.indexOf('資料不足') < 0) p.push('資料不足應排最後，得到 ' + last);
+          AnalysisDebug.sortTable(table, 5, 'asc');                       // 年化波動 1 年：12.34 vs 15.1
+          if (table.tBodies[0].rows[0].cells[0].innerText.indexOf('gspc') < 0) p.push('升冪後第一列應是 gspc');
+          if (!ths[5].classList.contains('asc')) p.push('排序方向沒標在表頭');
         });
         check('missing_status_is_loud', function (p) {
           var box = document.createElement('div');

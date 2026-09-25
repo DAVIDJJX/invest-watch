@@ -1,5 +1,5 @@
 /*
- * analysis-debug.js — 分析系列的暫時檢視頁（A4 會用正式的面向卡片取代）
+ * analysis.js — 「分析」分頁（A1-5）：狀態、風險總表（可排序）、相關矩陣（色階，數字為主）、成本、拆解、集中度、試算
  *
  * 只做一件事：把 data/analysis 裡的檔案（status／risk／decompose／cost／static-costs）用純表格列出來，
  * 每一格數字旁邊都帶資料日期與資料標籤。不算任何東西、不做任何判斷、不花時間做樣式。
@@ -37,6 +37,54 @@
     return h + '</tbody></table>';
   }
   function td(x) { return '<td>' + esc(x) + '</td>'; }
+
+  /* 可排序的表（風險總表用）：表頭可以點；「資料不足」與「—」永遠排最後 */
+  function sortableTable(headers, rows) {
+    var h = '<div class="table-wrap"><table class="sortable"><thead><tr>' +
+      headers.map(function (x, i) { return '<th class="sortable" data-col="' + i + '">' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>';
+    rows.forEach(function (r) { h += '<tr>' + r.join('') + '</tr>'; });
+    return h + '</tbody></table></div>';
+  }
+  function cellKey(cell) {
+    var t = (cell && cell.textContent || '').trim();
+    if (!t || t === '—' || t.indexOf('資料不足') === 0) return { nan: true, num: null, text: t };
+    var m = /^[-−+]?\d[\d,]*(\.\d+)?/.exec(t);
+    if (m) return { nan: false, num: parseFloat(m[0].replace('−', '-').replace(/,/g, '')), text: t };
+    return { nan: false, num: null, text: t };
+  }
+  function sortTable(table, col, dir) {
+    var tbody = table.tBodies[0];
+    var rows = Array.prototype.slice.call(tbody.rows);
+    rows.sort(function (ra, rb) {
+      var a = cellKey(ra.cells[col]), b = cellKey(rb.cells[col]);
+      if (a.nan !== b.nan) return a.nan ? 1 : -1;
+      if (a.nan) return 0;
+      var c = (a.num !== null && b.num !== null) ? a.num - b.num : a.text.localeCompare(b.text, 'zh-Hant');
+      return dir === 'desc' ? -c : c;
+    });
+    rows.forEach(function (r) { tbody.appendChild(r); });
+    Array.prototype.forEach.call(table.tHead.rows[0].cells, function (th, i) {
+      th.classList.remove('asc', 'desc');
+      if (i === col) th.classList.add(dir);
+    });
+  }
+  function wireSorting(root) {
+    Array.prototype.forEach.call((root || document).querySelectorAll('table.sortable th.sortable'), function (th) {
+      th.addEventListener('click', function () {
+        var table = th.closest('table');
+        var col = parseInt(th.getAttribute('data-col'), 10);
+        sortTable(table, col, th.classList.contains('desc') ? 'asc' : 'desc');
+      });
+    });
+  }
+  /* 相關矩陣的底色：負相關藍、接近 0 中性、正相關橙；顏色只是輔助，格內數字才是訊息 */
+  function corrColor(r) {
+    if (typeof r !== 'number') return 'transparent';
+    var a = Math.min(1, Math.abs(r));
+    if (a < 0.05) return 'transparent';
+    var alpha = (0.12 + 0.5 * a).toFixed(2);
+    return r < 0 ? 'rgba(91, 156, 248, ' + alpha + ')' : 'rgba(255, 159, 67, ' + alpha + ')';
+  }
   function tdRaw(x) { return '<td>' + x + '</td>'; }
   function notesList(notes) {
     if (!notes || !notes.length) return '';
@@ -82,7 +130,7 @@
     if (!rk) return h + '<p class="warn">讀不到 data/analysis/risk.json。</p>';
     h += '<p class="muted">產生時間 ' + dateSpan(rk.generatedAt) + '。' + esc((rk.notes || []).join(' ')) + '</p>';
     var ids = Object.keys(rk.assets || {}).sort();
-    h += table(['標的', '類別', '幣別', '最後完成週棒', '週數', '年化波動 1 年', '年化波動 5 年', '最大回檔', '目前距高點', '10 年視窗', '資料標籤'],
+    h += sortableTable(['標的', '類別', '幣別', '最後完成週棒', '週數', '年化波動 1 年', '年化波動 5 年', '最大回檔', '目前距高點', '10 年視窗', '資料標籤'],
       ids.map(function (id) {
         var a = rk.assets[id];
         var dd = a.maxDrawdown || {};
@@ -107,11 +155,15 @@
       var rows = cids.map(function (a) {
         return [td(a)].concat(cids.map(function (b) {
           var cell = (c.matrix[a] || {})[b] || {};
-          if (typeof cell.r !== 'number') return '<td class="muted">資料不足<div>' + esc(cell.n || 0) + ' 週</div></td>';
-          return '<td title="' + esc((cell.from || '') + '～' + (cell.through || '')) + '">' + cell.r.toFixed(3) + '<div class="muted">n=' + esc(cell.n) + '</div></td>';
+          if (typeof cell.r !== 'number') return '<td class="corr muted">資料不足<div>' + esc(cell.n || 0) + ' 週</div></td>';
+          return '<td class="corr" style="background:' + corrColor(cell.r) + '">' + cell.r.toFixed(3) + '<div class="muted">n=' + esc(cell.n) + '</div></td>';
         }));
       });
-      h += table([''].concat(cids), rows);
+      h += '<div class="matrix-wrap">' + table([''].concat(cids), rows) + '</div>';
+      h += '<p class="matrix-legend"><span><i style="background:' + corrColor(-0.8) + '"></i>負相關（藍）</span>' +
+           '<span><i style="background:' + corrColor(0) + '"></i>接近 0（中性）</span>' +
+           '<span><i style="background:' + corrColor(0.8) + '"></i>正相關（橙）</span>' +
+           '<span>格內數字才是訊息，顏色只是輔助；手機上整張可以左右捲動</span></p>';
       h += '<p class="muted">' + esc(c.note || '') + '　資料標籤：' + esc(c.label) + '</p>';
     }
     if (rk.problems && rk.problems.length) {
@@ -591,11 +643,13 @@
                  adhoc: { status: 'idle' } });
         wireConcentration(all[1]);
         wireAdhoc();
+        wireSorting();
       });
   }
 
   window.AnalysisDebug = { boot: boot, render: render, renderStatus: renderStatus, renderRisk: renderRisk,
                            renderDecompose: renderDecompose, renderCost: renderCost, renderConcentration: renderConcentration,
                            renderProfileForm: renderProfileForm, readFormValues: readFormValues, renderAdhoc: renderAdhoc,
-                           renderAdhocDetail: renderAdhocDetail, esc: esc, num: num };
+                           renderAdhocDetail: renderAdhocDetail, esc: esc, num: num,
+                           sortTable: sortTable, wireSorting: wireSorting, corrColor: corrColor };
 })();
