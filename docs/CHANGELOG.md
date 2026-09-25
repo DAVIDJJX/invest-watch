@@ -798,15 +798,15 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 | `js/storage.js` | 加 `loadFile(path)`（回 `{data, sha, path}`，404 → `data:null`）與 `saveFile(path, data, message)`；只有私人倉庫模式可用；既有 `ghLoad`／`ghSave` 改成呼叫同一組函式 |
 | `js/analysis-debug.js`、`analysis-debug.html` | 檢視頁加成本區（追蹤差兩個口徑、折溢價、價差、條塊、靜態費用表）與集中度區（未設定／有設定／表單；表單欄位 id 用 `w_<類別>`；先測連線再存；commit 訊息「analysis-profile 更新（時間）」不含數字；不 console.log 任何值）；預留 `<section id="adhoc">`；風險表改讀 `dataThrough` |
 | `scripts/test_analysis_debug.html`、`scripts/test_analysis_debug_js.py` | 13 項頁面檢查（Chrome 無頭）：成本區有畫、三個事實 30／50／30、`other` 不在同向列表、未設定狀態、表單驗證、設定檔鍵名不進 DOM、storage 有 loadFile／saveFile、腳本順序與 adhoc 區 |
-| `scripts/test_analysis_guards.py` | 14 → 16 條：`js/concentration.js` 進掃描清單；設定檔鍵名（分開寫的字串）只准在 `js/concentration.js`；**離線跑一次 analyze、產出的每個 JSON 也掃**（禁用鍵名、判斷用語、設定檔鍵名）；掃描器自己的對照組 |
-| `data/analysis/static-costs.json`（新，手抄） | 11 筆：00646／00679B 的經理費與保管費分級費率（元大投信官網）、證券交易稅（股票千分之三、ETF 千分之一、債券 ETF 停徵至 2026-12-31；全國法規資料庫）；「目前適用級距」與「最近一年總費用率」留 null 並寫原因；每筆帶網址、查核日期、標籤「官方公告」 |
+| `scripts/test_analysis_guards.py` | 14 → 17 條：具名字串（HMAC）掃描對 data/ 的 JSON 只掃鍵名與字串值、去重（長歷史逐字算 HMAC 要一分多鐘）；`js/concentration.js` 進掃描清單；設定檔鍵名（分開寫的字串）只准在 `js/concentration.js`；**離線跑一次 analyze、產出的每個 JSON 也掃**（禁用鍵名、判斷用語、設定檔鍵名）；掃描器自己的對照組 |
+| `data/analysis/static-costs.json`（新，手抄） | 11 筆：00646／00679B 的經理費與保管費分級費率（元大投信官網）、最近一年總費用率（投信投顧公會各項費用比率頁，2025 全年：00646 0.36％、00679B 0.14％；查詢條件寫在出處欄）、證券交易稅（股票千分之三、ETF 千分之一、債券 ETF 停徵至 2026-12-31；全國法規資料庫）；「目前適用級距」留 null 並寫原因；每筆帶網址、查核日期、標籤「官方公告」 |
 | `data/analysis/cost.json`、`data/analysis/nav/tw00646.json`、`data/analysis/nav/tw00679b.json`、`data/history-long/sp500tr.json`、`data/analysis/status.json`／`risk.json`／`decompose.json` | 種子資料：筆電沙盒 2026-09-25 11:40 的一次真實跑（11 次請求）；合併後由雲端 15:30 那一輪接手維護。status／risk／decompose 也一起換成這一次的（risk 的欄位已是 `dataThrough`） |
 | `docs/ANALYSIS.md`、`README.md` | 5.5 成本、5.6 集中度、5.7 資料條款（證交所／櫃買／靜態表）、第 6 節改 A1-3 起；三個錯字（籌碼、矩陣、口徑）；README 檔案結構、進度、回滾表 |
 | `index.html`、`history.html`、`records.html`、`settings.html`、`analysis-debug.html` | 只有 `bump_assets.py` 的版本號（20260925-1） |
 
 **怎麼驗的**
 
-- 單元測試 **362 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome：`IW_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"`）。
+- 單元測試 **363 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome：`IW_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"`）。
 - 探測 retest 組真的跑了一次（分支上 `gh workflow run probe-analysis.yml --ref feat/stopA1-2 -f only=retest`，run 36084006372，2026-09-25 09:54 台北，6 個請求）：N-04／N-05a／N-05b／Y-14 可用，Y-15a／Y-15b 404（黃金現貨拿不到）。台銀 0 次。
 - 筆電沙盒真實跑兩次（worktree 副本，真倉庫不碰）：11:24（11 次請求、結束碼 0、cost.json 產出）與 11:40（換上最終版程式與費用表，再 11 次）。追蹤差 1 年：00646 22.27% vs `^SP500TR` 台幣 22.28%（差 −0.01%）、3 年年化 −1.02%；折溢價 00646 預估 +0.23%（9/24）、確定 +0.96%（9/23）；存摺價差 1.19%；條塊溢價 1.35%（1 公斤）～2.13%（1 台兩）。
 - 突變對照組（改壞 → 只跑指定測試檔 → 必須紅 → 還原）**28 組全部符合預期**（4 組基準綠、24 組紅）：

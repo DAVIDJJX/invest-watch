@@ -132,6 +132,42 @@ def hmac_hex(salt, term):
     return hmac.new(salt, term.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def text_for_named_terms(rel):
+    """資料檔（data/ 底下的 JSON）只掃字串值——數字、日期、時間戳不可能是具名字串，
+    而週線長歷史一檔十萬個字元，逐位置算 HMAC 會讓這條測試跑上一分多鐘。其他檔整份掃。"""
+    text = read_text(rel)
+    if rel.startswith("data/") and rel.endswith(".json"):
+        return strings_only(text)
+    return text
+
+
+def strings_only(text):
+    """把 JSON 文字裡的鍵名與字串值挑出來（純數字、日期、時間戳丟掉）；不是 JSON 就原樣回。"""
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return text
+    out, seen = [], set()
+
+    def keep(s):
+        if s not in seen:                        # 去重：長歷史每一點都有同樣的三個鍵名，掃一次就夠
+            seen.add(s)
+            out.append(s)
+
+    def walk(o):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                keep(str(k))
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+        elif isinstance(o, str) and not re.match(r"^[0-9T:+.\-]*$", o):
+            keep(o)
+    walk(obj)
+    return "\n".join(out)
+
+
 def named_term_hits(text, salt, entries):
     """對每一個長度 L，把文字的每一個長度 L 的片段算 HMAC 比對。文字很短、長度很少，幾十毫秒的事。"""
     if not salt or not entries:
@@ -197,6 +233,15 @@ class TestScannerItself(unittest.TestCase):
     def test_profile_key_scanner_catches_a_planted_key(self):
         self.assertEqual(profile_key_hits("x " + "wei" + "ghts" + " y"), ["wei" + "ghts"])
         self.assertEqual(profile_key_hits("nothing here"), [])
+
+    def test_named_term_scan_of_data_files_keeps_strings_but_drops_numbers(self):
+        t = strings_only(json.dumps({"note": "原始出處：某某", "points": [{"d": "2026-09-14", "c": 123.4, "t": "2026-09-14T15:30:00+08:00"}]},
+                                    ensure_ascii=False))
+        self.assertIn("原始出處：某某", t)
+        self.assertIn("points", t)                                                                # 鍵名也掃
+        self.assertNotIn("2026-09-14", t)
+        self.assertNotIn("123.4", t)
+        self.assertEqual(strings_only("not json {"), "not json {")
 
     def test_forbidden_json_keys_are_caught(self):
         self.assertEqual(json_key_hits({"gspc": {"volatility": {"pct": 12.3}}}), [])
@@ -268,7 +313,7 @@ class TestPublicFilesAreClean(unittest.TestCase):
         self.assertTrue(entries, "有鹽卻沒有 HMAC 清單：請跑 --regen-digests")
         bad = {}
         for rel in self.files:
-            hits = named_term_hits(read_text(rel), salt, entries)
+            hits = named_term_hits(text_for_named_terms(rel), salt, entries)
             if hits:
                 bad[rel] = hits
         self.assertEqual(bad, {}, "分析系列的檔案裡出現具名字串：%s" % bad)
