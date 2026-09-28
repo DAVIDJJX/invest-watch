@@ -9,6 +9,9 @@
   'use strict';
 
   var TRADING_DAYS_YEAR = 252;   // 一年約幾個交易日
+  // 至少要有這麼多個交易日才叫「52 週」（252 的九成，無條件進位）。全站只有這一個數字：
+  // 區間位置的 full、卡片標題、規則句都看它；app.js 從這裡拿，不自己再寫一次。
+  var FULL_YEAR_DAYS = 227;
 
   /* 從歷史點陣列取出收盤價序列（由舊到新） */
   function closes(points) {
@@ -79,8 +82,48 @@
       low: lo,
       percentile: pct,
       days: window.length,
-      full: window.length >= TRADING_DAYS_YEAR * 0.9   // 是否真的涵蓋約一年
+      full: window.length >= FULL_YEAR_DAYS   // 是否真的涵蓋約一年
     };
+  }
+
+  /* 區間視窗第一天的日期：有收盤價的點裡，倒數第 days 個的日期。算不出來回 null */
+  function windowStart(points, days) {
+    if (!Array.isArray(points) || !(days > 0)) return null;
+    var dates = [];
+    for (var i = 0; i < points.length; i++) {
+      var c = points[i] && points[i].c;
+      if (typeof c === 'number' && isFinite(c)) dates.push(points[i].d || null);
+    }
+    if (!dates.length) return null;
+    return dates[Math.max(0, dates.length - days)] || null;
+  }
+
+  /*
+   * 畫面上怎麼稱呼這個視窗：滿 FULL_YEAR_DAYS 個交易日才叫「52 週」，
+   * 否則照實寫「近 n 個交易日（資料自 <起日>）」。只管文字，位置的算法不在這裡。
+   * windowName 是名稱本身、windowSince 是「資料自 <起日>」那一小段、windowLabel 是兩個接起來。
+   */
+  function windowName(rangeInfo) {
+    if (!rangeInfo || !(rangeInfo.days > 0)) return '';
+    return rangeInfo.days >= FULL_YEAR_DAYS ? '52 週' : '近 ' + rangeInfo.days + ' 個交易日';
+  }
+  function windowSince(rangeInfo, firstDate) {
+    if (!rangeInfo || !(rangeInfo.days > 0) || rangeInfo.days >= FULL_YEAR_DAYS || !firstDate) return '';
+    return '資料自 ' + firstDate;
+  }
+  function windowLabel(rangeInfo, firstDate) {
+    var since = windowSince(rangeInfo, firstDate);
+    return windowName(rangeInfo) + (since ? '（' + since + '）' : '');
+  }
+
+  /* 畫面上的規則句：判定跟 positionSignal 一模一樣（25%／75%），只有視窗名稱照實際天數寫 */
+  function signalRule(rangeInfo, firstDate) {
+    if (!rangeInfo) return '歷史資料還不夠算出區間位置';
+    var p = rangeInfo.percentile;
+    var rule = '位於' + windowLabel(rangeInfo, firstDate) + '區間第 ' + p.toFixed(0) + ' 百分位';
+    if (p < 25) return rule + ' → 低於 25%';
+    if (p > 75) return rule + ' → 高於 75%';
+    return rule + ' → 落在 25%～75% 之間';
   }
 
   /* 乖離率：(現價 - MA20) / MA20 × 100 */
@@ -175,6 +218,12 @@
     changeOver: changeOver,
     volatility: volatility,
     positionSignal: positionSignal,
-    computeAll: computeAll
+    computeAll: computeAll,
+    FULL_YEAR_DAYS: FULL_YEAR_DAYS,
+    windowStart: windowStart,
+    windowName: windowName,
+    windowSince: windowSince,
+    windowLabel: windowLabel,
+    signalRule: signalRule
   };
 })(window);

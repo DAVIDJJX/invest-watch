@@ -67,7 +67,44 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 18)
+        self.assertEqual(self.report.get("total"), 28)
+
+    # --- A1-6：換匯助手（一眼看懂、位置、成本、規則表、歷史模擬、私人設定） ---
+    def test_fx_glance_row(self):
+        """對照組：一眼看懂那一列不印狀態詞或不印規則 → 這一條會紅。"""
+        self.case("fx_glance_row_has_icon_word_number_and_rule_in_every_cell")
+
+    def test_fx_never_counts_aspects(self):
+        """對照組：在一眼看懂那一列加一句「幾個面向怎樣」→ 這一條會紅。"""
+        self.case("fx_never_counts_aspects")
+
+    def test_fx_position_and_cost_tables(self):
+        self.case("fx_position_and_cost_tables_have_numbers_dates_and_plain_lines")
+
+    def test_fx_rule_table(self):
+        """對照組：規則表少畫一檔 → 這一條會紅。"""
+        self.case("fx_rule_table_marks_the_current_bucket")
+
+    def test_fx_backtest_summary(self):
+        """對照組：把視窗重疊那一句拿掉 → 這一條會紅。"""
+        self.case("fx_backtest_summary_shows_decision_overlap_note_and_pure_b")
+
+    def test_fx_fixed_notes(self):
+        self.case("fx_fixed_notes_are_always_there")
+
+    def test_fx_unset_state(self):
+        self.case("fx_unset_state_shows_no_amounts_and_no_form")
+
+    def test_fx_set_state_prints_both_numbers(self):
+        """對照組：只印本月額度、不印「比例 × 月預算」與「保底」兩個數字 → 這一條會紅。"""
+        self.case("fx_set_state_prints_both_numbers_and_the_larger_one")
+
+    def test_fx_plan_keys_and_amounts_stay_out_of_attributes(self):
+        """對照組：表單欄位改用設定檔的鍵名當 id、或把金額塞進 data- 屬性 → 這一條會紅。"""
+        self.case("fx_plan_keys_and_amounts_never_reach_ids_or_attributes")
+
+    def test_fx_form_round_trip(self):
+        self.case("fx_form_reads_back_and_skips_blank_rows")
 
     def test_status_on_top(self):
         self.case("status_shows_last_run_and_errors_on_top")
@@ -143,7 +180,7 @@ class TestPageWiring(unittest.TestCase):
         for dep in ("js/lock.js", "js/storage.js", "js/concentration.js"):
             self.assertIn(dep, src)
             self.assertLess(src.index(dep), src.index("js/analysis.js"))
-        for sec in ("status", "risk", "cost", "decompose", "concentration", "adhoc"):
+        for sec in ("status", "fx", "risk", "cost", "decompose", "concentration", "adhoc"):
             self.assertIn('id="%s"' % sec, src)
         self.assertIn("以上為量化整理，未經回測驗證，不構成投資建議。", src)
         self.assertIn('<a href="analysis.html" class="active">分析</a>', src)
@@ -179,6 +216,19 @@ class TestPageWiring(unittest.TestCase):
         self.assertIn("fetchJSON('data/analysis/cost.json')", ensure)
         self.assertNotIn("fetchJSON('data/analysis/decompose", app)                             # 儀表板永遠不抓拆解與週線長歷史
         self.assertNotIn("fetchJSON('data/history-long", app)
+
+    def test_analysis_page_reads_fx_json_and_saves_the_plan_without_numbers_in_the_message(self):
+        """A1-6：分析分頁多讀一檔 fx.json；私人設定存檔的 commit 訊息是固定的幾個字，不帶任何數字。"""
+        src = self.read("js/analysis.js")
+        boot = src[src.index("  function boot()"):src.index("  window.AnalysisDebug = ")]
+        self.assertEqual(boot.count("fetchJSON('data/analysis/"), 6)
+        self.assertIn("fetchJSON('data/analysis/fx.json')", boot)
+        wire = src[src.index("  function wireFx("):src.index("  function boot()")]
+        self.assertIn("window.Storage.testConnection()", wire)
+        self.assertLess(wire.index("window.Storage.testConnection()"), wire.index("window.Storage.saveFile("))
+        self.assertIn("saveFile(F.FILE, plan, 'fx-plan 更新')", wire)
+        self.assertIn("window.Lock.gate(", wire)
+        self.assertNotIn("toISOString", wire)                                                   # 訊息裡連時間戳都不放
 
     def test_docs_no_longer_call_it_a_temporary_page(self):
         for rel in ("README.md", "docs/ANALYSIS.md", "index.html"):

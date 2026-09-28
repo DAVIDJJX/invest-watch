@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>js/plain.js ＋ js/glossary.js 離線測試頁</title>
+</head>
+<body>
+  <!-- 這一頁不連網、不讀資料檔：直接呼叫 js/plain.js（圖示、狀態詞、規則、白話模板）與 js/glossary.js（名詞解釋），逐題檢查。
+       結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_plain_js.py 讀。數字都是隨手編的測試值。 -->
+  <div id="mount"></div>
+  <pre id="result"></pre>
+  <script src="../js/plain.js"></script>
+  <script src="../js/glossary.js"></script>
+  <script>
+    (function () {
+      var results = [];
+      function check(name, fn) {
+        var problems = [];
+        try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
+        results.push({ name: name, ok: problems.length === 0, problems: problems });
+      }
+      function box(html) { var d = document.createElement('div'); d.innerHTML = html; document.getElementById('mount').appendChild(d); return d; }
+      function same(p, what, got, want) { if (got !== want) p.push(what + '：應為「' + want + '」，得到「' + got + '」'); }
+      // 不該出現的字（拆開拼，免得守門掃到這一頁自己）
+      var BANNED = ['偏' + '買', '偏' + '賣', '主' + '力', '建' + '議', '買' + '進', '賣' + '出', '總' + '分', '分' + '數'];
+      // 「加總」的樣子：幾個面向／幾項指標怎麼樣
+      var COUNTING = /[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)/;
+      var loaded = !!(window.Plain && window.Glossary);
+      if (loaded) {
+        var P = window.Plain, G = window.Glossary;
+
+        check('three_states_follow_the_printed_rules', function (p) {
+          same(p, '5 年百分位 39.9', P.positionState(39.9).word, '偏便宜');
+          same(p, '5 年百分位 40', P.positionState(40).word, '中間');
+          same(p, '5 年百分位 60', P.positionState(60).word, '中間');
+          same(p, '5 年百分位 60.1', P.positionState(60.1).word, '偏貴');
+          same(p, '成本 0.89 倍', P.costState(0.89, 1).word, '便宜');
+          same(p, '成本 0.9 倍', P.costState(0.9, 1).word, '正常');
+          same(p, '成本 1.1 倍', P.costState(1.1, 1).word, '正常');
+          same(p, '成本 1.11 倍', P.costState(1.11, 1).word, '偏貴');
+          same(p, '風險 0.79 倍', P.riskState(7.9, 10).word, '平靜');
+          same(p, '風險 1 倍', P.riskState(10, 10).word, '正常');
+          same(p, '風險 1.21 倍', P.riskState(12.1, 10).word, '劇烈');
+          same(p, '位置的 key', P.positionState(10).key + P.positionState(50).key + P.positionState(90).key, 'lowmidhigh');
+        });
+
+        check('every_icon_has_its_word_next_to_it', function (p) {
+          /* 對照組：badge 不印狀態詞 → 這一條會紅。 */
+          var states = [P.positionState(10), P.positionState(50), P.positionState(90), P.costState(1, 1), P.riskState(5, 10), P.positionState(null), P.costState(null, 1)];
+          states.forEach(function (s) {
+            var d = box(P.badge(s, '測試'));
+            var icon = d.querySelector('.glance-icon svg'), word = d.querySelector('.glance-word');
+            if (!icon) p.push(s.aspect + '/' + s.key + '：沒有圖示');
+            if (!word || !word.textContent.trim()) p.push(s.aspect + '/' + s.key + '：圖示旁邊沒有狀態詞');
+            else if (word.textContent.trim() !== s.word) p.push(s.aspect + '/' + s.key + '：狀態詞不對');
+            var name = d.querySelector('.glance-icon').getAttribute('aria-label');
+            if (!name) p.push(s.aspect + '/' + s.key + '：圖示沒有文字替代（aria-label）');
+          });
+          var words = {};
+          ['position', 'cost', 'risk', 'trend', 'mood'].forEach(function (a) {
+            ['low', 'mid', 'high'].forEach(function (k) { if (!P.ASPECTS[a].words[k]) p.push(a + ' 少了 ' + k + ' 的狀態詞'); words[a + k] = P.ASPECTS[a].words[k]; });
+          });
+          same(p, '位置三態', words.positionlow + '／' + words.positionmid + '／' + words.positionhigh, '偏便宜／中間／偏貴');
+          same(p, '成本三態', words.costlow + '／' + words.costmid + '／' + words.costhigh, '便宜／正常／偏貴');
+          same(p, '風險三態', words.risklow + '／' + words.riskmid + '／' + words.riskhigh, '平靜／正常／劇烈');
+          same(p, '趨勢三態', words.trendhigh + '／' + words.trendmid + '／' + words.trendlow, '向上／持平／向下');
+          same(p, '情緒三態', words.moodlow + '／' + words.moodmid + '／' + words.moodhigh, '冷／中性／熱');
+        });
+
+        check('every_icon_prints_its_rule_and_this_times_number', function (p) {
+          /* 對照組：badge 不印規則 → 這一條會紅。 */
+          var d = box(P.badge(P.positionState(72), '人民幣現在'));
+          var rule = d.querySelector('.glance-rule'), because = d.querySelector('.glance-because');
+          if (!rule || rule.textContent.indexOf('規則：') !== 0) p.push('圖示旁邊沒有印規則');
+          else if (rule.textContent.indexOf('40') < 0 || rule.textContent.indexOf('60') < 0) p.push('規則句沒有寫門檻');
+          if (!because || because.textContent !== '5 年百分位 72.0% → 偏貴') p.push('沒有印這次是哪個數字造成的：' + (because && because.textContent));
+          var c = box(P.badge(P.costState(1.056, 1.082), '換匯成本'));
+          if (c.querySelector('.glance-because').textContent.indexOf('1.06%') < 0 || c.querySelector('.glance-because').textContent.indexOf('1.08%') < 0) p.push('成本的數字沒印');
+          if (c.querySelector('.glance-rule').textContent.indexOf('規則：') !== 0) p.push('成本沒有印規則');
+          var n = box(P.badge(P.positionState(undefined), '人民幣現在'));
+          if (n.querySelector('.glance-rule').textContent.indexOf('規則：') !== 0) p.push('資料不足時也要印規則');
+          same(p, '資料不足的狀態詞', n.querySelector('.glance-word').textContent, '資料不足');
+          same(p, '資料不足的說明', n.querySelector('.glance-because').textContent, '資料不足');
+          same(p, '資料不足的 data-state', n.querySelector('.glance').getAttribute('data-state'), 'na');
+        });
+
+        check('plain_sentences_say_insufficient_instead_of_nothing', function (p) {
+          /* 對照組：資料不足時回空字串 → 這一條會紅。 */
+          ['position', 'distance', 'spread', 'cash', 'quota', 'backtest', 'drawdown', 'volatility'].forEach(function (k) {
+            [undefined, {}, { pct: null }, { pct: 'abc' }, { pct: NaN }].forEach(function (data) {
+              var s = P.sentence(k, data);
+              if (s !== '資料不足') p.push(k + ' 遇到 ' + JSON.stringify(data) + ' 應輸出「資料不足」，得到「' + s + '」');
+            });
+            var html = P.line(k, {});
+            if (html.indexOf('資料不足') < 0 || html.indexOf('plain-line') < 0) p.push(k + ' 的 line() 在資料不足時沒有印出來');
+          });
+          same(p, '沒有這種模板', P.sentence('nothing-like-this', { pct: 1 }), '資料不足');
+        });
+
+        check('plain_sentences_carry_the_numbers', function (p) {
+          same(p, '位置', P.sentence('position', { pct: 96.9, years: 5 }), '過去 5 年裡，有 97% 的時候比現在便宜或一樣。');
+          same(p, '距離', P.sentence('distance', { fromLowPct: 11.9, fromHighPct: -1.55 }), '比一年內最低的時候高 11.9%，比一年內最高的時候低 1.6%。');
+          same(p, '價差', P.sentence('spread', { pct: 1.056 }), '銀行掛的兩個價格差 1.06%：每換 100 元，來回一趟大約有 1.06 元是這個差。');
+          same(p, '現鈔', P.sentence('cash', { pct: 0.841 }), '拿實體鈔票換，比用帳戶裡的錢換貴 0.84%。');
+          same(p, '額度', P.sentence('quota', { pct: 65.9, ratioPct: 20, bucket: '60–80%' }), '5 年百分位 65.9% 落在「60–80%」那一檔，規則試算的本月額度是月預算的 20%。');
+          if (P.sentence('quota', { pct: 96.9, ratioPct: 0, bucket: '> 80%' }).indexOf('觀望') < 0) p.push('0% 那一檔要寫觀望');
+          same(p, '最大回檔一半', P.sentence('drawdown', { pct: -52 }), '歷史上最慘的一次曾經跌掉大約一半，到現在還沒漲回原來的高點。');
+          same(p, '最大回檔有漲回', P.sentence('drawdown', { pct: -21.6, recoveredDate: '2020-08-24' }), '歷史上最慘的一次曾經跌掉大約五分之一，2020-08-24 才漲回原來的高點。');
+          same(p, '波動', P.sentence('volatility', { pct: 12.3 }), '一年裡漲跌 12% 左右算平常；數字越大，價格越會大起大落。');
+          var tie = P.sentence('backtest', { n: 76, months: 36, winSharePct: 0, tieSharePct: 100, medianImprovePct: 0, worstImprovePct: 0 });
+          if (tie.indexOf('76') < 0 || tie.indexOf('沒有差別') < 0) p.push('全部平手時要直說沒有差別：' + tie);
+          var win = P.sentence('backtest', { n: 76, months: 36, winSharePct: 71.1, tieSharePct: 11.8, medianImprovePct: 0.104, worstImprovePct: -0.677 });
+          if (win.indexOf('71.1%') < 0 || win.indexOf('0.10%') < 0 || win.indexOf('0.68%') < 0) p.push('回測的三個數字沒印：' + win);
+        });
+
+        check('no_trading_words_and_no_counting_anywhere', function (p) {
+          /* 對照組：狀態詞換成帶方向的字眼、或印出「幾個面向怎樣」→ 這一條會紅。 */
+          var all = [];
+          Object.keys(P.ASPECTS).forEach(function (a) {
+            all.push(P.ASPECTS[a].name, P.ASPECTS[a].rule);
+            Object.keys(P.ASPECTS[a].words).forEach(function (k) { all.push(P.ASPECTS[a].words[k]); });
+          });
+          [5, 45, 95, null].forEach(function (v) {
+            all.push(box(P.badge(P.positionState(v), '位置')).textContent);
+            all.push(box(P.badge(P.costState(v, 50), '成本')).textContent);
+            all.push(box(P.badge(P.riskState(v, 50), '風險')).textContent);
+          });
+          ['position', 'distance', 'spread', 'cash', 'quota', 'backtest', 'drawdown', 'volatility'].forEach(function (k) {
+            all.push(P.sentence(k, { pct: 50, years: 5, fromLowPct: 1, fromHighPct: -1, ratioPct: 40, bucket: '40–60%', n: 10, months: 36,
+                                     winSharePct: 60, tieSharePct: 0, medianImprovePct: 0.6, worstImprovePct: -1 }));
+          });
+          Object.keys(G.TERMS).forEach(function (t) { all.push(t, G.TERMS[t]); });
+          var text = all.join('\n');
+          BANNED.forEach(function (w) { if (text.indexOf(w) >= 0) p.push('出現「' + w + '」'); });
+          if (COUNTING.test(text)) p.push('出現面向計數：' + COUNTING.exec(text)[0]);
+          if (!COUNTING.test('3 個面向偏貴') || !COUNTING.test('兩項指標正常')) p.push('計數的檢查式自己壞了');
+          if (typeof P.count !== 'undefined' || typeof P.total !== 'undefined' || typeof P.summary !== 'undefined') p.push('plain.js 不該有任何加總用的函式');
+        });
+
+        check('glossary_has_the_required_terms_and_opens_on_click', function (p) {
+          ['波動', '回檔', '百分位', '相關係數', '追蹤差', '折溢價', '即期', '現鈔'].forEach(function (t) {
+            var d = G.define(t);
+            if (!d || d.length < 8) p.push('名詞「' + t + '」沒有解釋');
+          });
+          var d = box('<p>5 年' + G.term('百分位') + '　' + G.term('沒有這個詞') + '</p>');
+          var btn = d.querySelector('button.term');
+          if (!btn) { p.push('term() 沒有產生按鈕'); return; }
+          if (d.querySelectorAll('button.term').length !== 1) p.push('沒有定義的詞不該變成按鈕');
+          if (d.textContent.indexOf('沒有這個詞') < 0) p.push('沒有定義的詞要照樣印出來');
+          same(p, 'type', btn.getAttribute('type'), 'button');
+          G.wire(d);
+          G.wire(d);                                             // 掛兩次也只會有一個監聽
+          btn.click();
+          var def = d.querySelector('.term-def');
+          if (!def || def.textContent.indexOf('百分位：') !== 0 || def.textContent.indexOf(G.define('百分位')) < 0) p.push('點一下沒有展開解釋');
+          same(p, 'aria-expanded（展開）', btn.getAttribute('aria-expanded'), 'true');
+          if (d.querySelectorAll('.term-def').length !== 1) p.push('點一下只該展開一個解釋，得到 ' + d.querySelectorAll('.term-def').length);
+          btn.click();
+          if (d.querySelector('.term-def')) p.push('再點一下應該收起來');
+          same(p, 'aria-expanded（收起）', btn.getAttribute('aria-expanded'), 'false');
+        });
+      }
+      document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });
+    })();
+  </script>
+</body>
+</html>

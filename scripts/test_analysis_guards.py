@@ -40,16 +40,26 @@ CORE_FILES = [
     "scripts/test_card_analysis.html", "scripts/test_card_analysis_js.py", "scripts/test_indicators.html",
     "analysis.html", "analysis-debug.html", "js/analysis.js", "js/card-analysis.js", "js/concentration.js", "docs/ANALYSIS.md",
     "docs/adhoc-workflow.example.yml",
+    # A1-6：換匯助手與「一眼看懂」的新檔
+    "js/plain.js", "js/glossary.js", "js/fxplan.js",
+    "scripts/test_plain.html", "scripts/test_plain_js.py", "scripts/test_fxplan.html", "scripts/test_fxplan_js.py",
+    "scripts/test_indicators_js.py", "scripts/backfill_fx_history.py", "scripts/test_backfill_fx.py",
 ]
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
 PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
 PROFILE_KEY_HOME = "js/concentration.js"
+# 換匯設定檔（A1-6）的鍵名：只准出現在 js/fxplan.js。公開輸出、頁面、表單的 id／name、其他 JS 一律零命中。
+FXPLAN_KEYS = ("monthlyBudget" + "Twd", "target" + "Cny", "deadline" + "Month", "conver" + "ted")
+FXPLAN_KEY_HOME = "js/fxplan.js"
 DATA_GLOBS = ["data/analysis/*.json", "data/analysis/**/*.json", "data/history-long/*.json"]
 
 # 判斷用語（拆開拼，免得掃到這一行）
-JUDGEMENT_WORDS = ["買" + "進", "賣" + "出", "建" + "議", "總" + "分", "分" + "數"]
+JUDGEMENT_WORDS = ["買" + "進", "賣" + "出", "建" + "議", "總" + "分", "分" + "數",
+                   "偏" + "買", "偏" + "賣", "主" + "力"]                     # 後三個是 A1-6 加的：狀態詞不准帶方向或資金動向
+# 「呈現原則」要把不准用的四個詞寫給人看：只有這一句列舉（一字不差）可以出現，別的寫法照擋
+BANNED_WORD_LIST = "「" + "偏" + "買／" + "偏" + "賣／" + "主" + "力／" + "建" + "議」"
 EXEMPT_PHRASES = ["不構成投資" + "建" + "議", "本行" + "賣" + "出", "本行買入", "即期" + "賣" + "出", "即期買入",
-                  "現金" + "賣" + "出", "現金買入", "掛牌" + "賣" + "出"]
+                  "現金" + "賣" + "出", "現金買入", "掛牌" + "賣" + "出", BANNED_WORD_LIST]
 
 # 隱私：通用樣式（字眼本身就不該出現在公開的分析檔裡）
 PRIVATE_WORDS = ["薪" + "資", "薪" + "水", "房" + "貸", "不動" + "產", "房地" + "產"]
@@ -57,11 +67,15 @@ PRIVATE_PATTERNS = [
     r"持有\s*[\d,\.]+\s*(股|張|單位|盎司|公克|克|枚|顆)",
     r"(成本|持倉|部位|曝險|權重|比重|市值|損益)\s*[:：]?\s*[\d,\.]+\s*(%|％|元|萬|股|張)",
     r"[\d,\.]+\s*(萬元|萬台幣|萬美元)",
+    # A1-6：換匯設定的金額（月預算、目標、已換）不准寫進任何公開檔；這幾個詞後面直接接數字就擋
+    r"(預算|已換|目標總額|目標金額)\s*[:：]?\s*[\d,\.]*\d[\d,\.]*\s*(元|萬|台幣|人民幣|TWD|CNY)?",
 ]
 # 隱私：data/analysis 的 JSON 不准有這些鍵（會裝個人資料的名字）
 FORBIDDEN_JSON_KEYS = {"quantity", "shares", "holding", "holdings", "cost", "costbasis", "amount", "weight", "wei" + "ghts",
                        "portfolio", "salary", "mortgage", "position", "positions", "exposure",
-                       "salaryproxy" + "assetid", "as" + "of"}
+                       "salaryproxy" + "assetid", "as" + "of",
+                       "monthlybudget" + "twd", "target" + "cny", "deadline" + "month", "conver" + "ted",
+                       "budget", "target", "deadline"}
 
 
 def repo_files():
@@ -91,6 +105,11 @@ def judgement_hits(text):
 def profile_key_hits(text):
     """集中度設定檔的鍵名只准在 PROFILE_KEY_HOME 出現；其他地方出現就是漏了。"""
     return [k for k in PROFILE_KEYS if k in text]
+
+
+def fxplan_key_hits(text):
+    """換匯設定檔的鍵名只准在 FXPLAN_KEY_HOME 出現；其他地方出現就是漏了。"""
+    return [k for k in FXPLAN_KEYS if k in text]
 
 
 def privacy_hits(text):
@@ -242,6 +261,25 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(judgement_hits("綜合" + "分" + "數 87"))
         self.assertTrue(judgement_hits("我" + "建" + "議加碼"))
 
+    def test_direction_words_added_in_a1_6_are_caught_but_the_one_listing_sentence_is_not(self):
+        for w in ("偏" + "買", "偏" + "賣", "主" + "力"):
+            self.assertEqual(judgement_hits("這個面向現在" + w), [w])
+        self.assertEqual(judgement_hits("狀態詞絕不用" + BANNED_WORD_LIST + "這四個詞"), [])
+        self.assertTrue(judgement_hits("狀態詞可以用" + "偏" + "買、" + "偏" + "賣"))                 # 換一種寫法就不豁免
+        self.assertEqual(judgement_hits("位置：偏便宜／中間／偏貴；成本：便宜／正常／偏貴；風險：平靜／正常／劇烈"), [])
+
+    def test_fake_exchange_plan_amounts_are_caught(self):
+        self.assertTrue(privacy_hits("月預算 " + "12,000 元"))
+        self.assertTrue(privacy_hits("已換：" + "3000"))
+        self.assertTrue(privacy_hits("目標總額 " + "50000 人民幣"))
+        self.assertTrue(privacy_hits("每月預算" + "8000"))
+        self.assertEqual(privacy_hits("總預算＝月預算 × 月數；所需步調是月預算的 75%；純 B 一般只花掉 58% 的預算"), [])
+        self.assertEqual(privacy_hits("保底＝（目標總額 − 已換人民幣）÷ 剩餘月數"), [])
+
+    def test_fxplan_key_scanner_catches_a_planted_key(self):
+        self.assertEqual(fxplan_key_hits("x " + "target" + "Cny" + " y"), ["target" + "Cny"])
+        self.assertEqual(fxplan_key_hits('id="fxp_budget" name="fxp_target"'), [])
+
     def test_fake_holding_numbers_are_caught(self):
         self.assertTrue(privacy_hits("持有 " + "1,000 股"))
         self.assertTrue(privacy_hits("成本：" + "123,456 元"))
@@ -267,6 +305,10 @@ class TestScannerItself(unittest.TestCase):
         self.assertEqual(json_key_hits({"gspc": {"volatility": {"pct": 12.3}}}), [])
         self.assertTrue(json_key_hits({"assets": [{"id": "x", "shares": 1000}]}))
         self.assertTrue(json_key_hits({"profile": {"wei" + "ghts": {"stock": 30}}}))
+        self.assertTrue(json_key_hits({"currencies": {"CNY": {"monthlyBudget" + "Twd": 1}}}))
+        self.assertTrue(json_key_hits({"plan": {"conver" + "ted": []}}))
+        self.assertTrue(json_key_hits({"plan": {"budget": 1}}))
+        self.assertEqual(json_key_hits({"currencies": {"CNY": {"percentiles": {"5y": {"pct": 96.9}}, "spreads": {}, "rule": {"ratioPct": 0}}}}), [])
 
     def test_named_terms_via_hmac(self):
         salt = b"test-salt"
@@ -392,10 +434,12 @@ class TestProducedOutputsAreClean(unittest.TestCase):
             self.assertGreaterEqual(len(files), 4)                                            # status／risk／decompose／cost
             for p in files:
                 text = io.open(p, encoding="utf-8").read()
-                hits = judgement_hits(text) + json_key_hits(json.loads(text)) + profile_key_hits(text)
+                hits = (judgement_hits(text) + json_key_hits(json.loads(text)) + profile_key_hits(text) +
+                        fxplan_key_hits(text) + privacy_hits(text))
                 if hits:
                     bad[os.path.relpath(p, w.data).replace(os.sep, "/")] = hits
             self.assertEqual(bad, {}, "離線產出的分析檔裡有不該有的東西：%s" % bad)
+            self.assertIn(os.path.join(w.data, "analysis", "fx.json"), files)                  # A1-6：換匯助手的公開資料也在掃描範圍裡
         finally:
             w.close()
 
@@ -461,6 +505,35 @@ class TestProfileKeyNamesStayInOnePlace(unittest.TestCase):
         text = read_text(PROFILE_KEY_HOME)
         for k in PROFILE_KEYS:
             self.assertIn(k, text)
+
+
+class TestFxPlanKeyNamesStayInOnePlace(unittest.TestCase):
+    """A1-6：換匯設定檔的鍵名只准在 js/fxplan.js 出現；公開的資料檔、頁面、測試頁、其他 JS 零命中。
+    （渲染出來的 DOM 與表單的 id／name 由 test_analysis_page_js.py 另外掃。）對照組：把鍵名當表單 id 或印進 fx.json → 紅。"""
+
+    def test_keys_absent_from_public_outputs_and_pages(self):
+        bad = {}
+        for rel in repo_files():
+            if rel == FXPLAN_KEY_HOME:
+                continue
+            hits = fxplan_key_hits(read_text(rel))
+            if hits:
+                bad[rel] = hits
+        self.assertEqual(bad, {}, "換匯設定檔的鍵名出現在不該出現的地方：%s" % bad)
+
+    def test_the_home_file_really_is_the_one_that_uses_them(self):
+        text = read_text(FXPLAN_KEY_HOME)
+        for k in FXPLAN_KEYS:
+            self.assertIn(k, text)
+
+    def test_the_plan_file_itself_never_enters_the_public_repo(self):
+        try:
+            out = subprocess.run(["git", "ls-files"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=30)
+        except Exception:
+            self.skipTest("這裡沒有 git")
+        tracked = out.stdout.decode("utf-8", "replace")
+        self.assertNotIn("fx-plan", tracked)
+        self.assertNotIn("analysis-profile", tracked)
 
 
 # docs/ 底下每個 .md 的大小上限（位元組）。2026-09-25 A1-3 的文件腳本把 ANALYSIS.md 塞成 24 MB、守門沒擋下（它只掃字），所以加這一條。

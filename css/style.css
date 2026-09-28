@@ -1273,3 +1273,65 @@ a:hover { text-decoration: underline; }
 @media (max-width: 479px) {
   .ana-k { min-width: 100%; }
 }
+
+/* ============================================================ 一眼看懂（A1-6 起）：圖示＋狀態詞＋規則＋白話
+   圖示只是狀態的圖像，狀態詞一定並列；顏色跟著狀態走但不是唯一的線索。幾格並排、各看各的，不加總。 */
+
+.ana-linkrow { padding: 6px 0 2px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; }
+.ana-link { font-weight: 600; }
+
+.glance-row {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin: 8px 0 6px;
+}
+@media (min-width: 760px) {
+  .glance-row { grid-template-columns: repeat(3, 1fr); }
+}
+.glance {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 10px 12px 11px;
+}
+.glance-title { font-size: 12px; color: var(--text-dim); letter-spacing: .3px; }
+.glance-main { display: flex; align-items: center; gap: 8px; margin: 4px 0 4px; }
+.glance-icon { display: inline-flex; color: var(--text-dim); }
+.glance-word { font-size: 19px; font-weight: 700; line-height: 1.3; }
+.glance-because { font-size: 12.5px; color: var(--text); }
+.glance-rule { font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
+.glance[data-state="low"]  .glance-icon, .glance[data-state="low"]  .glance-word { color: var(--low); }
+.glance[data-state="mid"]  .glance-icon, .glance[data-state="mid"]  .glance-word { color: var(--mid); }
+.glance[data-state="high"] .glance-icon, .glance[data-state="high"] .glance-word { color: var(--high); }
+.glance[data-state="na"]   .glance-icon, .glance[data-state="na"]   .glance-word { color: var(--text-faint); }
+.glance[data-aspect="quota"] .glance-word { font-size: 16px; }
+
+/* 每個數字下面那一行白話 */
+.plain-line { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+
+/* 名詞：點一下在旁邊展開一句解釋（不靠滑鼠懸停，手機也能用） */
+button.term[data-term] {   /* 屬性選擇器是為了贏過分析分頁自己的 .ana-page button */
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-bottom: 1px dotted var(--text-dim);
+  border-radius: 0;
+  padding: 0;
+  cursor: help;
+}
+button.term[data-term]:hover { background: none; color: var(--accent); }
+.term-def {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text-dim);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  margin: 4px 0 2px;
+  white-space: normal;
+  max-width: 320px;
+}
