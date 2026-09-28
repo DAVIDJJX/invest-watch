@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-25T15:30:56+08:00",
+ "generatedAt": "2026-09-28T15:30:52+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -2198,14 +2198,14 @@
    "goldSell": 4382.0,
    "goldDate": "2026-09-24",
    "goldQuoteTime": "2026/09/24 19:56",
-   "gcPrice": 4309.3,
-   "gcDate": "2026-09-25",
-   "gcFetchedAt": "2026-09-25T15:30:39+08:00",
+   "gcPrice": 4193.3,
+   "gcDate": "2026-09-28",
+   "gcFetchedAt": "2026-09-28T15:30:36+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
    "fxMid": 31.78,
    "fxDate": "2026-09-24",
-   "implied": 4403.03,
-   "residualPct": -0.478,
+   "implied": 4284.5,
+   "residualPct": 2.276,
    "label": "估算"
   },
   "inputs": {
@@ -2214,8 +2214,8 @@
     "lastDate": "2026-09-24"
    },
    "gold_intl": {
-    "points": 254,
-    "lastDate": "2026-09-25"
+    "points": 256,
+    "lastDate": "2026-09-28"
    },
    "fx_usd": {
     "points": 145,
@@ -3672,16 +3672,16 @@
   },
   "inputs": {
    "tw00646": {
-    "bars": 563,
-    "lastBar": "2026-09-14"
+    "bars": 564,
+    "lastBar": "2026-09-21"
    },
    "gspc": {
-    "bars": 2959,
-    "lastBar": "2026-09-14"
+    "bars": 2960,
+    "lastBar": "2026-09-21"
    },
    "fx_usd": {
-    "bars": 1070,
-    "lastBar": "2026-09-18"
+    "bars": 1071,
+    "lastBar": "2026-09-24"
    }
   }
  }

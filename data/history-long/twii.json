@@ -8,13 +8,13 @@
   "currency": "TWD",
   "unit": "點",
   "dateSourceNote": "Yahoo 週線 K 棒自己的時間戳（該週第一個交易日、交易所當地日期）；只收已完成的週",
-  "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；最後一根完成週棒超過 7 天才補抓。period1 用 1970-01-05（星期一）：Yahoo 把週的起點對齊 period1 的星期幾，用 0 會讓 ^GSPC 變成週四起的週；所以只回 1970 以後（Yahoo 對 ^GSPC 其實從 1927 就有，分析用不到更早）。",
+  "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；存檔最後一根早於最近一個完成週的週一才補抓（每週一次）。period1 用 1970-01-05（星期一）：Yahoo 把週的起點對齊 period1 的星期幾，用 0 會讓 ^GSPC 變成週四起的週；所以只回 1970 以後（Yahoo 對 ^GSPC 其實從 1927 就有，分析用不到更早）。",
   "barsStartOn": "Mon",
   "firstTradeDateAtYahoo": "1997-07-02",
-  "count": 1505,
+  "count": 1506,
   "firstDate": "1997-06-30",
-  "lastDate": "2026-09-14",
-  "updatedAt": "2026-09-24T15:31:01+08:00",
+  "lastDate": "2026-09-21",
+  "updatedAt": "2026-09-28T15:30:54+08:00",
   "points": [
     {"d":"1997-06-30","c":9192.570312,"dateSource":"yahoo-week"},
     {"d":"1997-07-07","c":9394.629883,"dateSource":"yahoo-week"},
@@ -1520,6 +1520,7 @@
     {"d":"2026-08-24","c":46331.449219,"dateSource":"yahoo-week"},
     {"d":"2026-08-31","c":46551.128906,"dateSource":"yahoo-week"},
     {"d":"2026-09-07","c":46184.851562,"dateSource":"yahoo-week"},
-    {"d":"2026-09-14","c":47180.75,"dateSource":"yahoo-week"}
+    {"d":"2026-09-14","c":47180.75,"dateSource":"yahoo-week"},
+    {"d":"2026-09-21","c":48024.601562,"dateSource":"yahoo-week"}
   ]
 }
