@@ -242,7 +242,9 @@ class TestFxWeeklyAndPlan(unittest.TestCase):
     def test_long_targets_from_real_assets_json(self):
         assets = A.load_assets()
         ids = sorted(t["id"] for t in A.long_targets(assets))
-        self.assertEqual(ids, ["btc", "fx_usd", "gold_intl", "gspc", "nvda", "sp500tr", "tw00646", "tw00679b", "tw2330", "twii", "wti"])
+        self.assertEqual(ids, ["btc", "fx_cny", "fx_usd", "gold_intl", "gspc", "nvda", "sp500tr", "tw00646", "tw00679b", "tw2330", "twii", "usdcny", "wti"])
+        self.assertEqual(kinds_of(assets)["fx_cny"], "finmind")                               # A1-6：人民幣跟美元同等級
+        self.assertEqual(kinds_of(assets)["usdcny"], "yahoo")
         extra = [t for t in A.long_targets(assets) if t["id"] == "sp500tr"][0]
         self.assertEqual((extra["kind"], extra["symbol"]), ("yahoo", "^SP500TR"))          # 只是基準序列，不在 assets.json
         kinds = {t["id"]: t["kind"] for t in A.long_targets(assets)}
@@ -515,7 +517,13 @@ class World(object):
             return json.load(fh)
 
 
+def kinds_of(assets):
+    return dict((t["id"], t["kind"]) for t in A.long_targets(assets))
+
+
 ASSETS = {"assets": [
+    {"id": "gold_cny", "name": "黃金存摺（人民幣）", "group": "貴金屬", "assetClass": "gold_tw", "owner": "local", "type": "bot_gold", "symbol": "CNY", "currency": "CNY"},
+    {"id": "fx_cny", "name": "CNY/TWD", "group": "匯率", "assetClass": "fx", "owner": "cloud", "type": "finmind_fx", "cadence": "full", "symbol": "CNY", "currency": "TWD"},
     {"id": "gold_twd", "name": "黃金存摺", "group": "貴金屬", "assetClass": "gold_tw", "owner": "local", "type": "bot_gold", "symbol": "TWD", "currency": "TWD"},
     {"id": "gold_intl", "name": "國際金價", "group": "貴金屬", "assetClass": "commodity", "owner": "cloud", "type": "yahoo", "cadence": "full", "symbol": "GC=F", "currency": "USD"},
     {"id": "gspc", "name": "S&P 500", "group": "海外", "assetClass": "index", "owner": "cloud", "type": "yahoo", "symbol": "^GSPC", "currency": "USD"},
@@ -526,7 +534,7 @@ ASSETS = {"assets": [
 
 def fill_world(w, with_gold_intl_daily=True):
     w.write("assets.json", ASSETS)
-    for aid in ("gold_intl", "gspc", "tw00646", "fx_usd", "sp500tr"):
+    for aid in ("gold_intl", "gspc", "tw00646", "fx_usd", "sp500tr", "fx_cny", "usdcny"):
         w.write("history-long/%s.json" % aid, {"id": aid, "points": pts(start="2019-01-07", n=400)})
     bar_days = [(A.parse_day("2026-09-01") + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(0, 12)]
     w.write("history/gold_bar.json", {"points": [{"d": d, "g1000": 4441200.0, "g500": 2224353.0, "g250": 1114313.0, "g100": 447022.0,
@@ -536,10 +544,13 @@ def fill_world(w, with_gold_intl_daily=True):
     if with_gold_intl_daily:
         w.write("history/gold_intl.json", {"points": [{"d": d, "c": 4000.0, "dateSource": "yahoo"} for d in days]})
     w.write("history/fx_usd.json", {"points": [{"d": d, "spotBuy": 31.4, "spotSell": 31.6, "c": 31.6, "dateSource": "finmind"} for d in days]})
+    w.write("history/fx_cny.json", {"points": [{"d": d, "spotBuy": 4.708, "spotSell": 4.758, "c": 4.758, "dateSource": "finmind"} for d in days]})
+    w.write("history/gold_cny.json", {"points": [{"d": d, "buy": 920.5, "sell": 930.35, "c": 930.35, "dateSource": "chart"} for d in days]})
     w.write("latest.json", {"assets": {
         "gold_twd": {"status": "ok", "sell": 4350.0, "date": days[-1]},
         "gold_intl": {"status": "ok", "price": 4000.0, "date": days[-1]},
-        "fx_usd": {"status": "ok", "spotBuy": 31.4, "spotSell": 31.6, "date": days[-2]}}})
+        "fx_usd": {"status": "ok", "spotBuy": 31.4, "spotSell": 31.6, "cashBuy": 31.05, "cashSell": 31.95, "date": days[-2]},
+        "fx_cny": {"status": "ok", "price": 4.758, "cashBuy": 4.636, "cashSell": 4.798, "date": days[-1]}}})
 
 
 class TestRunOffline(unittest.TestCase):
@@ -568,7 +579,21 @@ class TestRunOffline(unittest.TestCase):
         self.assertTrue(any("融資成本" in n for n in dec["gold"]["notes"]))                 # 期貨基差的解釋
         for aid, e in status["longHistory"].items():
             self.assertIn("offline", e["action"])
+        self.assertIn("fx_cny", risk["assets"])                                              # A1-6：人民幣有風險列
+        self.assertEqual(risk["assets"]["fx_cny"]["dataLabel"], "有對照")
+        self.assertNotIn("usdcny", risk["assets"])                                           # 基準序列不進風險表與矩陣
+        self.assertNotIn("usdcny", risk["correlation"]["ids"])
+        self.assertIn("windows", dec["cny"])
+        fx = self.w.read("analysis/fx.json")
+        self.assertIn("data/analysis/fx.json", status["produced"])
+        self.assertEqual(sorted(fx["currencies"]), ["CNY", "USD"])
+        self.assertIn("資料不足", fx["currencies"]["CNY"]["percentiles"]["1y"]["reason"])        # 日線只有 200 點，不到 227
+        self.assertIsNotNone(fx["currencies"]["CNY"]["percentiles"]["5y"]["pct"])
+        self.assertIn("資料不足", fx["currencies"]["CNY"]["percentiles"]["10y"]["reason"])
+        self.assertEqual(fx["backtest"]["label"], "歷史模擬")
+        self.assertGreaterEqual(fx["backtest"]["main"]["n"], 1)
         cost = self.w.read("analysis/cost.json")
+        self.assertAlmostEqual(cost["goldSpreadCny"]["latest"]["spreadPct"], round(9.85 / 925.425 * 100, 3), places=3)
         self.assertIn("data/analysis/cost.json", status["produced"])
         self.assertTrue(cost["trackingDifference"]["primary"]["available"])
         self.assertEqual(cost["trackingDifference"]["primary"]["benchmark"], "^SP500TR")
@@ -822,6 +847,182 @@ class TestPathsDict(unittest.TestCase):
             self.assertEqual(A.ANALYSIS_DIR, os.path.join(A.DATA_DIR, "analysis"))           # 模組常數沒被動
             risk = w.read("analysis/risk.json")
             self.assertEqual(risk["generatedAt"], A.iso(NOW))
+        finally:
+            w.close()
+
+
+def fx_weekly(values, start="2013-01-04"):
+    d0 = A.parse_day(start)
+    return [{"d": (d0 + timedelta(days=7 * i)).strftime("%Y-%m-%d"), "c": v, "spotSell": v, "spotBuy": round(v - 0.05, 4), "dateSource": "finmind"}
+            for i, v in enumerate(values)]
+
+
+class TestFx(unittest.TestCase):
+    """A1-6：位置、成本、規則表、回測（不偷看未來、保底、裁決）、人民幣拆解。"""
+
+    def test_percentile_is_share_of_window_not_above_the_value(self):
+        self.assertEqual(A.percentile_of(5, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 50.0)
+        self.assertEqual(A.percentile_of(11, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), 100.0)
+        self.assertEqual(A.percentile_of(0.5, [1, 2, 3]), 0.0)
+        self.assertIsNone(A.percentile_of(None, [1, 2, 3]))
+        self.assertIsNone(A.percentile_of(1, []))
+
+    def test_rule_table_and_its_boundaries(self):
+        """對照組：規則表對應改壞（< 20% 給 60%）→ 這一條會紅。"""
+        got = [(x, A.fx_rule(x)["ratioPct"]) for x in (0, 19.9, 20, 39.9, 40, 59.9, 60, 80, 80.1, 100)]
+        self.assertEqual(got, [(0, 100), (19.9, 100), (20, 60), (39.9, 60), (40, 40), (59.9, 40), (60, 20), (80, 20), (80.1, 0), (100, 0)])
+        self.assertIsNone(A.fx_rule(None))
+        self.assertEqual([(r["bucket"], r["ratioPct"]) for r in A.FX_RULE_TABLE],
+                         [("< 20%", 100), ("20–40%", 60), ("40–60%", 40), ("60–80%", 20), ("> 80%", 0)])
+        for x in (5, 25, 45, 65, 95):
+            self.assertIn(A.fx_rule(x)["bucket"], [r["bucket"] for r in A.FX_RULE_TABLE])
+
+    def test_one_year_position_needs_227_points(self):
+        mk = lambda n: [{"d": "2025-%03d" % i, "c": 4.0 + i * 0.001} for i in range(n)]        # noqa: E731
+        self.assertIn("資料不足", A.fx_position(mk(226), A.FX_DAILY_WINDOW, A.FX_MIN_DAILY)["reason"])
+        ok = A.fx_position(mk(227), A.FX_DAILY_WINDOW, A.FX_MIN_DAILY)
+        self.assertEqual(ok["pct"], 100.0)
+        self.assertEqual((ok["low"], ok["high"]), (4.0, 4.226))
+        self.assertEqual(A.FX_MIN_DAILY, 227)                                                # 跟 js/indicators.js 同一個數字
+
+    def test_weekly_position_compares_the_latest_daily_value(self):
+        weekly = fx_weekly([4.0 + 0.001 * i for i in range(300)])
+        pos = A.fx_position(weekly, 260, 234, current={"d": "2026-09-24", "c": 4.1})
+        self.assertEqual(pos["valueDate"], "2026-09-24")
+        self.assertEqual(pos["value"], 4.1)
+        self.assertEqual(pos["n"], 260)
+        self.assertEqual(pos["through"], weekly[-1]["d"])
+        self.assertAlmostEqual(pos["pct"], round(62 / 261.0 * 100, 1), places=1)              # 視窗 4.040～4.299，≤4.1 的有 61 根，加上自己
+
+    def test_costs_keep_cash_and_spot_apart(self):
+        """對照組：現鈔與即期欄位對調 → 這一條會紅。"""
+        daily = [{"d": "2026-09-%02d" % (i + 1), "spotBuy": 4.708, "spotSell": 4.758, "c": 4.758} for i in range(24)]
+        c = A.fx_costs(daily, {"cashBuy": 4.636, "cashSell": 4.798, "date": "2026-09-24"})
+        self.assertAlmostEqual(c["spot"]["spreadPct"], round(0.05 / 4.733 * 100, 3), places=3)
+        self.assertAlmostEqual(c["cash"]["spreadPct"], round(0.162 / 4.717 * 100, 3), places=3)
+        self.assertAlmostEqual(c["cashVsSpot"]["pct"], round((4.798 / 4.758 - 1) * 100, 3), places=3)
+        self.assertEqual((c["spot"]["d"], c["cash"]["d"]), ("2026-09-24", "2026-09-24"))
+        self.assertIn("資料不足", c["spotSpread1y"]["reason"])                                  # 只有 24 天
+        self.assertEqual(c["note"], "網銀或大額換匯的優惠不在計算內")
+        stale = A.fx_costs(daily, {"cashBuy": 4.636, "cashSell": 4.798, "date": "2026-09-23"})
+        self.assertIn("不是同一天", stale["cashVsSpot"]["reason"])                              # 日期對不上就不硬算
+        self.assertIn("資料不足", A.fx_costs(daily, {})["cash"]["reason"])
+
+    def test_gold_cny_spread_formula(self):
+        """對照組：人民幣價差公式改壞 → 這一條會紅。"""
+        out = A.gold_spread([{"d": "2026-09-24", "buy": 920.5, "sell": 930.35}], source="gold_cny")
+        self.assertAlmostEqual(out["latest"]["spreadPct"], round(9.85 / 925.425 * 100, 3), places=3)
+        self.assertIn("gold_cny.json", out["notes"][0])
+
+    def test_backtest_percentile_never_looks_ahead(self):
+        """對照組：用決策日之後的資料算百分位 → 這一條會紅。"""
+        past = [4.0 + 0.002 * (i % 50) for i in range(300)]                                  # 過去：4.000～4.098 來回
+        future = [9.0] * 120                                                                 # 未來：整段跳到 9
+        ws = fx_weekly(past + future)
+        i = 299
+        ws[i]["c"] = 4.099                                                                   # 決策日是到當時為止的最高價
+        self.assertEqual(A.decision_percentile(ws, i), 100.0)                                # 只看過去：第 100 百分位
+        self.assertEqual(A.fx_rule(A.decision_percentile(ws, i))["ratioPct"], 0)             # 偷看未來的話會變成低百分位、整月額度
+        self.assertIsNone(A.decision_percentile(ws, 232))                                    # 不夠 234 根不當決策日
+        self.assertIsNotNone(A.decision_percentile(ws, 233))
+        self.assertEqual(A.decision_percentile(ws, 260), A.percentile_of(ws[260]["c"], [p["c"] for p in ws[1:261]]))
+
+    def test_monthly_decisions_take_the_first_bar_of_each_month(self):
+        ws = fx_weekly([4.0] * 12, start="2026-01-02")
+        self.assertEqual([ws[i]["d"] for i in A.monthly_decisions(ws)], ["2026-01-02", "2026-02-06", "2026-03-06"])
+
+    def cyc(self, n=560):
+        import math as _m
+        return fx_weekly([round(4.5 + 0.4 * _m.sin(i / 20.0), 4) for i in range(n)])
+
+    def test_main_comparison_has_no_room_to_move_when_budget_equals_pace(self):
+        """總預算＝月預算 × 月數時，保底每個月都等於月預算：B 跟 A 完全一樣。對照組：把保底拿掉 → 這一條會紅。"""
+        r = A.fx_backtest(self.cyc(), pace=1.0)
+        self.assertGreater(r["n"], 10)
+        self.assertEqual(r["tieSharePct"], 100.0)
+        self.assertEqual((r["winSharePct"], r["medianImprovePct"], r["worstImprovePct"]), (0.0, 0.0, 0.0))
+
+    def test_floor_makes_b_finish_and_pure_b_does_not(self):
+        r = A.fx_backtest(self.cyc(), pace=0.5)
+        self.assertGreater(r["n"], 10)
+        self.assertLess(r["tieSharePct"], 100.0)                                              # 有寬鬆空間，B 才會跟 A 不一樣
+        self.assertGreater(r["bestImprovePct"], 0.0)
+        self.assertGreater(r["pure"]["notDoneSharePct"], 0.0)                                 # 純 B 常常換不完
+        self.assertIn("不能直接比", r["pure"]["note"])
+        short = A.fx_backtest(fx_weekly([4.5] * 250))
+        self.assertEqual(short["n"], 0)
+        self.assertIn("資料不足", short["reason"])
+
+    def test_floor_is_remaining_over_remaining_months(self):
+        """對照組：期限保底拿掉 → 這一條會紅。全部月份都在 > 80%（規則比例 0）時，保底要讓 B 照樣換完、而且跟 A 一樣。"""
+        rising = fx_weekly([4.0 + 0.001 * i for i in range(560)])                             # 一路創新高：每個決策日都是第 100 百分位
+        r = A.fx_backtest(rising, pace=0.5)
+        self.assertEqual(r["tieSharePct"], 100.0)                                             # 規則說 0，保底說每月 0.5 → 跟 A 一樣
+        self.assertEqual(r["pure"]["medianSpentSharePct"], 0.0)                               # 純 B 一毛都沒換
+        self.assertEqual(r["pure"]["notDoneSharePct"], 100.0)
+
+    def test_decision_thresholds_are_fixed(self):
+        self.assertEqual(A.fx_decide({"n": 10, "winSharePct": 55.0, "medianImprovePct": 0.5})["default"], "B")
+        self.assertEqual(A.fx_decide({"n": 10, "winSharePct": 54.9, "medianImprovePct": 3.0})["default"], "A")
+        self.assertEqual(A.fx_decide({"n": 10, "winSharePct": 90.0, "medianImprovePct": 0.49})["default"], "A")
+        self.assertEqual(A.fx_decide({"n": 0})["default"], "A")
+        self.assertEqual(A.fx_decide(None)["word"], "固定分批")
+
+    def test_backtest_block_says_the_windows_overlap(self):
+        b = A.build_backtest(self.cyc(), NOW)
+        self.assertEqual(b["label"], "歷史模擬")
+        self.assertTrue(any("重疊" in n and "不是獨立樣本" in n for n in b["notes"]))
+        self.assertEqual(b["main"]["pace"], 1.0)
+        self.assertEqual([x["pace"] for x in b["sensitivity"]], [0.75, 0.5])
+        self.assertEqual(b["decision"]["default"], "A")                                       # 主要比較全部平手 → 預設固定分批
+
+    def test_backtest_recomputed_on_monday_and_reused_otherwise(self):
+        w = World()
+        try:
+            fill_world(w)
+            monday = datetime(2026, 9, 21, 15, 35, tzinfo=A.TPE)
+            tuesday = datetime(2026, 9, 22, 15, 35, tzinfo=A.TPE)
+            series = {"fx_usd": self.cyc(), "fx_cny": self.cyc()}
+            fx1 = A.build_fx(series, monday, [], w.paths)
+            self.assertEqual(fx1["backtest"]["computedOn"], "2026-09-21")
+            self.assertNotIn("reused", fx1["backtest"])
+            A.write_json(os.path.join(w.paths["analysis"], "fx.json"), fx1)
+            fx2 = A.build_fx(series, tuesday, [], w.paths)
+            self.assertTrue(fx2["backtest"]["reused"])
+            self.assertEqual(fx2["backtest"]["computedOn"], "2026-09-21")                    # 算的日期照實寫
+            self.assertEqual(fx2["backtest"]["reusedOn"], "2026-09-22")
+            self.assertEqual(fx2["backtest"]["main"], fx1["backtest"]["main"])
+        finally:
+            w.close()
+
+    def test_decompose_cny_math(self):
+        n = 200
+        usd = fx_weekly([30.0 + 3.0 * i / (n - 1.0) for i in range(n)], start="2022-01-07")     # 美元對台幣 +10%
+        x = [{"d": p["d"], "c": 7.0 + 0.7 * i / (n - 1.0)} for i, p in enumerate(usd)]        # 美元對人民幣 +10%
+        cny = [dict(p, c=round(u["c"] / xx["c"], 6), spotSell=round(u["c"] / xx["c"], 6), spotBuy=None)
+               for p, u, xx in zip(fx_weekly([0] * n, start="2022-01-07"), usd, x)]
+        for p in usd:
+            p["spotBuy"] = None                                                              # 讓中價＝c，數字好算
+        out = A.decompose_cny(cny, usd, x)
+        self.assertEqual(out["label"], "估算")
+        self.assertAlmostEqual(out["summary52"]["medianPct"], 0.0, places=2)
+        w3 = out["windows"]["3y"]
+        self.assertAlmostEqual(w3["rCnyTwdPct"], w3["combinedPct"], places=2)
+        self.assertAlmostEqual(w3["residualPct"], 0.0, places=2)
+        with self.assertRaises(A.AnalyzeError):
+            A.decompose_cny(cny[:30], usd[:30], x[:30])
+
+    def test_fx_json_carries_the_fixed_notes_and_no_personal_fields(self):
+        w = World()
+        try:
+            fill_world(w)
+            fx = A.build_fx({"fx_usd": self.cyc(), "fx_cny": self.cyc()}, NOW, [], w.paths)
+            text = json.dumps(fx, ensure_ascii=False)
+            for note in ("網銀或大額換匯的優惠不在計算內", "人民銀行每日中間價", "未經實盤驗證"):
+                self.assertIn(note, text)
+            for word in ("budget", "Budget", "target", "conver" + "ted", "預算"):
+                self.assertNotIn(word, text.replace("總預算", "").replace("月預算", ""))          # 規則說明會講「月預算」這個詞，但沒有任何金額
+            self.assertEqual(fx["rules"]["table"], A.FX_RULE_TABLE)
         finally:
             w.close()
 
