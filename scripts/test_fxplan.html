@@ -5,9 +5,9 @@
   <title>js/fxplan.js 離線測試頁</title>
 </head>
 <body>
-  <!-- 這一頁不連網、不讀資料檔：直接呼叫 js/fxplan.js（換匯助手的私人設定與本月試算），逐題檢查。
+  <!-- 這一頁不連網、不讀資料檔：直接呼叫 js/fxplan.js（換匯助手的私人設定與本月試算，預算池模型），逐題檢查。
        結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_fxplan_js.py 讀。
-       假設定一律由 FxPlan.fromForm 組出來（設定檔的鍵名只准出現在 js/fxplan.js）；數字是 1000、2000 這種一看就是假的整數。 -->
+       假設定一律由 FxPlan.fromForm 組出來（設定檔的鍵名只准出現在 js/fxplan.js）；數字是 10000、30000 這種一看就是假的整數。 -->
   <pre id="result"></pre>
   <script src="../js/fxplan.js"></script>
   <script>
@@ -20,6 +20,7 @@
       }
       function same(p, what, got, want) { if (got !== want) p.push(what + '：應為 ' + JSON.stringify(want) + '，得到 ' + JSON.stringify(got)); }
       function near(p, what, got, want) { if (typeof got !== 'number' || Math.abs(got - want) > 1e-6) p.push(what + '：應為 ' + want + '，得到 ' + got); }
+      function has(p, what, list, part) { if (!(list || []).some(function (x) { return x.indexOf(part) >= 0; })) p.push(what + '：應該提到「' + part + '」'); }
       // 公開的市場資料（fx.json 的人民幣那一段）：即期賣出 5、5 年百分位對到 20% 那一檔
       function cny(ratio, bucket, pct) {
         return { latest: { d: '2026-09-24', spotSell: 5 }, rule: { bucket: bucket || '60–80%', ratioPct: ratio === undefined ? 20 : ratio, percentile5y: pct === undefined ? 70 : pct } };
@@ -28,97 +29,180 @@
       if (loaded) {
         var F = window.FxPlan;
         var NOW = '2026-09';
+        function plan(extra) {
+          var v = { start: '2026-07', budget: '10000' };
+          Object.keys(extra || {}).forEach(function (k) { v[k] = extra[k]; });
+          return F.fromForm(v);
+        }
 
-        check('rule_ratio_times_budget_and_fixed_installment_are_both_computed', function (p) {
-          var plan = F.fromForm({ budget: '10000' });
-          var a = F.compute(plan, cny(20), NOW, 'A');
-          var b = F.compute(plan, cny(20), NOW, 'B');
-          if (!a.ok || !b.ok) { p.push('沒算出來'); return; }
-          same(p, 'A 的比例', a.fixed.ratioPct, 100);
-          near(p, 'A 的金額', a.fixed.twd, 10000);
-          near(p, 'B 的金額（20%）', a.rule.twd, 2000);
-          same(p, '預設 A 時的本月額度來源', a.quotaFrom, 'method');
-          near(p, '預設 A 時的本月額度', a.quotaTwd, 10000);
-          near(p, '預設 B 時的本月額度', b.quotaTwd, 2000);
-          same(p, '沒有目標就沒有保底', a.floor, null);
-          near(p, '觀望那一檔', F.compute(plan, cny(0, '> 80%', 96.9), NOW, 'B').quotaTwd, 0);
-          near(p, '最低那一檔', F.compute(plan, cny(100, '< 20%', 5), NOW, 'B').quotaTwd, 10000);
-          same(p, '不認得的做法當成 A', F.compute(plan, cny(20), NOW, 'whatever').method, 'A');
-        });
-
-        check('floor_is_remaining_divided_by_months_left_and_the_larger_one_wins', function (p) {
-          /* 對照組：把保底拿掉（本月額度只看比例）→ 這一條會紅。 */
-          var plan = F.fromForm({ budget: '10000', target: '60000', deadline: '2027-02',
-                                  records: [{ month: '2026-07', twd: '20000', rate: '4' }, { month: '2026-08', twd: '25000', rate: '5' }] });
-          var r = F.compute(plan, cny(20), NOW, 'B');
+        check('pool_accumulates_budget_since_the_start_month_minus_what_was_spent', function (p) {
+          /* 對照組：池子不累積（永遠只有一個月預算）→ 這一條會紅。 */
+          var r = F.compute(plan(), cny(20), NOW, 'A');
           if (!r.ok) { p.push('沒算出來：' + (r.errors || []).join('；')); return; }
-          near(p, '已換人民幣（各筆台幣 ÷ 匯率）', r.doneCny, 10000);              // 20000/4 + 25000/5
-          near(p, '已換台幣', r.doneTwd, 45000);
-          near(p, '平均匯率', r.averageRate, 4.5);
-          same(p, '剩餘月數（9 月到隔年 2 月，兩頭都算）', r.floor.monthsLeft, 6);
-          near(p, '還差多少人民幣', r.floor.remainingCny, 50000);
-          near(p, '保底（人民幣）', r.floor.cny, 50000 / 6);
-          near(p, '保底（台幣，用即期賣出 5 換算）', r.floor.twd, 50000 / 6 * 5);
-          near(p, '規則比例 × 月預算', r.rule.twd, 2000);
-          same(p, '這次誰比較大', r.quotaFrom, 'floor');
-          near(p, '本月額度取較大者', r.quotaTwd, 50000 / 6 * 5);
-          var a = F.compute(plan, cny(20), NOW, 'A');
-          near(p, '預設 A 時也跟保底比', a.quotaTwd, Math.max(10000, 50000 / 6 * 5));
-          var easy = F.compute(F.fromForm({ budget: '10000', target: '1200', deadline: '2027-02' }), cny(20), NOW, 'B');
-          same(p, '保底比較小時用比例', easy.quotaFrom, 'method');
-          near(p, '保底比較小時的額度', easy.quotaTwd, 2000);
-          near(p, '兩個數字都在（保底）', easy.floor.twd, 1200 / 6 * 5);
+          same(p, '計畫走到第幾個月（7、8、9 月）', r.monthsIn, 3);
+          near(p, '累積的預算', r.pool.soFarTwd, 30000);
+          near(p, '月初的池子', r.pool.atMonthStartTwd, 30000);
+          near(p, '現在的池子', r.pool.nowTwd, 30000);
+          var spent = F.compute(plan({ records: [{ month: '2026-07', twd: '4000', rate: '5' }, { month: '2026-08', twd: '6000', rate: '5' }] }), cny(20), NOW, 'A');
+          near(p, '前兩個月換掉一萬之後，月初的池子', spent.pool.atMonthStartTwd, 20000);
+          near(p, '前兩個月換掉一萬之後，現在的池子', spent.pool.nowTwd, 20000);
+          var outside = F.compute(plan({ records: [{ month: '2026-05', twd: '5000', rate: '5' }] }), cny(20), NOW, 'A');
+          near(p, '計畫開始以前換的不從池子扣', outside.pool.atMonthStartTwd, 30000);
+          near(p, '計畫開始以前換的算進已換人民幣', outside.doneCny, 1000);
+          has(p, '計畫開始以前的紀錄要提醒', outside.warnings, '在計畫起始月之前');
+          var early = F.compute(F.fromForm({ start: '2026-10', budget: '10000' }), cny(20), NOW, 'A');
+          same(p, '計畫還沒開始', early.pool.notStarted, true);
+          near(p, '計畫還沒開始時池子是空的', early.pool.atMonthStartTwd, 0);
+          near(p, '計畫還沒開始時本月額度是 0', early.quotaTwd, 0);
+          has(p, '計畫還沒開始要提醒', early.warnings, '還沒到');
+          var over = F.compute(plan({ records: [{ month: '2026-08', twd: '50000', rate: '5' }] }), cny(20), NOW, 'A');
+          near(p, '換的比累積的預算多：池子是空的', over.pool.atMonthStartTwd, 0);
+          near(p, '換的比累積的預算多：多出來的', over.pool.overspentTwd, 20000);
+          near(p, '池子是空的時候本月額度是 0', over.quotaTwd, 0);
+          has(p, '換的比累積的預算多要提醒', over.warnings, '比累積的預算多');
         });
 
-        check('no_target_or_no_deadline_means_no_floor', function (p) {
-          var onlyTarget = F.compute(F.fromForm({ budget: '10000', target: '60000' }), cny(20), NOW, 'B');
-          same(p, '只有目標沒有期限', onlyTarget.floor, null);
-          if (!onlyTarget.warnings.length) p.push('只有目標沒有期限要提醒');
-          var onlyDeadline = F.compute(F.fromForm({ budget: '10000', deadline: '2027-02' }), cny(20), NOW, 'B');
-          same(p, '只有期限沒有目標', onlyDeadline.floor, null);
-          if (!onlyDeadline.warnings.length) p.push('只有期限沒有目標要提醒');
-          var past = F.compute(F.fromForm({ budget: '10000', target: '60000', deadline: '2026-08' }), cny(20), NOW, 'B');
+        check('rule_quota_is_the_ratio_times_the_pool_not_times_the_monthly_budget', function (p) {
+          /* 對照組：規則比例乘月預算而不是乘池子 → 這一條會紅。 */
+          var a = F.compute(plan(), cny(20), NOW, 'A');
+          var b = F.compute(plan(), cny(20), NOW, 'B');
+          near(p, '規則額度＝池子三萬 × 20%', b.rule.twd, 6000);
+          near(p, '預設 B 時的本月額度', b.quotaTwd, 6000);
+          same(p, '預設 B 時額度的來源', b.quotaFrom, 'method');
+          near(p, '固定分批＝一個月預算', a.fixed.twd, 10000);
+          near(p, '預設 A 時的本月額度', a.quotaTwd, 10000);
+          near(p, '預設 A 時也印規則額度', a.rule.twd, 6000);
+          near(p, '最低那一檔把池子換光', F.compute(plan(), cny(100, '< 20%', 5), NOW, 'B').quotaTwd, 30000);
+          near(p, '觀望那一檔', F.compute(plan(), cny(0, '> 80%', 96.9), NOW, 'B').quotaTwd, 0);
+          var thin = F.compute(plan({ records: [{ month: '2026-08', twd: '26000', rate: '5' }] }), cny(20), NOW, 'A');
+          near(p, '池子比一個月預算小時，固定分批最多就是池子', thin.fixed.twd, 4000);
+          same(p, '不認得的做法當成 A', F.compute(plan(), cny(20), NOW, 'whatever').method, 'A');
+          same(p, '沒有目標也沒有期限就沒有保底', a.floor, null);
+        });
+
+        check('floor_is_pool_over_months_left_or_the_goal_based_one_whichever_is_larger', function (p) {
+          /* 對照組：把保底拿掉（本月額度只看規則額度）→ 這一條會紅。 */
+          var onlyDeadline = F.compute(plan({ deadline: '2027-02' }), cny(0, '> 80%', 96.9), NOW, 'B');
+          if (!onlyDeadline.ok) { p.push('沒算出來：' + (onlyDeadline.errors || []).join('；')); return; }
+          same(p, '剩餘月數（9 月到隔年 2 月，兩頭都算）', onlyDeadline.floor.monthsLeft, 6);
+          near(p, '只有期限：保底＝池子 ÷ 剩餘月數', onlyDeadline.floor.twd, 5000);
+          same(p, '只有期限：保底來自池子', onlyDeadline.floor.from, 'pool');
+          same(p, '只有期限：沒有目標那一半', onlyDeadline.floor.goalPartTwd, null);
+          near(p, '規則說觀望，本月額度等於保底', onlyDeadline.quotaTwd, 5000);
+          same(p, '這次誰比較大', onlyDeadline.quotaFrom, 'floor');
+          var both = F.compute(F.fromForm({ start: '2026-07', budget: '30000', target: '60000', deadline: '2027-02',
+                                            records: [{ month: '2026-07', twd: '20000', rate: '4' }, { month: '2026-08', twd: '25000', rate: '5' }] }), cny(20), NOW, 'B');
+          near(p, '已換人民幣（各筆台幣 ÷ 匯率）', both.doneCny, 10000);
+          near(p, '月初的池子（九萬 − 四萬五）', both.pool.atMonthStartTwd, 45000);
+          near(p, '池子那一半', both.floor.poolPartTwd, 7500);
+          near(p, '目標那一半（還差五萬人民幣 × 5 ÷ 6）', both.floor.goalPartTwd, 50000 * 5 / 6);
+          same(p, '兩個取較大者：這次是目標', both.floor.from, 'goal');
+          near(p, '保底', both.floor.twd, 50000 * 5 / 6);
+          near(p, '規則額度（四萬五 × 20%）', both.rule.twd, 9000);
+          near(p, '本月額度取較大者', both.quotaTwd, 50000 * 5 / 6);
+          same(p, '沒有超過池子', both.cappedByPool, false);
+          near(p, '還差多少人民幣', both.floor.remainingCny, 50000);
+          var small = F.compute(F.fromForm({ start: '2026-07', budget: '30000', target: '12000', deadline: '2027-02' }), cny(20), NOW, 'B');
+          same(p, '目標那一半比較小時保底來自池子', small.floor.from, 'pool');
+          near(p, '目標那一半比較小時的保底', small.floor.twd, 15000);
+          near(p, '三個數字都在（規則額度）', small.rule.twd, 18000);
+          same(p, '規則額度比較大時額度的來源', small.quotaFrom, 'method');
+          near(p, '規則額度比較大時的本月額度', small.quotaTwd, 18000);
+        });
+
+        check('this_months_quota_never_exceeds_the_pool', function (p) {
+          /* 對照組：本月額度可以超過池子（把上限拿掉）→ 這一條會紅。 */
+          var r = F.compute(F.fromForm({ start: '2026-09', budget: '10000', target: '60000', deadline: '2026-10' }), cny(20), NOW, 'B');
+          near(p, '池子只有一個月預算', r.pool.atMonthStartTwd, 10000);
+          near(p, '目標那一半遠大於池子', r.floor.goalPartTwd, 150000);
+          near(p, '本月額度最多就是整個池子', r.quotaTwd, 10000);
+          same(p, '有標明被池子封頂', r.cappedByPool, true);
+          near(p, '封頂之前想換的', r.uncappedTwd, 150000);
+          same(p, '封頂時額度的來源還是保底', r.quotaFrom, 'floor');
+          near(p, '固定分批也不會超過池子', F.compute(F.fromForm({ start: '2026-09', budget: '10000', target: '60000', deadline: '2026-10' }), cny(20), NOW, 'A').quotaTwd, 10000);
+          near(p, 'capToPool：規則額度比較大', F.capToPool(6, 2, 10).twd, 6);
+          near(p, 'capToPool：保底比較大', F.capToPool(2, 5, 10).twd, 5);
+          near(p, 'capToPool：保底比池子大', F.capToPool(5, 50, 10).twd, 10);
+          same(p, 'capToPool：保底比池子大要標明', F.capToPool(5, 50, 10).capped, true);
+          same(p, 'capToPool：沒超過就不標', F.capToPool(6, 2, 10).capped, false);
+          near(p, 'capToPool：池子是空的', F.capToPool(3, 1, 0).twd, 0);
+        });
+
+        check('this_months_records_come_off_once_and_the_quota_does_not_compound', function (p) {
+          /* 對照組：用扣掉本月已換之後的池子再乘一次比例 → 這一條會紅。 */
+          function at(twd) {
+            var recs = twd ? [{ month: '2026-09', twd: String(twd), rate: '5' }] : [];
+            return F.compute(F.fromForm({ start: '2026-09', budget: '10000', records: recs }), cny(60, '20–40%', 30), NOW, 'B');
+          }
+          var fresh = at(0), done = at(6000), part = at(2000), more = at(9000);
+          near(p, '還沒換：本月額度', fresh.quotaTwd, 6000);
+          near(p, '還沒換：本月還沒換的額度', fresh.leftTwd, 6000);
+          near(p, '換完本月額度之後，本月額度不變', done.quotaTwd, 6000);
+          near(p, '換完本月額度之後，規則額度不變（用月初的池子算）', done.rule.twd, 6000);
+          near(p, '換完本月額度之後，本月還沒換的額度是 0', done.leftTwd, 0);
+          near(p, '換完本月額度之後，現在的池子', done.pool.nowTwd, 4000);
+          near(p, '月初的池子不受本月已換影響', done.pool.atMonthStartTwd, 10000);
+          near(p, '只換一部分：本月還沒換的額度', part.leftTwd, 4000);
+          near(p, '換超過了就是 0，不會變負的', more.leftTwd, 0);
+          near(p, '換超過之後現在的池子', more.pool.nowTwd, 1000);
+          near(p, '本月已換', part.thisMonthTwd, 2000);
+          // 目標那一半的保底也以月初為準：這個月換的不先扣，算出額度之後才扣一次
+          var goal = F.compute(F.fromForm({ start: '2026-09', budget: '40000', target: '12000', deadline: '2026-10',
+                                            records: [{ month: '2026-09', twd: '5000', rate: '5' }] }), cny(0, '> 80%', 96.9), NOW, 'B');
+          near(p, '月初還差的人民幣（這個月換的不先扣）', goal.floor.atMonthStartCny, 12000);
+          near(p, '現在還差的人民幣', goal.floor.remainingCny, 11000);
+          near(p, '目標那一半以月初為準', goal.floor.goalPartTwd, 30000);
+          near(p, '規則說觀望，本月額度等於保底', goal.quotaTwd, 30000);
+          near(p, '這個月換的只扣一次', goal.leftTwd, 25000);
+          near(p, '目標進度', goal.goal.remainingCny, 11000);
+          var next = F.compute(F.fromForm({ start: '2026-09', budget: '10000', records: [{ month: '2026-09', twd: '6000', rate: '5' }] }), cny(60, '20–40%', 30), '2026-10', 'B');
+          near(p, '下個月：沒換的四千留在池子裡，加上新的一個月預算', next.pool.atMonthStartTwd, 14000);
+          near(p, '下個月的規則額度', next.rule.twd, 8400);
+          same(p, '紀錄照月份排', F.compute(F.fromForm({ start: '2026-07', budget: '1', records: [{ month: '2026-09', twd: '1', rate: '5' }, { month: '2026-08', twd: '1', rate: '5' }] }),
+                                          cny(20), NOW, 'A').records.map(function (x) { return x.month; }).join(','), '2026-08,2026-09');
+        });
+
+        check('no_deadline_means_no_floor_and_missing_data_is_said_out_loud', function (p) {
+          var onlyTarget = F.compute(plan({ target: '60000' }), cny(20), NOW, 'B');
+          same(p, '只有目標沒有期限：沒有保底', onlyTarget.floor, null);
+          has(p, '只有目標沒有期限要提醒', onlyTarget.warnings, '沒有期限');
+          var past = F.compute(plan({ target: '60000', deadline: '2026-08' }), cny(20), NOW, 'B');
           same(p, '期限已過', past.floor.reason, '期限已過');
-          near(p, '期限已過時額度只看比例', past.quotaTwd, 2000);
-          var noSpot = F.compute(F.fromForm({ budget: '10000', target: '60000', deadline: '2027-02' }), { rule: cny(20).rule }, NOW, 'B');
-          if (!noSpot.floor.reason || noSpot.floor.reason.indexOf('資料不足') !== 0) p.push('沒有即期賣出價時保底要寫資料不足');
-          var noRule = F.compute(F.fromForm({ budget: '10000' }), { latest: cny().latest }, NOW, 'B');
+          near(p, '期限已過時額度只看規則額度', past.quotaTwd, 6000);
+          var noSpot = F.compute(plan({ target: '60000', deadline: '2027-02' }), { rule: cny(20).rule }, NOW, 'B');
+          same(p, '沒有即期賣出價：目標那一半算不出來', noSpot.floor.goalPartTwd, null);
+          if (!noSpot.floor.goalNote || noSpot.floor.goalNote.indexOf('資料不足') !== 0) p.push('沒有即期賣出價時要寫資料不足');
+          near(p, '沒有即期賣出價：保底只看池子', noSpot.floor.twd, 5000);
+          var noRule = F.compute(plan(), { latest: cny().latest }, NOW, 'B');
           same(p, '沒有規則試算的資料時 B 留空', noRule.quotaTwd, null);
-          near(p, '沒有規則試算的資料時 A 照算', F.compute(F.fromForm({ budget: '10000' }), null, NOW, 'A').quotaTwd, 10000);
+          same(p, '沒有規則試算的資料時規則額度留空', noRule.rule, null);
+          near(p, '沒有規則試算的資料、但有期限：額度等於保底', F.compute(plan({ deadline: '2027-02' }), { latest: cny().latest }, NOW, 'B').quotaTwd, 5000);
+          near(p, '沒有規則試算的資料時 A 照算', F.compute(plan(), null, NOW, 'A').quotaTwd, 10000);
         });
 
-        check('this_months_records_come_off_the_quota_once', function (p) {
-          var plan = F.fromForm({ budget: '10000', target: '60000', deadline: '2027-02',
-                                  records: [{ month: '2026-08', twd: '25000', rate: '5' }, { month: '2026-09', twd: '3000', rate: '5' }] });
-          var r = F.compute(plan, cny(20), NOW, 'A');
-          near(p, '本月已換', r.thisMonthTwd, 3000);
-          near(p, '月初還差（只扣本月以前的）', r.floor.atMonthStartCny, 55000);
-          near(p, '現在還差（全部紀錄都扣）', r.floor.remainingCny, 54400);
-          near(p, '保底以月初為準', r.floor.cny, 55000 / 6);
-          near(p, '本月額度', r.quotaTwd, 55000 / 6 * 5);
-          near(p, '本月還沒換的額度', r.leftTwd, 55000 / 6 * 5 - 3000);
-          var over = F.compute(F.fromForm({ budget: '1000', records: [{ month: '2026-09', twd: '5000', rate: '5' }] }), cny(20), NOW, 'A');
-          near(p, '換超過了就是 0，不會變負的', over.leftTwd, 0);
-          same(p, '紀錄照月份排', r.records.map(function (x) { return x.month; }).join(','), '2026-08,2026-09');
-        });
-
-        check('validation_requires_a_rate_on_every_record', function (p) {
-          /* 對照組：匯率不填也放行 → 這一條會紅。 */
-          var bad = F.validate(F.fromForm({ budget: '10000', records: [{ month: '2026-08', twd: '25000', rate: '' }] }));
+        check('validation_requires_the_start_month_and_a_rate_on_every_record', function (p) {
+          /* 對照組：匯率不填也放行、或計畫起始月不填也放行 → 這一條會紅。 */
+          var bad = F.validate(plan({ records: [{ month: '2026-08', twd: '25000', rate: '' }] }));
           if (bad.ok) p.push('沒填匯率不該過');
-          if (!bad.errors.some(function (e) { return e.indexOf('匯率必填') >= 0; })) p.push('要說匯率必填');
-          same(p, '月份格式', F.validate(F.fromForm({ budget: '1', records: [{ month: '2026/08', twd: '1', rate: '1' }] })).ok, false);
-          same(p, '負的預算', F.validate(F.fromForm({ budget: '-5' })).ok, false);
-          same(p, '預算不是數字', F.validate(F.fromForm({ budget: 'abc' })).ok, false);
-          same(p, '預算留白', F.validate(F.fromForm({ budget: '' })).ok, false);
-          same(p, '期限格式', F.validate(F.fromForm({ budget: '1', target: '1', deadline: '2027-13' })).ok, false);
-          same(p, '目標是 0', F.validate(F.fromForm({ budget: '1', target: '0' })).ok, false);
-          same(p, '台幣是 0', F.validate(F.fromForm({ budget: '1', records: [{ month: '2026-08', twd: '0', rate: '5' }] })).ok, false);
-          same(p, '千分位逗號可以', F.validate(F.fromForm({ budget: '10,000' })).ok, true);
-          same(p, '空白設定檔', F.validate(F.emptyTemplate()).ok, true);
-          var r = F.compute(F.fromForm({ budget: 'abc' }), cny(20), NOW, 'A');
+          has(p, '要說匯率必填', bad.errors, '匯率必填');
+          var noStart = F.validate(F.fromForm({ budget: '10000' }));
+          if (noStart.ok) p.push('沒填計畫起始月不該過');
+          has(p, '要說計畫起始月必填', noStart.errors, '計畫起始月必填');
+          same(p, '計畫起始月格式不對', F.validate(F.fromForm({ start: '2026/07', budget: '1' })).ok, false);
+          same(p, '期限早於計畫起始月', F.validate(F.fromForm({ start: '2026-07', budget: '1', deadline: '2026-06' })).ok, false);
+          same(p, '期限等於計畫起始月可以', F.validate(F.fromForm({ start: '2026-07', budget: '1', deadline: '2026-07' })).ok, true);
+          same(p, '月份格式', F.validate(plan({ records: [{ month: '2026/08', twd: '1', rate: '1' }] })).ok, false);
+          same(p, '負的預算', F.validate(plan({ budget: '-5' })).ok, false);
+          same(p, '預算不是數字', F.validate(plan({ budget: 'abc' })).ok, false);
+          same(p, '預算留白', F.validate(plan({ budget: '' })).ok, false);
+          same(p, '期限格式', F.validate(plan({ target: '1', deadline: '2027-13' })).ok, false);
+          same(p, '目標是 0', F.validate(plan({ target: '0' })).ok, false);
+          same(p, '台幣是 0', F.validate(plan({ records: [{ month: '2026-08', twd: '0', rate: '5' }] })).ok, false);
+          same(p, '千分位逗號可以', F.validate(plan({ budget: '10,000' })).ok, true);
+          same(p, '空白設定檔還不能算（沒有計畫起始月）', F.validate(F.emptyTemplate()).ok, false);
+          var r = F.compute(plan({ budget: 'abc' }), cny(20), NOW, 'A');
           if (r.ok || !r.errors.length) p.push('設定檔有錯時 compute 要回錯誤，不是硬算');
-          same(p, '不知道現在幾月', F.compute(F.fromForm({ budget: '1' }), cny(20), '', 'A').ok, false);
+          same(p, '不知道現在幾月', F.compute(plan(), cny(20), '', 'A').ok, false);
         });
 
         check('months_between_counts_both_ends', function (p) {
@@ -129,22 +213,30 @@
         });
 
         check('form_round_trip_keeps_values_and_the_file_has_no_date_stamp', function (p) {
-          var v = { budget: '10000', target: '60000', deadline: '2027-02', records: [{ month: '2026-08', twd: '25000', rate: '4.5' }] };
-          var plan = F.fromForm(v);
-          var back = F.toFormValues(plan);
+          var v = { start: '2026-07', budget: '10000', target: '60000', deadline: '2027-02', records: [{ month: '2026-08', twd: '25000', rate: '4.5' }] };
+          var made = F.fromForm(v);
+          var back = F.toFormValues(made);
+          same(p, '計畫起始月', back.start, '2026-07');
           same(p, '預算', back.budget, 10000);
           same(p, '目標', back.target, 60000);
           same(p, '期限', back.deadline, '2027-02');
           same(p, '紀錄', JSON.stringify(back.records), JSON.stringify([{ month: '2026-08', twd: 25000, rate: 4.5 }]));
-          var keys = Object.keys(plan).sort().join(',');
-          if (keys.split(',').length !== 6) p.push('設定檔應該剛好六個欄位，得到 ' + keys.split(',').length + ' 個');
+          var keys = Object.keys(made).sort().join(',');
+          if (keys.split(',').length !== 7) p.push('設定檔應該剛好七個欄位，得到 ' + keys.split(',').length + ' 個');
           if (/date|stamp|updated|as[O]f/i.test(keys)) p.push('設定檔不該有任何日期戳欄位');
-          same(p, '幣別', plan.currency, 'CNY');
-          same(p, '版本', plan.version, 1);
+          same(p, '幣別', made.currency, 'CNY');
+          same(p, '版本', made.version, 1);
           same(p, '檔名', F.FILE, 'fx-plan.json');
           var blank = F.toFormValues(F.emptyTemplate());
+          same(p, '空白設定檔的計畫起始月', blank.start, '');
           same(p, '空白設定檔的目標', blank.target, '');
           same(p, '空白設定檔的期限', blank.deadline, '');
+          var r = F.compute(made, cny(20), NOW, 'A');
+          var names = JSON.stringify(Object.keys(r).concat(Object.keys(r.pool), Object.keys(r.floor || {})));
+          Object.keys(made).forEach(function (k) {
+            if (k === 'version' || k === 'currency') return;
+            if (names.indexOf('"' + k + '"') >= 0) p.push('算出來的結果沿用了設定檔的鍵名 ' + k.slice(0, 3) + '…');
+          });
         });
       }
       document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });

@@ -15,6 +15,7 @@ test_analyze.py — scripts/analyze.py 的離線測試（完全不連網）
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -935,31 +936,68 @@ class TestFx(unittest.TestCase):
         import math as _m
         return fx_weekly([round(4.5 + 0.4 * _m.sin(i / 20.0), 4) for i in range(n)])
 
-    def test_main_comparison_has_no_room_to_move_when_budget_equals_pace(self):
-        """總預算＝月預算 × 月數時，保底每個月都等於月預算：B 跟 A 完全一樣。對照組：把保底拿掉 → 這一條會紅。"""
-        r = A.fx_backtest(self.cyc(), pace=1.0)
-        self.assertGreater(r["n"], 10)
-        self.assertEqual(r["tieSharePct"], 100.0)
-        self.assertEqual((r["winSharePct"], r["medianImprovePct"], r["worstImprovePct"]), (0.0, 0.0, 0.0))
+    def test_pool_quota_is_the_larger_of_rule_and_floor_but_never_more_than_the_pool(self):
+        """對照組：本月額度可以超過池子（把上限拿掉）→ 這一條會紅。"""
+        self.assertEqual(A.fx_pool_quota(0.6, 10.0, 2.0), 6.0)                                # 規則額度比較大
+        self.assertEqual(A.fx_pool_quota(0.2, 10.0, 5.0), 5.0)                                # 保底比較大
+        self.assertEqual(A.fx_pool_quota(0.0, 10.0, 0.0), 0.0)                                # 觀望、沒有保底
+        self.assertEqual(A.fx_pool_quota(1.0, 10.0, 0.0), 10.0)
+        self.assertEqual(A.fx_pool_quota(0.5, 10.0, 50.0), 10.0)                              # 保底比池子大：最多就是整個池子
+        self.assertEqual(A.fx_pool_quota(1.0, 0.0, 3.0), 0.0)                                 # 池子是空的就沒得換
+        self.assertEqual(A.fx_pool_quota(0.6, -5.0, 3.0), 0.0)
 
-    def test_floor_makes_b_finish_and_pure_b_does_not(self):
-        r = A.fx_backtest(self.cyc(), pace=0.5)
+    def test_pool_carries_unspent_budget_to_later_months(self):
+        """預算池的意思：貴的時候少換，沒換的錢留著，便宜的時候一次多換。對照組：規則比例乘月預算而不是乘池子 → 這一條會紅。"""
+        self.assertEqual(A.fx_pool_plan([1.0, 1.0, 1.0]), [1.0, 1.0, 1.0])                     # 每個月都在最低那一檔：跟固定分批一樣
+        self.assertEqual(A.fx_pool_plan([0.0, 0.0, 1.0, 0.0], with_floor=False), [0.0, 0.0, 3.0, 0.0])   # 觀望兩個月，第三個月把累積的一次換掉
+        self.assertEqual(A.fx_pool_plan([0.0, 0.0, 0.0], with_floor=False), [0.0, 0.0, 0.0])
+        half = A.fx_pool_plan([0.5, 0.5, 0.5], with_floor=False)
+        self.assertEqual([round(x, 4) for x in half], [0.5, 0.75, 0.875])                      # 池子依序是一個、一個半、一又四分之三個月預算，各換一半
+        self.assertEqual(A.fx_pool_plan([0.4, 0.4], with_floor=False, budget=10.0), [4.0, 6.4])
+
+    def test_floor_is_pool_over_remaining_months_and_empties_the_pool_by_the_deadline(self):
+        """對照組：期限保底拿掉 → 這一條會紅。規則比例一路是 0（觀望）時，保底要讓池子在期限前換完。"""
+        plan = A.fx_pool_plan([0.0, 0.0, 0.0, 0.0])
+        self.assertEqual([round(x, 5) for x in plan], [0.25, 0.58333, 1.08333, 2.08333])       # 1÷4、1.75÷3、2.16667÷2、2.08333÷1
+        self.assertAlmostEqual(sum(plan), 4.0, places=9)
+        mixed = A.fx_pool_plan([0.2, 1.0, 0.0, 0.6, 0.0, 0.4])
+        self.assertEqual([round(x, 5) for x in mixed], [0.2, 1.8, 0.25, 1.05, 0.85, 1.85])
+        self.assertAlmostEqual(sum(mixed), 6.0, places=9)                                     # 不管規則怎麼說，期限到了一定換完
+
+    def test_backtest_b_always_finishes_and_ties_when_prices_never_move(self):
+        r = A.fx_backtest(fx_weekly([4.5] * 560))
         self.assertGreater(r["n"], 10)
-        self.assertLess(r["tieSharePct"], 100.0)                                              # 有寬鬆空間，B 才會跟 A 不一樣
+        self.assertEqual(r["model"], "預算池")
+        self.assertEqual(r["finishedSharePct"], 100.0)                                        # B 加保底：每個視窗都在期限前換完
+        self.assertEqual((r["winSharePct"], r["tieSharePct"], r["medianImprovePct"]), (0.0, 100.0, 0.0))   # 價格不動，怎麼換都一樣
+        self.assertEqual(r["medianRateA"], r["medianRateB"])
+
+    def test_backtest_b_has_room_to_move_and_can_lose(self):
+        """預算池讓 B 真的跟 A 不一樣：來回震盪時有機會換得比較便宜；一路上漲時把錢拖到後面，反而換得比較貴。"""
+        r = A.fx_backtest(self.cyc())
+        self.assertGreater(r["n"], 10)
+        self.assertEqual(r["finishedSharePct"], 100.0)
+        self.assertLess(r["tieSharePct"], 100.0)
         self.assertGreater(r["bestImprovePct"], 0.0)
+        up = A.fx_backtest(fx_weekly([4.0 + 0.001 * i for i in range(560)]))                  # 一路創新高：每個決策日都是第 100 百分位（觀望）
+        self.assertEqual(up["finishedSharePct"], 100.0)
+        self.assertEqual(up["winSharePct"], 0.0)
+        self.assertLess(up["worstImprovePct"], 0.0)                                           # 只靠保底，越換越後面、越換越貴
+        self.assertEqual(up["pure"]["notDoneSharePct"], 100.0)                                # 純 B 一毛都沒換
+        self.assertEqual(up["pure"]["medianSpentSharePct"], 0.0)
+        self.assertIsNone(up["pure"]["medianRate"])
+        down = A.fx_backtest(fx_weekly([6.0 - 0.001 * i for i in range(560)]))                # 一路創新低：每個決策日都在最低那一檔（池子全換）
+        self.assertEqual(down["tieSharePct"], 100.0)                                          # 每個月把池子換光＝每月換一個月預算，跟 A 一樣
+        self.assertEqual(down["pure"]["notDoneSharePct"], 0.0)
+
+    def test_pure_b_is_listed_apart_and_often_does_not_finish(self):
+        r = A.fx_backtest(self.cyc())
         self.assertGreater(r["pure"]["notDoneSharePct"], 0.0)                                 # 純 B 常常換不完
+        self.assertLess(r["pure"]["medianSpentSharePct"], 100.0)
         self.assertIn("不能直接比", r["pure"]["note"])
         short = A.fx_backtest(fx_weekly([4.5] * 250))
         self.assertEqual(short["n"], 0)
         self.assertIn("資料不足", short["reason"])
-
-    def test_floor_is_remaining_over_remaining_months(self):
-        """對照組：期限保底拿掉 → 這一條會紅。全部月份都在 > 80%（規則比例 0）時，保底要讓 B 照樣換完、而且跟 A 一樣。"""
-        rising = fx_weekly([4.0 + 0.001 * i for i in range(560)])                             # 一路創新高：每個決策日都是第 100 百分位
-        r = A.fx_backtest(rising, pace=0.5)
-        self.assertEqual(r["tieSharePct"], 100.0)                                             # 規則說 0，保底說每月 0.5 → 跟 A 一樣
-        self.assertEqual(r["pure"]["medianSpentSharePct"], 0.0)                               # 純 B 一毛都沒換
-        self.assertEqual(r["pure"]["notDoneSharePct"], 100.0)
 
     def test_decision_thresholds_are_fixed(self):
         self.assertEqual(A.fx_decide({"n": 10, "winSharePct": 55.0, "medianImprovePct": 0.5})["default"], "B")
@@ -971,10 +1009,15 @@ class TestFx(unittest.TestCase):
     def test_backtest_block_says_the_windows_overlap(self):
         b = A.build_backtest(self.cyc(), NOW)
         self.assertEqual(b["label"], "歷史模擬")
+        self.assertEqual(b["model"], "預算池")
         self.assertTrue(any("重疊" in n and "不是獨立樣本" in n for n in b["notes"]))
-        self.assertEqual(b["main"]["pace"], 1.0)
-        self.assertEqual([x["pace"] for x in b["sensitivity"]], [0.75, 0.5])
-        self.assertEqual(b["decision"]["default"], "A")                                       # 主要比較全部平手 → 預設固定分批
+        self.assertNotIn("sensitivity", b)                                                    # 舊模型的對照列已經拿掉
+        self.assertNotIn("pace", b["main"])
+        self.assertIn("池子", b["method"]["B"])
+        self.assertIn("池子", b["method"]["pool"])
+        self.assertEqual(b["decision"], A.fx_decide(b["main"]))                               # 裁決只看主要比較
+        flat = A.build_backtest(fx_weekly([4.5] * 560), NOW)
+        self.assertEqual(flat["decision"]["default"], "A")                                    # 全部平手 → 沒過門檻 → 預設固定分批
 
     def test_backtest_recomputed_on_monday_and_reused_otherwise(self):
         w = World()
@@ -992,6 +1035,23 @@ class TestFx(unittest.TestCase):
             self.assertEqual(fx2["backtest"]["computedOn"], "2026-09-21")                    # 算的日期照實寫
             self.assertEqual(fx2["backtest"]["reusedOn"], "2026-09-22")
             self.assertEqual(fx2["backtest"]["main"], fx1["backtest"]["main"])
+        finally:
+            w.close()
+
+    def test_results_from_an_older_model_are_never_reused(self):
+        """對照組：不核對模型就沿用上一次的結果 → 這一條會紅。"""
+        w = World()
+        try:
+            fill_world(w)
+            tuesday = datetime(2026, 9, 22, 15, 35, tzinfo=A.TPE)
+            series = {"fx_usd": self.cyc(), "fx_cny": self.cyc()}
+            stale = {"backtest": {"computedOn": "2026-09-21", "main": {"n": 76, "winSharePct": 0.0, "medianImprovePct": 0.0}}}   # 沒有 model：舊模型算的
+            A.write_json(os.path.join(w.paths["analysis"], "fx.json"), stale)
+            fx = A.build_fx(series, tuesday, [], w.paths)
+            self.assertNotIn("reused", fx["backtest"])
+            self.assertEqual(fx["backtest"]["model"], "預算池")
+            self.assertEqual(fx["backtest"]["computedOn"], "2026-09-22")
+            self.assertEqual(fx["rules"]["appliesTo"][:3], "預算池")
         finally:
             w.close()
 
@@ -1020,8 +1080,12 @@ class TestFx(unittest.TestCase):
             text = json.dumps(fx, ensure_ascii=False)
             for note in ("網銀或大額換匯的優惠不在計算內", "人民銀行每日中間價", "未經實盤驗證"):
                 self.assertIn(note, text)
-            for word in ("budget", "Budget", "target", "conver" + "ted", "預算"):
-                self.assertNotIn(word, text.replace("總預算", "").replace("月預算", ""))          # 規則說明會講「月預算」這個詞，但沒有任何金額
+            plain = text
+            for phrase in ("預算池", "月預算", "累積的預算"):                                     # 方法說明會講到這幾個詞，但沒有任何金額
+                plain = plain.replace(phrase, "")
+            for word in ("budget", "Budget", "target", "conver" + "ted", "start" + "Month", "預算", "已換"):
+                self.assertNotIn(word, plain.replace("已經換掉的台幣", ""))
+            self.assertIsNone(re.search(r"(預算|池子|已換|目標)[^，。；）」]{0,6}?\d", text.replace("預算池（到", "")))   # 這幾個詞後面不會緊接著數字
             self.assertEqual(fx["rules"]["table"], A.FX_RULE_TABLE)
         finally:
             w.close()

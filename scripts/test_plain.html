@@ -102,7 +102,7 @@
           same(p, '距離', P.sentence('distance', { fromLowPct: 11.9, fromHighPct: -1.55 }), '比一年內最低的時候高 11.9%，比一年內最高的時候低 1.6%。');
           same(p, '價差', P.sentence('spread', { pct: 1.056 }), '銀行掛的兩個價格差 1.06%：每換 100 元，來回一趟大約有 1.06 元是這個差。');
           same(p, '現鈔', P.sentence('cash', { pct: 0.841 }), '拿實體鈔票換，比用帳戶裡的錢換貴 0.84%。');
-          same(p, '額度', P.sentence('quota', { pct: 65.9, ratioPct: 20, bucket: '60–80%' }), '5 年百分位 65.9% 落在「60–80%」那一檔，規則試算的本月額度是月預算的 20%。');
+          same(p, '額度', P.sentence('quota', { pct: 65.9, ratioPct: 20, bucket: '60–80%' }), '5 年百分位 65.9% 落在「60–80%」那一檔，規則額度是預算池的 20%。');
           if (P.sentence('quota', { pct: 96.9, ratioPct: 0, bucket: '> 80%' }).indexOf('觀望') < 0) p.push('0% 那一檔要寫觀望');
           same(p, '最大回檔一半', P.sentence('drawdown', { pct: -52 }), '歷史上最慘的一次曾經跌掉大約一半，到現在還沒漲回原來的高點。');
           same(p, '最大回檔有漲回', P.sentence('drawdown', { pct: -21.6, recoveredDate: '2020-08-24' }), '歷史上最慘的一次曾經跌掉大約五分之一，2020-08-24 才漲回原來的高點。');
@@ -138,7 +138,7 @@
         });
 
         check('glossary_has_the_required_terms_and_opens_on_click', function (p) {
-          ['波動', '回檔', '百分位', '相關係數', '追蹤差', '折溢價', '即期', '現鈔'].forEach(function (t) {
+          ['波動', '回檔', '百分位', '相關係數', '追蹤差', '折溢價', '即期', '現鈔', '預算池'].forEach(function (t) {
             var d = G.define(t);
             if (!d || d.length < 8) p.push('名詞「' + t + '」沒有解釋');
           });

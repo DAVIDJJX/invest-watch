@@ -49,7 +49,7 @@ CORE_FILES = [
 PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
 PROFILE_KEY_HOME = "js/concentration.js"
 # 換匯設定檔（A1-6）的鍵名：只准出現在 js/fxplan.js。公開輸出、頁面、表單的 id／name、其他 JS 一律零命中。
-FXPLAN_KEYS = ("monthlyBudget" + "Twd", "target" + "Cny", "deadline" + "Month", "conver" + "ted")
+FXPLAN_KEYS = ("monthlyBudget" + "Twd", "target" + "Cny", "deadline" + "Month", "conver" + "ted", "start" + "Month")
 FXPLAN_KEY_HOME = "js/fxplan.js"
 DATA_GLOBS = ["data/analysis/*.json", "data/analysis/**/*.json", "data/history-long/*.json"]
 
@@ -67,14 +67,14 @@ PRIVATE_PATTERNS = [
     r"持有\s*[\d,\.]+\s*(股|張|單位|盎司|公克|克|枚|顆)",
     r"(成本|持倉|部位|曝險|權重|比重|市值|損益)\s*[:：]?\s*[\d,\.]+\s*(%|％|元|萬|股|張)",
     r"[\d,\.]+\s*(萬元|萬台幣|萬美元)",
-    # A1-6：換匯設定的金額（月預算、目標、已換）不准寫進任何公開檔；這幾個詞後面直接接數字就擋
-    r"(預算|已換|目標總額|目標金額)\s*[:：]?\s*[\d,\.]*\d[\d,\.]*\s*(元|萬|台幣|人民幣|TWD|CNY)?",
+    # A1-6：換匯設定的金額（月預算、預算池、目標、已換）不准寫進任何公開檔；這幾個詞後面直接接數字就擋
+    r"(預算池|預算|池子|已換|目標總額|目標金額)\s*[:：]?\s*[\d,\.]*\d[\d,\.]*\s*(元|萬|台幣|人民幣|TWD|CNY)?",
 ]
 # 隱私：data/analysis 的 JSON 不准有這些鍵（會裝個人資料的名字）
 FORBIDDEN_JSON_KEYS = {"quantity", "shares", "holding", "holdings", "cost", "costbasis", "amount", "weight", "wei" + "ghts",
                        "portfolio", "salary", "mortgage", "position", "positions", "exposure",
                        "salaryproxy" + "assetid", "as" + "of",
-                       "monthlybudget" + "twd", "target" + "cny", "deadline" + "month", "conver" + "ted",
+                       "monthlybudget" + "twd", "target" + "cny", "deadline" + "month", "conver" + "ted", "start" + "month",
                        "budget", "target", "deadline"}
 
 
@@ -275,6 +275,8 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(privacy_hits("每月預算" + "8000"))
         self.assertEqual(privacy_hits("總預算＝月預算 × 月數；所需步調是月預算的 75%；純 B 一般只花掉 58% 的預算"), [])
         self.assertEqual(privacy_hits("保底＝（目標總額 − 已換人民幣）÷ 剩餘月數"), [])
+        self.assertEqual(privacy_hits("預算池＝累積的預算 − 已經換掉的台幣；規則額度是預算池的 20%；池子 ÷ 剩餘月數"), [])
+        self.assertTrue(privacy_hits("預算池 " + "30,000 元"))
 
     def test_fxplan_key_scanner_catches_a_planted_key(self):
         self.assertEqual(fxplan_key_hits("x " + "target" + "Cny" + " y"), ["target" + "Cny"])
@@ -307,6 +309,7 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(json_key_hits({"profile": {"wei" + "ghts": {"stock": 30}}}))
         self.assertTrue(json_key_hits({"currencies": {"CNY": {"monthlyBudget" + "Twd": 1}}}))
         self.assertTrue(json_key_hits({"plan": {"conver" + "ted": []}}))
+        self.assertTrue(json_key_hits({"plan": {"start" + "Month": "2026-10"}}))
         self.assertTrue(json_key_hits({"plan": {"budget": 1}}))
         self.assertEqual(json_key_hits({"currencies": {"CNY": {"percentiles": {"5y": {"pct": 96.9}}, "spreads": {}, "rule": {"ratioPct": 0}}}}), [])
 

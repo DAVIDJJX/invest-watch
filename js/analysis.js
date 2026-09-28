@@ -14,7 +14,7 @@
  * 試算（A1-3）：結果在使用者自己的私人倉庫 adhoc/ 底下，按一下才讀：先讀 adhoc/index.json（1 個請求）列表，
  * 點某個代號才讀那一檔；沒有 index 時用 listDir 列目錄當備援。代號只出現在瀏覽器裡。
  *
- * 換匯助手（A1-6）：公開的位置、成本、規則表、歷史模擬來自 data/analysis/fx.json；每月預算、目標總額、期限、已換紀錄
+ * 換匯助手（A1-6）：公開的位置、成本、規則表、歷史模擬來自 data/analysis/fx.json；計畫起始月、每月預算、目標總額、期限、已換紀錄
  * 按一下才從私人倉庫讀，算法與設定檔的鍵名全部在 js/fxplan.js。這一段是全站第一個照「呈現原則」做的畫面：
  * 圖示＋狀態詞＋規則＋白話（js/plain.js）、名詞點一下有解釋（js/glossary.js）、幾個圖示各看各的不加總。
  *
@@ -567,7 +567,7 @@
   /* ------------------------------------------------------------ 換匯助手（A1-6）
    *
    * 公開的部分（位置、成本、規則表、歷史模擬）來自 data/analysis/fx.json，開頁就畫。
-   * 私人的部分（月預算、目標總額、期限、已換紀錄）按一下才從【私人】倉庫讀進瀏覽器；算法與設定檔的鍵名全部在 js/fxplan.js，
+   * 私人的部分（計畫起始月、月預算、目標總額、期限、已換紀錄）按一下才從【私人】倉庫讀進瀏覽器；算法（預算池模型）與設定檔的鍵名全部在 js/fxplan.js，
    * 這裡只拿算好的結果去畫，表單欄位的 id 用 fxp_ 開頭、不用鍵名；這一段永遠不把任何金額印到主控台。
    * 呈現照 docs/ANALYSIS.md「呈現原則」：圖示＋狀態詞＋這次的數字＋規則一起出現；每個數字下面一行白話；
    * 幾個圖示各自獨立、不加總；名詞點一下有解釋（js/plain.js、js/glossary.js）。
@@ -620,10 +620,10 @@
     if (typeof rule.ratioPct !== 'number') {
       word = P.NA; because = P.NA;
     } else if (method === 'B') {
-      word = '月預算的 ' + num(rule.ratioPct, 0) + '%';
+      word = '預算池的 ' + num(rule.ratioPct, 0) + '%';
       because = quota;
     } else {
-      word = '固定分批：月預算的 100%';
+      word = '固定分批：每月換一個月預算';
       because = '歷史模擬裡，依位置調整沒有比每個月換一樣多好到過門檻，所以預設顯示固定分批。規則表對照：' + quota;
     }
     h += '<div class="glance" data-aspect="quota" data-method="' + esc(method) + '">' +
@@ -688,80 +688,95 @@
     h += '<p class="muted">價差＝（銀行賣給你的價 − 銀行向你收的價）÷ 兩者的中間價。網銀或大額換匯的優惠不在計算內。現鈔那兩欄只有當天的值，沒有歷史。</p>';
     return h;
   }
+  function fxPoolNote() {
+    return term('預算池') + '＝從計畫起始月到現在累積的預算 − 這段期間已經換掉的台幣；每個月把月預算放進去，沒換的錢留在裡面，之後便宜時可以一次多換。';
+  }
   function fxRules(fx) {
     var c = ((fx && fx.currencies) || {}).CNY || {};
     var rules = (fx && fx.rules) || {}, rule = c.rule || {};
     var p1 = (c.percentiles || {})['1y'] || {};
     var h = '<h3>規則表（分批表）</h3>';
-    h += rawTable(['5 年' + term('百分位'), '本月額度比例', ''], (rules.table || []).map(function (r) {
+    h += rawTable(['5 年' + term('百分位'), '本月額度（佔' + term('預算池') + '的比例）', ''], (rules.table || []).map(function (r) {
       var here = r.bucket === rule.bucket;
       return { cls: here ? 'fx-here' : '', cells: [td(r.bucket), td(num(r.ratioPct, 0) + '%' + (r.ratioPct === 0 ? '（觀望）' : '')),
         td(here ? '← 現在在這一檔（5 年百分位 ' + pct1(rule.percentile5y) + '）' : '')] };
     }));
-    h += '<p>規則試算：本月額度 <b>' + (typeof rule.ratioPct === 'number' ? num(rule.ratioPct, 0) + '%' : '資料不足') + '</b>　<span class="muted">資料標籤：' +
+    h += '<p>規則試算：本月額度 <b>' + (typeof rule.ratioPct === 'number' ? '預算池的 ' + num(rule.ratioPct, 0) + '%' : '資料不足') + '</b>　<span class="muted">資料標籤：' +
          esc(rule.label || rules.label || '') + '</span></p>' + plain('quota', { pct: rule.percentile5y, ratioPct: rule.ratioPct, bucket: rule.bucket });
+    h += '<p class="muted">' + fxPoolNote() + '</p>';
     h += '<p class="muted">1 年百分位 ' + (typeof p1.pct === 'number' ? pct1(p1.pct) : '資料不足') + '：並列參考，不進規則（1 年太短）。' +
-         '有設定目標總額與期限時另有保底：每月最低額度＝剩餘金額 ÷ 剩餘月數；本月額度取「比例 × 月預算」與「保底」的較大者，兩個數字都印出來。</p>';
+         '有設定期限時另有保底：池子 ÷ 剩餘月數；同時有設目標總額時，再跟「還差的人民幣 × 現在的即期賣出 ÷ 剩餘月數」比，取較大者。' +
+         '本月額度取規則額度與保底的較大者，但不超過池子；三個數字都印出來。</p>';
     return h;
-  }
-  function fxBacktestRow(name, r, inDecision) {
-    if (!r || !r.n) return [td(name), '<td colspan="7">資料不足</td>'];
-    var pu = r.pure || {};
-    return [td(name), td(r.n + ' 個（' + (r.firstWindow || '') + '～' + (r.lastWindow || '') + '）'),
-      td(pct1(r.winSharePct)), td(pct1(r.tieSharePct)), td(signed(r.medianImprovePct, 3)),
-      td(signed(r.worstImprovePct, 3) + '／' + signed(r.bestImprovePct, 3)), td(pct1(pu.notDoneSharePct)), td(inDecision ? '是' : '否（只當對照）')];
   }
   function fxBacktest(fx) {
     var b = fx && fx.backtest;
     var h = '<h3>' + term('歷史模擬') + '：依位置調整，有沒有比每個月換一樣多好</h3>';
     if (!b || !b.main) return h + '<p class="warn">沒有歷史模擬的結果。預設顯示固定分批。</p>' + plain('backtest', {});
-    var d = b.decision || {}, th = d.thresholds || {}, m = b.method || {};
+    var d = b.decision || {}, th = d.thresholds || {}, m = b.method || {}, mn = b.main;
     h += '<p id="fx-decision">裁決：預設顯示 <b>' + esc(d.word || FX_METHOD_WORD[fxDecision(fx)]) + '</b>。<span class="muted">' + esc(d.reason || '') +
          '　門檻寫死在程式裡：換得比較便宜的視窗 ≥ ' + num(th.winSharePct, 0) + '% 而且中位數改善 ≥ ' + num(th.medianImprovePct, 1) + '%，只看主要比較。</span></p>';
-    h += plain('backtest', { n: b.main.n, months: b.months, winSharePct: b.main.winSharePct, tieSharePct: b.main.tieSharePct,
-                             medianImprovePct: b.main.medianImprovePct, worstImprovePct: b.main.worstImprovePct });
-    var rows = [fxBacktestRow('主要比較：總預算＝月預算 × ' + b.months + ' 個月', b.main, true)];
-    (b.sensitivity || []).forEach(function (s) {
-      rows.push(fxBacktestRow('對照：所需步調是月預算的 ' + num(s.pace * 100, 0) + '%', s, false));
-    });
-    h += rawTable(['比較', '視窗', 'B 換得比較便宜的視窗', '平手', term('中位數') + '改善', '最差／最好', '純 B 沒換完預算的視窗', '進裁決？'], rows, 'fx-wide');
-    var pu = b.main.pure || {};
-    h += '<p class="muted">A＝' + esc(m.A || '') + '。B＝' + esc(m.B || '') + '。改善為正表示 B 換到的人民幣比較便宜。</p>';
-    h += '<p class="muted">純 B（' + esc(m.pureB || '不保底') + '）：一般只花掉 ' + pct1(pu.medianSpentSharePct) + ' 的預算；它的平均匯率中位數 ' + num(pu.medianRate, 5) +
-         '，同一批視窗 A 是 ' + num(pu.medianRateA, 5) + '——' + esc(pu.note || '花的錢比較少，不能直接比') + '。</p>';
+    h += plain('backtest', { n: mn.n, months: b.months, winSharePct: mn.winSharePct, tieSharePct: mn.tieSharePct,
+                             medianImprovePct: mn.medianImprovePct, worstImprovePct: mn.worstImprovePct });
+    if (!mn.n) {
+      h += '<p class="warn">資料不足：' + esc(mn.reason || '湊不出視窗') + '</p>';
+    } else {
+      h += rawTable(['比較', '視窗', 'B 換得比較便宜的視窗', '平手', term('中位數') + '改善', '最差／最好', 'B 在期限前換完的視窗', '平均匯率的中位數（A／B）'],
+        [[td('主要比較：B（預算池＋期限保底）對 A（每月固定換一個月預算）；總額一樣'),
+          td(mn.n + ' 個（' + (mn.firstWindow || '') + '～' + (mn.lastWindow || '') + '）'),
+          td(pct1(mn.winSharePct)), td(pct1(mn.tieSharePct)), td(signed(mn.medianImprovePct, 3)),
+          td(signed(mn.worstImprovePct, 3) + '／' + signed(mn.bestImprovePct, 3)), td(pct1(mn.finishedSharePct)),
+          td(num(mn.medianRateA, 5) + '／' + num(mn.medianRateB, 5))]], 'fx-wide');
+      var pu = mn.pure || {};
+      h += '<p class="muted">' + fxPoolNote() + '</p>';
+      h += '<p class="muted">A＝' + esc(m.A || '') + '。B＝' + esc(m.B || '') + '。改善為正表示 B 換到的人民幣比較便宜。</p>';
+      h += '<p class="muted" id="fx-pure">純 B（' + esc(m.pureB || '不保底') + '）：沒換完預算的視窗 ' + pct1(pu.notDoneSharePct) + '，一般只花掉 ' + pct1(pu.medianSpentSharePct) +
+           ' 的預算；它的平均匯率中位數 ' + num(pu.medianRate, 5) + '，同一批視窗 A 是 ' + num(pu.medianRateA, 5) + '——' + esc(pu.note || '花的錢比較少，不能直接比') + '。</p>';
+    }
     h += notesList((b.notes || []).concat([m.percentile || '']).filter(function (x) { return x; }));
-    h += '<p class="muted">資料標籤：' + esc(b.label || '') + '；這一輪是 ' + (b.computedOn ? dateSpan(b.computedOn) : '—') + ' 算的（每週一重算，其餘天沿用）' +
-         (b.reused ? '，今天沿用' : '') + '。決策點 ' + esc(b.main.decisions) + ' 個（' + between(b.main.firstDecision, b.main.lastDecision) + '）。</p>';
+    h += '<p class="muted">資料標籤：' + esc(b.label || '') + '；模型：' + esc(b.model || '—') + '；這一輪是 ' + (b.computedOn ? dateSpan(b.computedOn) : '—') +
+         ' 算的（每週一重算，其餘天沿用）' + (b.reused ? '，今天沿用' : '') +
+         (mn.n ? '。決策點 ' + esc(mn.decisions) + ' 個（' + between(mn.firstDecision, mn.lastDecision) + '）' : '') + '。</p>';
     return h;
   }
 
-  /* 私人的部分：本月試算、已換紀錄與累計、表單。s.result 是 FxPlan.compute 算好的結果。 */
+  /* 私人的部分：本月試算、已換紀錄與累計、表單。s.result 是 FxPlan.compute 算好的結果（預算池模型）。 */
   function fxTrial(r) {
     if (!r) return '';
     if (!r.ok) {
       return '<p class="warn">設定檔有問題，沒有算：</p><ul>' + (r.errors || []).map(function (e) { return '<li class="warn">' + esc(e) + '</li>'; }).join('') + '</ul>';
     }
-    var rows = [];
-    rows.push([td('固定分批（A）'), td(money(r.fixed.twd) + ' 元'), td('月預算 ' + money(r.budgetTwd) + ' 元 × 100%')]);
-    rows.push([td('依位置調整（B，照規則表）'), td(r.rule ? money(r.rule.twd) + ' 元' : '資料不足'),
-      td(r.rule ? '月預算 ' + money(r.budgetTwd) + ' 元 × ' + num(r.rule.ratioPct, 0) + '%（5 年百分位 ' + pct1(r.rule.percentile5y) + '，落在「' + r.rule.bucket + '」）' : '沒有規則試算的資料')]);
-    var f = r.floor;
+    var pool = r.pool, f = r.floor, rows = [];
+    rows.push([td('預算池（月初）'), td(money(pool.atMonthStartTwd) + ' 元'),
+      td('從 ' + r.since + ' 起 ' + r.monthsIn + ' 個月 × 月預算 ' + money(r.budgetTwd) + ' 元 − 本月以前已換 ' + money(pool.spentBeforeTwd) + ' 元')]);
+    rows.push([td('固定分批（A）'), td(money(r.fixed.twd) + ' 元'),
+      td('一個月預算' + (r.fixed.twd < r.budgetTwd ? '，但池子裡只有這麼多' : ''))]);
+    rows.push([td('規則額度（B，依位置調整）'), td(r.rule ? money(r.rule.twd) + ' 元' : '資料不足'),
+      td(r.rule ? '池子 × ' + num(r.rule.ratioPct, 0) + '%（5 年百分位 ' + pct1(r.rule.percentile5y) + '，落在「' + r.rule.bucket + '」）' : '沒有規則試算的資料')]);
     if (!f) {
-      rows.push([td('保底'), td('沒有'), td('沒有同時設定目標總額與期限，所以沒有保底')]);
+      rows.push([td('保底'), td('沒有'), td('沒有設定期限，所以沒有保底')]);
     } else if (typeof f.twd !== 'number') {
       rows.push([td('保底'), td('沒有算'), td(f.reason || '')]);
     } else {
-      rows.push([td('保底'), td(money(f.twd) + ' 元（' + num(f.cny, 0) + ' 人民幣）'),
-        td('（目標總額 ' + num(f.goalCny, 0) + ' − 本月以前已換 ' + num(f.goalCny - f.atMonthStartCny, 0) + '）÷ 剩餘 ' + f.monthsLeft + ' 個月（到 ' + f.deadline +
-           '）；用 ' + f.spotDate + ' 的即期賣出 ' + rate3(f.spotSell) + ' 換成台幣')]);
+      var how = '池子 ÷ 剩餘 ' + f.monthsLeft + ' 個月（到 ' + f.deadline + '）＝ ' + money(f.poolPartTwd) + ' 元';
+      if (f.goalPartTwd !== null) {
+        how += '；目標那一半：月初還差 ' + num(f.atMonthStartCny, 0) + ' 人民幣 × ' + f.spotDate + ' 的即期賣出 ' + rate3(f.spotSell) + ' ÷ ' + f.monthsLeft +
+               ' 個月＝ ' + money(f.goalPartTwd) + ' 元；兩個取較大者';
+      } else if (f.goalNote) {
+        how += '；' + f.goalNote;
+      }
+      rows.push([td('保底'), td(money(f.twd) + ' 元'), td(how)]);
     }
-    rows.push({ cls: 'fx-here', cells: [td('本月額度'), td(r.quotaTwd === null ? '資料不足' : money(r.quotaTwd) + ' 元'),
-      td('預設顯示「' + FX_METHOD_WORD[r.method] + '」；' + (f && typeof f.twd === 'number'
-        ? '跟保底比取較大者——這次是' + (r.quotaFrom === 'floor' ? '保底比較大' : '「' + FX_METHOD_WORD[r.method] + '」比較大或一樣')
-        : '沒有保底可以比'))] });
-    rows.push([td('本月已換'), td(money(r.thisMonthTwd) + ' 元'), td(r.month + ' 的紀錄加總')]);
+    var why = '預設顯示「' + FX_METHOD_WORD[r.method] + '」；' + (f && typeof f.twd === 'number'
+      ? '跟保底比取較大者——這次是' + (r.quotaFrom === 'floor' ? '保底比較大' : '「' + FX_METHOD_WORD[r.method] + '」比較大或一樣')
+      : '沒有保底可以比');
+    if (r.cappedByPool) why += '；算出來是 ' + money(r.uncappedTwd) + ' 元，超過池子了，以池子為上限（手上沒有的錢不能換）';
+    rows.push({ cls: 'fx-here', cells: [td('本月額度'), td(r.quotaTwd === null ? '資料不足' : money(r.quotaTwd) + ' 元'), td(why)] });
+    rows.push([td('本月已換'), td(money(pool.spentThisMonthTwd) + ' 元'), td(r.month + ' 的紀錄加總')]);
     rows.push([td('本月還沒換的額度'), td(r.leftTwd === null ? '資料不足' : money(r.leftTwd) + ' 元'), td('本月額度 − 本月已換，最少是 0')]);
+    rows.push([td('預算池（現在）'), td(money(pool.nowTwd) + ' 元'), td('月初的池子 − 本月已換；沒換的會留到下個月')]);
     var h = '<h4>本月試算（' + dateSpan(r.month) + '）</h4>' + rawTable(['項目', '金額', '怎麼算的'], rows);
+    h += '<p class="muted">本月額度用月初的池子算：換完本月額度之後再回來看，「本月還沒換的額度」會是 0，不會把剩下的池子再乘一次比例。</p>';
     if (r.warnings && r.warnings.length) h += '<ul>' + r.warnings.map(function (w) { return '<li class="muted">' + esc(w) + '</li>'; }).join('') + '</ul>';
     return h;
   }
@@ -773,20 +788,20 @@
       return [dateCell(x.month), td(money(x.twd)), td(num(x.rate, 4)), td(num(x.cny, 2))];
     }));
     h += '<p>累計：台幣 ' + money(r.doneTwd) + ' 元，換到人民幣 ' + num(r.doneCny, 2) + '，平均匯率 ' + num(r.averageRate, 4) + '。</p>';
-    var f = r.floor;
-    if (f && typeof f.goalCny === 'number') {
-      h += '<p>目標總額 ' + num(f.goalCny, 0) + ' 人民幣，還差 ' + num(f.remainingCny, 2) + '。</p>';
+    if (r.goal) {
+      h += '<p>目標總額 ' + num(r.goal.cny, 0) + ' 人民幣，還差 ' + num(r.goal.remainingCny, 2) + '。</p>';
     }
     return h;
   }
 
-  /* 表單：欄位 id 用 fxp_ 開頭（fxp_budget、fxp_target、fxp_deadline、fxp_m_0…）——刻意不用設定檔的鍵名。 */
+  /* 表單：欄位 id 用 fxp_ 開頭（fxp_start、fxp_budget、fxp_target、fxp_deadline、fxp_m_0…）——刻意不用設定檔的鍵名。 */
   function renderFxForm(values, canEdit) {
     var v = values || {};
     var dis = canEdit ? '' : ' disabled';
     var recs = (v.records || []).slice();
     recs.push({ month: '', twd: '', rate: '' });                              // 最後永遠留一列空白可以填
     var h = '<form id="fxp-form" onsubmit="return false;"><table><tbody>';
+    h += '<tr><td><label for="fxp_start">計畫起始月（YYYY-MM）</label></td><td><input type="text" id="fxp_start" name="fxp_start" placeholder="2026-10" value="' + esc(v.start || '') + '"' + dis + '></td></tr>';
     h += '<tr><td><label for="fxp_budget">每月預算（台幣）</label></td><td><input type="number" min="0" step="1" id="fxp_budget" name="fxp_budget" value="' + esc(v.budget === undefined ? '' : v.budget) + '"' + dis + '></td></tr>';
     h += '<tr><td><label for="fxp_target">目標總額（人民幣，選填）</label></td><td><input type="number" min="0" step="1" id="fxp_target" name="fxp_target" value="' + esc(v.target === undefined ? '' : v.target) + '"' + dis + '></td></tr>';
     h += '<tr><td><label for="fxp_deadline">期限（YYYY-MM，選填）</label></td><td><input type="text" id="fxp_deadline" name="fxp_deadline" placeholder="2027-06" value="' + esc(v.deadline || '') + '"' + dis + '></td></tr>';
@@ -799,14 +814,14 @@
     });
     h += '</tbody></table>';
     h += canEdit
-      ? '<p><button type="button" id="fxp-save">儲存到私人倉庫</button>　<span class="muted">只寫到你自己的私人倉庫；commit 訊息不含任何數字。要多填一筆：先存檔，下面會多出一列空白。要刪一筆：把那一列三格都清空再存。</span></p>'
+      ? '<p><button type="button" id="fxp-save">儲存到私人倉庫</button>　<span class="muted">只寫到你自己的私人倉庫；commit 訊息不含任何數字。預算池從計畫起始月開始累積。要多填一筆：先存檔，下面會多出一列空白。要刪一筆：把那一列三格都清空再存。</span></p>'
       : '<p class="muted">要編輯：先到設定頁貼上同步金鑰並開啟雲端同步。</p>';
     return h + '<div id="fxp-msg"></div></form>';
   }
   function readFxForm(root) {
     var r = root || document;
     function val(id) { var el = r.querySelector('#' + id); return el ? String(el.value).trim() : ''; }
-    var out = { budget: val('fxp_budget'), target: val('fxp_target'), deadline: val('fxp_deadline'), records: [] };
+    var out = { start: val('fxp_start'), budget: val('fxp_budget'), target: val('fxp_target'), deadline: val('fxp_deadline'), records: [] };
     for (var i = 0; r.querySelector('#fxp_m_' + i); i++) {
       var rec = { month: val('fxp_m_' + i), twd: val('fxp_t_' + i), rate: val('fxp_r_' + i) };
       if (rec.month === '' && rec.twd === '' && rec.rate === '') continue;      // 三格都空＝沒有這一筆
@@ -817,7 +832,7 @@
   function renderFxPlan(state) {
     var s = state || { status: 'unset' };
     var h = '<h3>我的換匯設定與本月試算（只在瀏覽器端）</h3>';
-    h += '<p class="muted">每月預算、目標總額、期限、已換紀錄只從你的私人倉庫讀進瀏覽器計算，不上傳、不寫進任何公開檔。</p>';
+    h += '<p class="muted">計畫起始月、每月預算、目標總額、期限、已換紀錄只從你的私人倉庫讀進瀏覽器計算，不上傳、不寫進任何公開檔。</p>';
     h += '<p><button type="button" id="fxp-load">讀取我的換匯設定（從私人倉庫）</button>　<span id="fxp-status" class="muted"></span></p>';
     if (s.status === 'loading') {
       h += '<p class="muted">讀取中…</p>';
@@ -992,7 +1007,9 @@
       return window.Storage.loadFile(F.FILE).then(function (r) {
         if (!r.data) {
           var reason = r.reason === 'not-github' ? '本機模式或還沒貼同步金鑰：到設定頁開啟雲端同步後再讀' : '私人倉庫裡還沒有 ' + F.FILE;
-          setState({ status: 'unset', reason: reason, showForm: canEdit(), canEdit: canEdit(), formValues: F.toFormValues(F.emptyTemplate()) });
+          var blankValues = F.toFormValues(F.emptyTemplate());
+          blankValues.start = currentMonth();                                 // 新的設定檔：計畫起始月先帶這個月，看得到、可以改
+          setState({ status: 'unset', reason: reason, showForm: canEdit(), canEdit: canEdit(), formValues: blankValues });
           return;
         }
         setState({ status: 'set', result: result(r.data), formValues: F.toFormValues(r.data), canEdit: canEdit() });

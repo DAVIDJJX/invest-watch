@@ -110,7 +110,7 @@ FX_BACKTEST_LOOKBACK = 260
 FX_BACKTEST_MIN_LOOKBACK = 234
 FX_DECISION_WIN_SHARE = 55.0                             # 裁決門檻：B 贏的視窗比例（%）
 FX_DECISION_MEDIAN = 0.5                                 # 裁決門檻：平均匯率改善的中位數（%），約一次即期價差
-FX_BACKTEST_PACES = (1.0, 0.75, 0.5)                     # 所需步調佔月預算的比例；第一個是主要比較（總預算＝月預算 × 月數）
+FX_BACKTEST_MODEL = "預算池"                             # 回測與本月試算用的模型；沿用上一次的結果之前先核對，模型換了就重算
 LABEL_SIMULATED = "歷史模擬"
 FX_BANK_NOTE = "網銀或大額換匯的優惠不在計算內"
 FX_CNY_NOTE = "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
@@ -1596,12 +1596,33 @@ def decision_percentile(weekly, i, lookback=FX_BACKTEST_LOOKBACK, min_lookback=F
     return percentile_of(weekly[i]["c"], [p["c"] for p in window])
 
 
-def fx_backtest(weekly, months=FX_BACKTEST_MONTHS, pace=1.0):
-    """分批規則的歷史回測（歷史模擬）。weekly：[{d, c}]，c 是即期賣出（換外幣時付的價）。
-    月預算當 1 單位；所需步調 pace（佔月預算的比例）× months ＝總額。
-      A：每月固定換 pace。
-      B 加期限保底：每月換 max(規則比例 × 1, 剩餘 ÷ 剩餘月數)，不超過剩餘；期限＝視窗結束，所以一定換完、總額跟 A 一樣。
-      純 B：每月換 規則比例 × 1，不保底；花的錢通常比較少，不能直接跟 A 比。"""
+def fx_pool_quota(ratio, pool, floor=0.0):
+    """預算池模型的本月額度＝max(規則比例 × 池子, 保底)，但不得超過池子——手上沒有的錢不能換。"""
+    if pool <= 0:
+        return 0.0
+    return min(max(ratio * pool, floor, 0.0), pool)
+
+
+def fx_pool_plan(ratios, with_floor=True, budget=1.0):
+    """預算池照月走一遍：每個月先把月預算放進池子，再換掉本月額度；沒換的留在池子裡，之後便宜時可以一次多換。
+    with_floor：保底＝池子 ÷ 剩餘月數，期限＝最後一個月（那個月保底等於整個池子，所以一定清空）。
+    ratios 是每個月的規則比例（0～1）；回傳每個月換掉的金額，單位是月預算。"""
+    pool, out, n = 0.0, [], len(ratios)
+    for t, ratio in enumerate(ratios):
+        pool += budget
+        floor = pool / float(n - t) if with_floor else 0.0
+        quota = fx_pool_quota(ratio, pool, floor)
+        out.append(quota)
+        pool -= quota
+    return out
+
+
+def fx_backtest(weekly, months=FX_BACKTEST_MONTHS):
+    """分批規則的歷史回測（歷史模擬）。weekly：[{d, c}]，c 是即期賣出（換外幣時付的價）。月預算當 1 單位。
+      A：每月固定換 1 單位。
+      B（預算池＋期限保底）：每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，
+        最後一個月把池子清空，所以總額跟 A 一樣，才比得公平。
+      純 B：每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換，不能直接跟 A 比。"""
     ws = [p for p in weekly if isinstance(p.get("c"), (int, float)) and p["c"] > 0]
     decisions = []
     for i in monthly_decisions(ws):
@@ -1609,35 +1630,39 @@ def fx_backtest(weekly, months=FX_BACKTEST_MONTHS, pace=1.0):
         if pct_ is not None:
             decisions.append({"d": ws[i]["d"], "rate": ws[i]["c"], "pct": pct_, "ratio": fx_rule(pct_)["ratioPct"] / 100.0})
     wins = []
-    total = months * pace
     for k in range(0, len(decisions) - months + 1):
         seq = decisions[k:k + months]
-        months_seq = [x["d"][:7] for x in seq]
-        cny_a = sum(pace / x["rate"] for x in seq)
-        remaining, cny_bf = total, 0.0
-        for t, x in enumerate(seq):
-            floor = remaining / float(months - t)
-            quota = min(max(x["ratio"] * 1.0, floor), remaining)
-            cny_bf += quota / x["rate"]
-            remaining -= quota
-        spent_b = sum(x["ratio"] for x in seq)
-        cny_b = sum(x["ratio"] / x["rate"] for x in seq)
-        rate_a, rate_bf = total / cny_a, total / cny_bf
-        wins.append({"from": months_seq[0], "through": months_seq[-1], "rateA": round(rate_a, 5), "rateBF": round(rate_bf, 5),
-                     "improvePct": round((rate_a - rate_bf) / rate_a * 100.0, 4),
-                     "pureSpentShare": round(spent_b / float(months) * 100.0, 1),
-                     "pureRate": round(spent_b / cny_b, 5) if cny_b > 0 else None,
-                     "pureDone": spent_b + 1e-9 >= total})
+        rates = [x["rate"] for x in seq]
+        ratios = [x["ratio"] for x in seq]
+        plan_b = fx_pool_plan(ratios, with_floor=True)
+        plan_p = fx_pool_plan(ratios, with_floor=False)
+        cny_a = sum(1.0 / r for r in rates)
+        spent_b, cny_b = sum(plan_b), sum(q / r for q, r in zip(plan_b, rates))
+        spent_p, cny_p = sum(plan_p), sum(q / r for q, r in zip(plan_p, rates))
+        rate_a = months / cny_a
+        rate_b = spent_b / cny_b if cny_b > 0 else None
+        wins.append({"from": seq[0]["d"][:7], "through": seq[-1]["d"][:7], "rateA": round(rate_a, 5),
+                     "rateB": round(rate_b, 5) if rate_b else None,
+                     "improvePct": round((rate_a - rate_b) / rate_a * 100.0, 4) if rate_b else None,
+                     "finished": abs(spent_b - months) < 1e-6,
+                     "pureSpentShare": round(spent_p / float(months) * 100.0, 1),
+                     "pureRate": round(spent_p / cny_p, 5) if cny_p > 0 else None,
+                     "pureDone": spent_p + 1e-6 >= months})
+    wins = [w for w in wins if w["improvePct"] is not None]
     if not wins:
-        return {"pace": pace, "n": 0, "reason": "資料不足：湊不出任何一個 %d 個月的視窗（決策點 %d 個）" % (months, len(decisions))}
+        return {"model": FX_BACKTEST_MODEL, "n": 0,
+                "reason": "資料不足：湊不出任何一個 %d 個月的視窗（決策點 %d 個）" % (months, len(decisions))}
     imp = [w["improvePct"] for w in wins]
     ties = sum(1 for x in imp if abs(x) < 1e-9)
     pure_rates = [w["pureRate"] for w in wins if w["pureRate"] is not None]
-    return {"pace": pace, "n": len(wins), "firstWindow": wins[0]["from"], "lastWindow": wins[-1]["from"],
+    return {"model": FX_BACKTEST_MODEL, "n": len(wins), "firstWindow": wins[0]["from"], "lastWindow": wins[-1]["from"],
             "decisions": len(decisions), "firstDecision": decisions[0]["d"], "lastDecision": decisions[-1]["d"],
             "winSharePct": round(sum(1 for x in imp if x > 1e-9) / float(len(imp)) * 100.0, 1),
             "tieSharePct": round(ties / float(len(imp)) * 100.0, 1),
             "medianImprovePct": round(median(imp), 3), "worstImprovePct": round(min(imp), 3), "bestImprovePct": round(max(imp), 3),
+            "finishedSharePct": round(sum(1 for w in wins if w["finished"]) / float(len(wins)) * 100.0, 1),
+            "medianRateA": round(median([w["rateA"] for w in wins]), 5),
+            "medianRateB": round(median([w["rateB"] for w in wins]), 5),
             "pure": {"notDoneSharePct": round(sum(1 for w in wins if not w["pureDone"]) / float(len(wins)) * 100.0, 1),
                      "medianSpentSharePct": round(median([w["pureSpentShare"] for w in wins]), 1),
                      "medianRate": round(median(pure_rates), 5) if pure_rates else None,
@@ -1657,19 +1682,18 @@ def fx_decide(main):
 
 
 def build_backtest(weekly, now):
-    runs = [fx_backtest(weekly, pace=p) for p in FX_BACKTEST_PACES]
-    main = runs[0]
+    main = fx_backtest(weekly)
     out = {"label": LABEL_SIMULATED, "currency": "CNY", "computedOn": now.strftime("%Y-%m-%d"), "months": FX_BACKTEST_MONTHS,
+           "model": FX_BACKTEST_MODEL,
            "method": {"data": "人民幣週線長歷史的即期賣出（2013 起）；每個月第一根週棒是決策日",
                       "percentile": "5 年百分位只用決策日（含）之前的 260 根週棒算，不夠 234 根的月份不當決策日——不偷看未來",
-                      "A": "每月固定換一樣多", "B": "每月換 max(規則比例 × 月預算, 剩餘 ÷ 剩餘月數)，期限＝視窗結束；總額跟 A 一樣",
-                      "pureB": "每月換 規則比例 × 月預算，不保底",
+                      "pool": "預算池：每個月把月預算放進池子；池子＝到目前為止累積的預算 − 已經換掉的台幣。沒換的錢留在池子裡，之後便宜時可以一次多換",
+                      "A": "每月固定換一個月預算",
+                      "B": "每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣",
+                      "pureB": "每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換",
                       "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜"},
-           "main": main, "sensitivity": runs[1:], "decision": fx_decide(main),
-           "notes": [FX_OVERLAP_NOTE,
-                     "主要比較的總預算＝月預算 × 月數：這時保底每個月都等於月預算，B 沒有挪動的空間，結果會跟 A 一樣（所以平手的比例很高）。",
-                     "對照的那兩列是「月預算比所需步調寬鬆」的情況（所需步調是月預算的 75%、50%）：那時規則才有空間多換或少換；它們不進裁決。",
-                     FX_CNY_NOTE]}
+           "main": main, "decision": fx_decide(main),
+           "notes": [FX_OVERLAP_NOTE, FX_CNY_NOTE]}
     return out
 
 
@@ -1677,8 +1701,9 @@ def build_fx(series, now, problems, paths=None):
     """data/analysis/fx.json：兩個幣別的位置、成本、規則試算的公開部分，加人民幣的回測摘要。"""
     paths = paths or default_paths()
     out = {"generatedAt": iso(now), "slot": "review", "labels": dict(LABEL_NOTES, **{LABEL_SIMULATED: "拿歷史資料照規則重演一遍算出來的，不是實際發生過的交易"}),
-           "notes": ["位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔。這裡沒有任何個人的金額。", FX_BANK_NOTE, FX_CNY_NOTE, FX_FOOT_NOTE],
+           "notes": ["位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔，比例是對預算池算的。這裡沒有任何個人的金額。", FX_BANK_NOTE, FX_CNY_NOTE, FX_FOOT_NOTE],
            "rules": {"label": "規則試算", "input": "5 年百分位（週線即期賣出的視窗，拿最新的日線即期賣出去比）", "table": FX_RULE_TABLE,
+                     "appliesTo": "預算池（到目前為止累積的預算 − 已經換掉的台幣）",
                      "note": "1 年百分位並列顯示但不進規則（1 年太短）"},
            "currencies": {}, "backtest": None}
     latest = {}
@@ -1721,7 +1746,8 @@ def build_fx(series, now, problems, paths=None):
         except Exception:                                 # noqa: B902
             prev = None
     weekly_cny = series.get("fx_cny") or []
-    if now.weekday() == 0 or not (prev and prev.get("main")):          # 只在週一重算；其餘天沿用，日期照實寫
+    reusable = bool(prev and prev.get("main") and prev.get("model") == FX_BACKTEST_MODEL)   # 別的模型算出來的結果不沿用
+    if now.weekday() == 0 or not reusable:                             # 只在週一重算；其餘天沿用，日期照實寫
         try:
             if not weekly_cny:
                 raise AnalyzeError("沒有 fx_cny 的週線長歷史")

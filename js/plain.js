@@ -108,7 +108,7 @@
     },
     quota: function (d) {
       if (!isNum(d.pct) || !isNum(d.ratioPct)) return NA;
-      return '5 年百分位 ' + n(d.pct, 1) + '% 落在「' + (d.bucket || '') + '」那一檔，規則試算的本月額度是月預算的 ' + n(d.ratioPct, 0) + '%' +
+      return '5 年百分位 ' + n(d.pct, 1) + '% 落在「' + (d.bucket || '') + '」那一檔，規則額度是預算池的 ' + n(d.ratioPct, 0) + '%' +
              (d.ratioPct === 0 ? '，規則表這一檔寫的是觀望' : '') + '。';
     },
     backtest: function (d) {

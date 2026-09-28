@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-29T00:44:09+08:00",
+ "generatedAt": "2026-09-29T01:41:22+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -9,7 +9,7 @@
   "歷史模擬": "拿歷史資料照規則重演一遍算出來的，不是實際發生過的交易"
  },
  "notes": [
-  "位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔。這裡沒有任何個人的金額。",
+  "位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔，比例是對預算池算的。這裡沒有任何個人的金額。",
   "網銀或大額換匯的優惠不在計算內",
   "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票",
   "以上為量化整理與歷史模擬，未經實盤驗證，不構成投資建議"
@@ -40,6 +40,7 @@
     "word": "觀望"
    }
   ],
+  "appliesTo": "預算池（到目前為止累積的預算 − 已經換掉的台幣）",
   "note": "1 年百分位並列顯示但不進規則（1 年太短）"
  },
  "currencies": {
@@ -233,79 +234,40 @@
   "currency": "CNY",
   "computedOn": "2026-09-29",
   "months": 36,
+  "model": "預算池",
   "method": {
    "data": "人民幣週線長歷史的即期賣出（2013 起）；每個月第一根週棒是決策日",
    "percentile": "5 年百分位只用決策日（含）之前的 260 根週棒算，不夠 234 根的月份不當決策日——不偷看未來",
-   "A": "每月固定換一樣多",
-   "B": "每月換 max(規則比例 × 月預算, 剩餘 ÷ 剩餘月數)，期限＝視窗結束；總額跟 A 一樣",
-   "pureB": "每月換 規則比例 × 月預算，不保底",
+   "pool": "預算池：每個月把月預算放進池子；池子＝到目前為止累積的預算 − 已經換掉的台幣。沒換的錢留在池子裡，之後便宜時可以一次多換",
+   "A": "每月固定換一個月預算",
+   "B": "每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣",
+   "pureB": "每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換",
    "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜"
   },
   "main": {
-   "pace": 1.0,
+   "model": "預算池",
    "n": 76,
    "firstWindow": "2017-07",
    "lastWindow": "2023-10",
    "decisions": 111,
    "firstDecision": "2017-07-07",
    "lastDecision": "2026-09-04",
-   "winSharePct": 0.0,
-   "tieSharePct": 100.0,
-   "medianImprovePct": 0.0,
-   "worstImprovePct": 0.0,
-   "bestImprovePct": 0.0,
+   "winSharePct": 89.5,
+   "tieSharePct": 0.0,
+   "medianImprovePct": 0.089,
+   "worstImprovePct": -0.063,
+   "bestImprovePct": 1.244,
+   "finishedSharePct": 100.0,
+   "medianRateA": 4.41583,
+   "medianRateB": 4.39674,
    "pure": {
-    "notDoneSharePct": 100.0,
-    "medianSpentSharePct": 58.0,
-    "medianRate": 4.37983,
+    "notDoneSharePct": 77.6,
+    "medianSpentSharePct": 95.9,
+    "medianRate": 4.39119,
     "medianRateA": 4.41583,
     "note": "純 B 花的錢比較少，不能直接比"
    }
   },
-  "sensitivity": [
-   {
-    "pace": 0.75,
-    "n": 76,
-    "firstWindow": "2017-07",
-    "lastWindow": "2023-10",
-    "decisions": 111,
-    "firstDecision": "2017-07-07",
-    "lastDecision": "2026-09-04",
-    "winSharePct": 71.1,
-    "tieSharePct": 11.8,
-    "medianImprovePct": 0.104,
-    "worstImprovePct": -0.677,
-    "bestImprovePct": 0.511,
-    "pure": {
-     "notDoneSharePct": 63.2,
-     "medianSpentSharePct": 58.0,
-     "medianRate": 4.37983,
-     "medianRateA": 4.41583,
-     "note": "純 B 花的錢比較少，不能直接比"
-    }
-   },
-   {
-    "pace": 0.5,
-    "n": 76,
-    "firstWindow": "2017-07",
-    "lastWindow": "2023-10",
-    "decisions": 111,
-    "firstDecision": "2017-07-07",
-    "lastDecision": "2026-09-04",
-    "winSharePct": 73.7,
-    "tieSharePct": 0.0,
-    "medianImprovePct": 0.338,
-    "worstImprovePct": -2.045,
-    "bestImprovePct": 1.693,
-    "pure": {
-     "notDoneSharePct": 39.5,
-     "medianSpentSharePct": 58.0,
-     "medianRate": 4.37983,
-     "medianRateA": 4.41583,
-     "note": "純 B 花的錢比較少，不能直接比"
-    }
-   }
-  ],
   "decision": {
    "default": "A",
    "word": "固定分批",
@@ -313,12 +275,10 @@
     "winSharePct": 55.0,
     "medianImprovePct": 0.5
    },
-   "reason": "B 贏的視窗比例 0.0%、中位數改善 0.000%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）"
+   "reason": "B 贏的視窗比例 89.5%、中位數改善 0.089%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）"
   },
   "notes": [
    "這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折",
-   "主要比較的總預算＝月預算 × 月數：這時保底每個月都等於月預算，B 沒有挪動的空間，結果會跟 A 一樣（所以平手的比例很高）。",
-   "對照的那兩列是「月預算比所需步調寬鬆」的情況（所需步調是月預算的 75%、50%）：那時規則才有空間多換或少換；它們不進裁決。",
    "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
   ]
  }
