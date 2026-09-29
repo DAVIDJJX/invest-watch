@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-09-28T15:30:52+08:00",
+ "generatedAt": "2026-09-29T15:30:54+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -2160,24 +2160,24 @@
    },
    {
     "d": "2026-09-24",
-    "goldSell": 4382.0,
-    "goldBuy": 4330.0,
+    "goldSell": 4407.0,
+    "goldBuy": 4359.0,
     "fxDate": "2026-09-24",
     "fxMid": 31.78,
     "gcDate": "2026-09-24",
     "gc": 4298.0,
     "impliedSameDay": 4391.48,
-    "residualSameDayPct": -0.216,
+    "residualSameDayPct": 0.353,
     "gcPrevDate": "2026-09-23",
     "gcPrev": 4318.399902,
     "impliedPrevDay": 4412.32,
-    "residualPrevDayPct": -0.687
+    "residualPrevDayPct": -0.121
    }
   ],
   "summarySameDay": {
    "n": 60,
-   "medianPct": -0.257,
-   "meanPct": -0.282,
+   "medianPct": -0.256,
+   "meanPct": -0.273,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
@@ -2186,8 +2186,8 @@
   },
   "summaryPrevDay": {
    "n": 60,
-   "medianPct": -0.426,
-   "meanPct": -0.144,
+   "medianPct": -0.397,
+   "meanPct": -0.134,
    "minPct": -1.477,
    "maxPct": 2.207,
    "window": "最近 60 個有資料的日子",
@@ -2195,27 +2195,27 @@
    "through": "2026-09-24"
   },
   "live": {
-   "goldSell": 4382.0,
-   "goldDate": "2026-09-24",
-   "goldQuoteTime": "2026/09/24 19:56",
-   "gcPrice": 4193.3,
-   "gcDate": "2026-09-28",
-   "gcFetchedAt": "2026-09-28T15:30:36+08:00",
+   "goldSell": 4272.0,
+   "goldDate": "2026-09-29",
+   "goldQuoteTime": "2026/09/29 15:00",
+   "gcPrice": 4177.0,
+   "gcDate": "2026-09-29",
+   "gcFetchedAt": "2026-09-29T15:30:36+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
    "fxMid": 31.78,
    "fxDate": "2026-09-24",
-   "implied": 4284.5,
-   "residualPct": 2.276,
+   "implied": 4267.85,
+   "residualPct": 0.097,
    "label": "估算"
   },
   "inputs": {
    "gold_twd": {
-    "points": 262,
-    "lastDate": "2026-09-24"
+    "points": 263,
+    "lastDate": "2026-09-29"
    },
    "gold_intl": {
-    "points": 256,
-    "lastDate": "2026-09-28"
+    "points": 257,
+    "lastDate": "2026-09-29"
    },
    "fx_usd": {
     "points": 145,
