@@ -144,6 +144,9 @@
                     main: { model: '預算池', n: 76, firstWindow: '2017-07', lastWindow: '2023-10', decisions: 111, firstDecision: '2017-07-07', lastDecision: '2026-09-04',
                             winSharePct: 89.5, tieSharePct: 0, medianImprovePct: 0.089, worstImprovePct: -0.063, bestImprovePct: 1.244,
                             finishedSharePct: 100, medianRateA: 4.5, medianRateB: 4.4,
+                            bigWins: { thresholdPct: 0.5, n: 16, firstWindow: '2022-07', lastWindow: '2023-10', sameEvent: true,
+                                       events: [ { d: '2025-05-02', month: '2025-05', windows: 16 } ],
+                                       note: '改善達到門檻的視窗，各自找出單月換最多的那個決策日；日期都一樣，就是同一次事件被重複計算' },
                             pure: { notDoneSharePct: 77.6, medianSpentSharePct: 95.9, medianRate: 4.3, medianRateA: 4.5, note: '純 B 花的錢比較少，不能直接比' } },
                     decision: { default: 'A', word: '固定分批', thresholds: { winSharePct: 55, medianImprovePct: 0.5 },
                                 reason: 'B 贏的視窗比例 89.5%、中位數改善 0.089%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）' },
@@ -432,6 +435,22 @@
           if (t.indexOf('模型：預算池') < 0) p.push('沒有寫是哪一個模型算的');
           if (t.indexOf('不偷看未來') < 0) p.push('沒有寫百分位只用當時之前的資料');
           if (t.indexOf('依位置調整換得比較便宜的有 89.5%') < 0 || t.indexOf('最差的一次反而貴 0.06%') < 0) p.push('回測的白話那一句沒有帶數字');
+          /* 對照組：頁面不印「贏得多的那幾次來自同一次事件」→ 這一條會紅。 */
+          var story = $('#fx-story');
+          var want = '歷史上依位置分批在大多數期間（89.5%）略勝，但中位數只多 0.09%，比換一次的價差（1.01%）還小；贏得多的那 16 個期間（便宜 0.5% 以上），' +
+                     '大筆換匯都落在同一次事件（2025-05），等於同一件事被重複算了 16 次。所以預設顯示固定分批。';
+          if (!story || story.innerText.trim() !== want) p.push('歷史模擬的結論那一句不對：' + (story && story.innerText.trim()));
+          var bigw = $('#fx-bigwins');
+          if (!bigw || bigw.innerText.indexOf('16 個') < 0 || bigw.innerText.indexOf('2025-05-02') < 0 || bigw.innerText.indexOf('2022-07～2023-10') < 0) p.push('沒有列出贏得多的視窗與它們大筆換匯的那一天');
+          var split = JSON.parse(JSON.stringify(FIX.fx));
+          split.backtest.main.bigWins.events = [ { d: '2025-05-02', month: '2025-05', windows: 10 }, { d: '2020-03-06', month: '2020-03', windows: 6 } ];
+          var sb = fxBox(split, { status: 'unset' });
+          if (sb.querySelector('#fx-story').innerText.indexOf('同一次事件') >= 0 || sb.querySelector('#fx-story').innerText.indexOf('分散在 2 個不同的月份') < 0) p.push('事件有兩次時頁面不可以說是同一次');
+          var old = JSON.parse(JSON.stringify(FIX.fx));
+          delete old.backtest.main.bigWins;
+          var ob = fxBox(old, { status: 'unset' });
+          if (ob.querySelector('#fx-bigwins')) p.push('沒有這一段資料時不該硬畫');
+          if (ob.querySelector('#fx-story').innerText.indexOf('同一次事件') >= 0) p.push('沒有這一段資料時不可以說是同一次事件');
           var flat = JSON.parse(JSON.stringify(FIX.fx));
           flat.backtest.main.winSharePct = 0; flat.backtest.main.tieSharePct = 100; flat.backtest.main.medianImprovePct = 0; flat.backtest.main.worstImprovePct = 0;
           if (fxBox(flat, { status: 'unset' }).innerText.indexOf('兩種做法每一次都換到一樣的匯率，沒有差別') < 0) p.push('全部平手時白話要直說沒有差別');

@@ -990,6 +990,34 @@ class TestFx(unittest.TestCase):
         self.assertEqual(down["tieSharePct"], 100.0)                                          # 每個月把池子換光＝每月換一個月預算，跟 A 一樣
         self.assertEqual(down["pure"]["notDoneSharePct"], 0.0)
 
+    def test_big_wins_are_grouped_by_the_day_of_their_biggest_conversion(self):
+        """對照組：不管資料、一律說是同一次事件；或門檻用錯 → 這一條會紅。"""
+        mk = lambda start, imp, day: {"from": start, "improvePct": imp, "bigDay": day}          # noqa: E731
+        same = A.fx_big_wins([mk("2022-07", 0.6, "2025-05-02"), mk("2022-08", 1.2, "2025-05-02"), mk("2022-09", 0.49, "2024-01-05"),
+                              mk("2022-10", 0.5, "2025-05-02"), mk("2022-11", -0.1, "2023-06-02")])
+        self.assertEqual((same["n"], same["sameEvent"], same["thresholdPct"]), (3, True, 0.5))   # 剛好 0.5 也算；0.49 不算
+        self.assertEqual(same["events"], [{"d": "2025-05-02", "month": "2025-05", "windows": 3}])
+        self.assertEqual((same["firstWindow"], same["lastWindow"]), ("2022-07", "2022-10"))
+        two = A.fx_big_wins([mk("2019-01", 0.9, "2020-03-06"), mk("2022-07", 0.6, "2025-05-02"), mk("2022-08", 0.7, "2025-05-02")])
+        self.assertEqual((two["n"], two["sameEvent"]), (3, False))
+        self.assertEqual([(e["month"], e["windows"]) for e in two["events"]], [("2025-05", 2), ("2020-03", 1)])   # 視窗多的排前面
+        none = A.fx_big_wins([mk("2019-01", 0.1, "2020-03-06"), mk("2019-02", None, "2020-03-06")])
+        self.assertEqual((none["n"], none["events"], none["sameEvent"]), (0, [], False))
+        self.assertNotIn("firstWindow", none)
+        self.assertEqual(A.fx_biggest_index([0.2, 1.8, 0.25, 1.8]), 1)                             # 一樣多取最早的
+        self.assertEqual(A.fx_biggest_index([3.0, 1.0]), 0)
+        self.assertIsNone(A.fx_biggest_index([]))
+
+    def test_backtest_reports_where_the_big_wins_come_from(self):
+        r = A.fx_backtest(self.cyc())
+        b = r["bigWins"]
+        self.assertEqual(b["thresholdPct"], A.FX_DECISION_MEDIAN)
+        self.assertEqual(sum(e["windows"] for e in b["events"]), b["n"])
+        self.assertLessEqual(b["n"], r["n"])
+        self.assertEqual(b["sameEvent"], len(b["events"]) == 1)
+        flat = A.fx_backtest(fx_weekly([4.5] * 560))
+        self.assertEqual((flat["bigWins"]["n"], flat["bigWins"]["events"]), (0, []))               # 價格不動：沒有任何一個視窗贏得多
+
     def test_pure_b_is_listed_apart_and_often_does_not_finish(self):
         r = A.fx_backtest(self.cyc())
         self.assertGreater(r["pure"]["notDoneSharePct"], 0.0)                                 # 純 B 常常換不完
@@ -1052,6 +1080,16 @@ class TestFx(unittest.TestCase):
             self.assertEqual(fx["backtest"]["model"], "預算池")
             self.assertEqual(fx["backtest"]["computedOn"], "2026-09-22")
             self.assertEqual(fx["rules"]["appliesTo"][:3], "預算池")
+            # 模型一樣、但格式是舊的（沒有「贏得多的視窗來自哪裡」那一段）：一樣不沿用
+            older = {"backtest": {"computedOn": "2026-09-21", "model": "預算池", "main": {"n": 76, "winSharePct": 89.5, "medianImprovePct": 0.089}}}
+            A.write_json(os.path.join(w.paths["analysis"], "fx.json"), older)
+            fx2 = A.build_fx(series, tuesday, [], w.paths)
+            self.assertNotIn("reused", fx2["backtest"])
+            self.assertEqual(fx2["backtest"]["schema"], A.FX_BACKTEST_SCHEMA)
+            self.assertIn("bigWins", fx2["backtest"]["main"])
+            A.write_json(os.path.join(w.paths["analysis"], "fx.json"), fx2)
+            fx3 = A.build_fx(series, tuesday, [], w.paths)
+            self.assertTrue(fx3["backtest"]["reused"])                                        # 模型與格式都對得上才沿用
         finally:
             w.close()
 

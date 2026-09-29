@@ -716,6 +716,9 @@
     var d = b.decision || {}, th = d.thresholds || {}, m = b.method || {}, mn = b.main;
     h += '<p id="fx-decision">裁決：預設顯示 <b>' + esc(d.word || FX_METHOD_WORD[fxDecision(fx)]) + '</b>。<span class="muted">' + esc(d.reason || '') +
          '　門檻寫死在程式裡：換得比較便宜的視窗 ≥ ' + num(th.winSharePct, 0) + '% 而且中位數改善 ≥ ' + num(th.medianImprovePct, 1) + '%，只看主要比較。</span></p>';
+    var cnySpot = ((((fx.currencies || {}).CNY || {}).spreads || {}).spot || {}).spreadPct;
+    h += '<div id="fx-story">' + plain('backtestStory', { winSharePct: mn.winSharePct, tieSharePct: mn.tieSharePct, medianImprovePct: mn.medianImprovePct,
+                                                          thresholds: th, spreadPct: cnySpot, bigWins: mn.bigWins, method: fxDecision(fx) }) + '</div>';
     h += plain('backtest', { n: mn.n, months: b.months, winSharePct: mn.winSharePct, tieSharePct: mn.tieSharePct,
                              medianImprovePct: mn.medianImprovePct, worstImprovePct: mn.worstImprovePct });
     if (!mn.n) {
@@ -730,6 +733,13 @@
       var pu = mn.pure || {};
       h += '<p class="muted">' + fxPoolNote() + '</p>';
       h += '<p class="muted">A＝' + esc(m.A || '') + '。B＝' + esc(m.B || '') + '。改善為正表示 B 換到的人民幣比較便宜。</p>';
+      var bw = mn.bigWins;
+      if (bw && typeof bw.n === 'number') {
+        h += '<p class="muted" id="fx-bigwins">改善 ' + num(bw.thresholdPct, 1) + '% 以上的視窗 ' + esc(bw.n) + ' 個' +
+             (bw.n ? '（' + esc(bw.firstWindow) + '～' + esc(bw.lastWindow) + ' 起算）；它們單月換最多的那一天：' +
+               (bw.events || []).map(function (e) { return dateSpan(e.d) + '（' + esc(e.windows) + ' 個視窗）'; }).join('、') : '') +
+             '。' + esc(bw.note || '') + '。</p>';
+      }
       h += '<p class="muted" id="fx-pure">純 B（' + esc(m.pureB || '不保底') + '）：沒換完預算的視窗 ' + pct1(pu.notDoneSharePct) + '，一般只花掉 ' + pct1(pu.medianSpentSharePct) +
            ' 的預算；它的平均匯率中位數 ' + num(pu.medianRate, 5) + '，同一批視窗 A 是 ' + num(pu.medianRateA, 5) + '——' + esc(pu.note || '花的錢比較少，不能直接比') + '。</p>';
     }

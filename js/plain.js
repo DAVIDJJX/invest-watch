@@ -119,6 +119,34 @@
       return '拿過去的資料重演 ' + d.n + ' 個 ' + (d.months || 36) + ' 個月的期間：依位置調整換得比較便宜的有 ' + n(d.winSharePct, 1) +
              '%，一般的情況（中位數）便宜 ' + n(d.medianImprovePct, 2) + '%，最差的一次反而貴 ' + n(Math.abs(d.worstImprovePct), 2) + '%。';
     },
+    /* 歷史模擬的結論：勝率、中位數、跟一次價差比、贏得多的那幾次是不是同一次事件、所以預設哪一種。全部由數字決定。 */
+    backtestStory: function (d) {
+      var th = d.thresholds || {};
+      if (!isNum(d.winSharePct) || !isNum(d.medianImprovePct) || !isNum(th.winSharePct) || !isNum(th.medianImprovePct)) return NA;
+      var s;
+      if (d.tieSharePct === 100) {
+        s = '歷史上依位置分批跟每個月換一樣多，每一個期間換到的匯率都一樣';
+      } else {
+        s = d.winSharePct >= th.winSharePct
+          ? '歷史上依位置分批在大多數期間（' + n(d.winSharePct, 1) + '%）略勝'
+          : '歷史上依位置分批只在 ' + n(d.winSharePct, 1) + '% 的期間換得比較便宜';
+        if (d.medianImprovePct >= th.medianImprovePct) s += '，中位數多 ' + n(d.medianImprovePct, 2) + '%';
+        else if (d.medianImprovePct > 0) s += '，但中位數只多 ' + n(d.medianImprovePct, 2) + '%';
+        else s += '，中位數沒有比較便宜（' + n(d.medianImprovePct, 2) + '%）';
+        if (isNum(d.spreadPct) && d.medianImprovePct > 0) {
+          s += (d.medianImprovePct < d.spreadPct ? '，比換一次的價差（' : '，超過換一次的價差（') + n(d.spreadPct, 2) + (d.medianImprovePct < d.spreadPct ? '%）還小' : '%）');
+        }
+        var b = d.bigWins;
+        if (b && isNum(b.n) && isNum(b.thresholdPct)) {
+          var ev = b.events || [], big = '便宜 ' + n(b.thresholdPct, 1) + '% 以上';
+          if (b.n === 0) s += '；沒有任何一個期間' + big;
+          else if (b.n === 1) s += '；' + big + '的期間只有 1 個' + (ev[0] ? '（大筆換匯在 ' + ev[0].month + '）' : '');
+          else if (ev.length === 1) s += '；贏得多的那 ' + b.n + ' 個期間（' + big + '），大筆換匯都落在同一次事件（' + ev[0].month + '），等於同一件事被重複算了 ' + b.n + ' 次';
+          else s += '；贏得多的那 ' + b.n + ' 個期間（' + big + '），大筆換匯分散在 ' + ev.length + ' 個不同的月份';
+        }
+      }
+      return s + (d.method === 'B' ? '。兩個門檻都過了，所以預設顯示依位置調整。' : '。所以預設顯示固定分批。');
+    },
     drawdown: function (d) {
       if (!isNum(d.pct)) return NA;
       var p = Math.abs(d.pct);

@@ -111,6 +111,7 @@ FX_BACKTEST_MIN_LOOKBACK = 234
 FX_DECISION_WIN_SHARE = 55.0                             # 裁決門檻：B 贏的視窗比例（%）
 FX_DECISION_MEDIAN = 0.5                                 # 裁決門檻：平均匯率改善的中位數（%），約一次即期價差
 FX_BACKTEST_MODEL = "預算池"                             # 回測與本月試算用的模型；沿用上一次的結果之前先核對，模型換了就重算
+FX_BACKTEST_SCHEMA = 2                                   # 回測結果的格式版本（2＝多了「贏得多的視窗來自哪一次事件」）；格式換了也重算
 LABEL_SIMULATED = "歷史模擬"
 FX_BANK_NOTE = "網銀或大額換匯的優惠不在計算內"
 FX_CNY_NOTE = "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
@@ -1617,6 +1618,26 @@ def fx_pool_plan(ratios, with_floor=True, budget=1.0):
     return out
 
 
+def fx_biggest_index(plan):
+    """這個視窗裡單月換最多的是第幾個月（一樣多就取最早的那一個）。"""
+    return plan.index(max(plan)) if plan else None
+
+
+def fx_big_wins(wins, threshold=FX_DECISION_MEDIAN):
+    """改善達到門檻的視窗，各自找出「單月換最多」的那個決策日，再按日期歸戶。
+    日期都一樣，就表示這些視窗贏的是同一次事件——視窗重疊，同一件事被重複計算。"""
+    big = [w for w in wins if w.get("improvePct") is not None and w["improvePct"] >= threshold]
+    count = {}
+    for w in big:
+        count[w["bigDay"]] = count.get(w["bigDay"], 0) + 1
+    events = sorted(({"d": d, "month": d[:7], "windows": k} for d, k in count.items()), key=lambda e: (-e["windows"], e["d"]))
+    out = {"thresholdPct": threshold, "n": len(big), "events": events, "sameEvent": len(events) == 1,
+           "note": "改善達到門檻的視窗，各自找出單月換最多的那個決策日；日期都一樣，就是同一次事件被重複計算"}
+    if big:
+        out["firstWindow"], out["lastWindow"] = big[0]["from"], big[-1]["from"]
+    return out
+
+
 def fx_backtest(weekly, months=FX_BACKTEST_MONTHS):
     """分批規則的歷史回測（歷史模擬）。weekly：[{d, c}]，c 是即期賣出（換外幣時付的價）。月預算當 1 單位。
       A：每月固定換 1 單位。
@@ -1645,6 +1666,7 @@ def fx_backtest(weekly, months=FX_BACKTEST_MONTHS):
                      "rateB": round(rate_b, 5) if rate_b else None,
                      "improvePct": round((rate_a - rate_b) / rate_a * 100.0, 4) if rate_b else None,
                      "finished": abs(spent_b - months) < 1e-6,
+                     "bigDay": seq[fx_biggest_index(plan_b)]["d"],
                      "pureSpentShare": round(spent_p / float(months) * 100.0, 1),
                      "pureRate": round(spent_p / cny_p, 5) if cny_p > 0 else None,
                      "pureDone": spent_p + 1e-6 >= months})
@@ -1663,6 +1685,7 @@ def fx_backtest(weekly, months=FX_BACKTEST_MONTHS):
             "finishedSharePct": round(sum(1 for w in wins if w["finished"]) / float(len(wins)) * 100.0, 1),
             "medianRateA": round(median([w["rateA"] for w in wins]), 5),
             "medianRateB": round(median([w["rateB"] for w in wins]), 5),
+            "bigWins": fx_big_wins(wins),
             "pure": {"notDoneSharePct": round(sum(1 for w in wins if not w["pureDone"]) / float(len(wins)) * 100.0, 1),
                      "medianSpentSharePct": round(median([w["pureSpentShare"] for w in wins]), 1),
                      "medianRate": round(median(pure_rates), 5) if pure_rates else None,
@@ -1684,14 +1707,15 @@ def fx_decide(main):
 def build_backtest(weekly, now):
     main = fx_backtest(weekly)
     out = {"label": LABEL_SIMULATED, "currency": "CNY", "computedOn": now.strftime("%Y-%m-%d"), "months": FX_BACKTEST_MONTHS,
-           "model": FX_BACKTEST_MODEL,
+           "model": FX_BACKTEST_MODEL, "schema": FX_BACKTEST_SCHEMA,
            "method": {"data": "人民幣週線長歷史的即期賣出（2013 起）；每個月第一根週棒是決策日",
                       "percentile": "5 年百分位只用決策日（含）之前的 260 根週棒算，不夠 234 根的月份不當決策日——不偷看未來",
                       "pool": "預算池：每個月把月預算放進池子；池子＝到目前為止累積的預算 − 已經換掉的台幣。沒換的錢留在池子裡，之後便宜時可以一次多換",
                       "A": "每月固定換一個月預算",
                       "B": "每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣",
                       "pureB": "每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換",
-                      "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜"},
+                      "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜",
+                      "bigWins": "改善達到裁決門檻的視窗，各自找出單月換最多的那個決策日再歸戶；日期都一樣，就是同一次事件被重複計算"},
            "main": main, "decision": fx_decide(main),
            "notes": [FX_OVERLAP_NOTE, FX_CNY_NOTE]}
     return out
@@ -1746,7 +1770,8 @@ def build_fx(series, now, problems, paths=None):
         except Exception:                                 # noqa: B902
             prev = None
     weekly_cny = series.get("fx_cny") or []
-    reusable = bool(prev and prev.get("main") and prev.get("model") == FX_BACKTEST_MODEL)   # 別的模型算出來的結果不沿用
+    reusable = bool(prev and prev.get("main") and prev.get("model") == FX_BACKTEST_MODEL and
+                    prev.get("schema") == FX_BACKTEST_SCHEMA)                 # 別的模型、別的格式算出來的結果不沿用
     if now.weekday() == 0 or not reusable:                             # 只在週一重算；其餘天沿用，日期照實寫
         try:
             if not weekly_cny:

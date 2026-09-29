@@ -13,6 +13,7 @@ test_plain_js.py — 分析系列 A1-6：「一眼看懂」的翻譯層（js/pla
   3. 白話模板遇到資料不足輸出「資料不足」，不是空字串。
   4. 任何輸出都沒有帶方向的交易字眼，也沒有「幾個面向怎樣」的計數；plain.js 沒有加總用的函式。
   5. 名詞解釋有規格點名的八個詞；點一下展開、再點一下收起。
+  6. 歷史模擬的那一句結論完全由數字決定：勝率、中位數、跟一次價差比、贏得多的視窗是不是同一次事件、預設哪一種。
 """
 import html
 import json
@@ -63,7 +64,7 @@ class TestPlainJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/plain.js 或 js/glossary.js")
-        self.assertEqual(self.report.get("total"), 7)
+        self.assertEqual(self.report.get("total"), 8)
 
     def test_three_states_follow_the_rules(self):
         """對照組：位置的門檻改壞（60 改成 80）→ 這一條會紅。"""
@@ -83,6 +84,10 @@ class TestPlainJs(unittest.TestCase):
 
     def test_sentences_carry_the_numbers(self):
         self.case("plain_sentences_carry_the_numbers")
+
+    def test_backtest_story_follows_the_numbers(self):
+        """對照組：不管資料、一律說「同一次事件」→ 這一條會紅。"""
+        self.case("backtest_story_follows_the_numbers")
 
     def test_no_trading_words_no_counting(self):
         """對照組：狀態詞換成帶方向的字眼、或印出「幾個面向怎樣」→ 這一條會紅。"""

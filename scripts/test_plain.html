@@ -113,6 +113,35 @@
           if (win.indexOf('71.1%') < 0 || win.indexOf('0.10%') < 0 || win.indexOf('0.68%') < 0) p.push('回測的三個數字沒印：' + win);
         });
 
+        check('backtest_story_follows_the_numbers', function (p) {
+          /* 對照組：不管資料、一律說「同一次事件」→ 這一條會紅。 */
+          var th = { winSharePct: 55, medianImprovePct: 0.5 };
+          var one = { d: '2025-05-02', month: '2025-05', windows: 16 };
+          same(p, '九成略勝、中位數很小、同一次事件',
+               P.sentence('backtestStory', { winSharePct: 89.5, tieSharePct: 0, medianImprovePct: 0.089, thresholds: th, spreadPct: 1.056,
+                                             bigWins: { n: 16, thresholdPct: 0.5, events: [one] }, method: 'A' }),
+               '歷史上依位置分批在大多數期間（89.5%）略勝，但中位數只多 0.09%，比換一次的價差（1.06%）還小；贏得多的那 16 個期間（便宜 0.5% 以上），' +
+               '大筆換匯都落在同一次事件（2025-05），等於同一件事被重複算了 16 次。所以預設顯示固定分批。');
+          var two = P.sentence('backtestStory', { winSharePct: 89.5, tieSharePct: 0, medianImprovePct: 0.089, thresholds: th, spreadPct: 1.056,
+                                                  bigWins: { n: 16, thresholdPct: 0.5, events: [{ d: '2025-05-02', month: '2025-05', windows: 10 }, { d: '2020-03-06', month: '2020-03', windows: 6 }] }, method: 'A' });
+          if (two.indexOf('同一次事件') >= 0 || two.indexOf('分散在 2 個不同的月份') < 0) p.push('事件有兩次時不可以說是同一次：' + two);
+          var none = P.sentence('backtestStory', { winSharePct: 60, tieSharePct: 0, medianImprovePct: 0.1, thresholds: th, bigWins: { n: 0, thresholdPct: 0.5, events: [] }, method: 'A' });
+          if (none.indexOf('沒有任何一個期間便宜 0.5% 以上') < 0 || none.indexOf('價差') >= 0) p.push('沒有大贏的視窗、也沒有價差資料時：' + none);
+          var single = P.sentence('backtestStory', { winSharePct: 60, tieSharePct: 0, medianImprovePct: 0.1, thresholds: th, bigWins: { n: 1, thresholdPct: 0.5, events: [one] }, method: 'A' });
+          if (single.indexOf('的期間只有 1 個（大筆換匯在 2025-05）') < 0 || single.indexOf('重複算') >= 0) p.push('只有一個大贏的視窗時不說重複計算：' + single);
+          var low = P.sentence('backtestStory', { winSharePct: 30, tieSharePct: 0, medianImprovePct: -0.2, thresholds: th, spreadPct: 1, method: 'A' });
+          same(p, '多數期間比較貴', low, '歷史上依位置分批只在 30.0% 的期間換得比較便宜，中位數沒有比較便宜（-0.20%）。所以預設顯示固定分批。');
+          var pass = P.sentence('backtestStory', { winSharePct: 70, tieSharePct: 0, medianImprovePct: 1.5, thresholds: th, spreadPct: 1,
+                                                   bigWins: { n: 30, thresholdPct: 0.5, events: [one, { d: '2020-03-06', month: '2020-03', windows: 14 }] }, method: 'B' });
+          same(p, '兩個門檻都過', pass, '歷史上依位置分批在大多數期間（70.0%）略勝，中位數多 1.50%，超過換一次的價差（1.00%）；贏得多的那 30 個期間（便宜 0.5% 以上），' +
+               '大筆換匯分散在 2 個不同的月份。兩個門檻都過了，所以預設顯示依位置調整。');
+          same(p, '全部平手', P.sentence('backtestStory', { winSharePct: 0, tieSharePct: 100, medianImprovePct: 0, thresholds: th, method: 'A' }),
+               '歷史上依位置分批跟每個月換一樣多，每一個期間換到的匯率都一樣。所以預設顯示固定分批。');
+          [undefined, {}, { winSharePct: 89.5 }, { winSharePct: 89.5, medianImprovePct: 0.1 }, { winSharePct: 89.5, medianImprovePct: 0.1, thresholds: {} }].forEach(function (x) {
+            if (P.sentence('backtestStory', x) !== '資料不足') p.push('資料不齊要輸出「資料不足」：' + JSON.stringify(x));
+          });
+        });
+
         check('no_trading_words_and_no_counting_anywhere', function (p) {
           /* 對照組：狀態詞換成帶方向的字眼、或印出「幾個面向怎樣」→ 這一條會紅。 */
           var all = [];
