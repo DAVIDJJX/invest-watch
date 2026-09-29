@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-09-29T15:05:26+08:00",
- "runAtText": "2026-09-29 15:05",
+ "runAt": "2026-09-29T15:30:21+08:00",
+ "runAtText": "2026-09-29 15:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "full",
- "requests": 5,
+ "mode": "light",
+ "requests": 3,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4272.0,
+   "price": 4275.0,
    "prevClose": 4407.0,
-   "change": -135.0,
-   "changePct": -3.0633,
+   "change": -132.0,
+   "changePct": -2.9952,
    "date": "2026-09-29",
    "points": 263,
    "spark": [
@@ -66,18 +66,18 @@
     4432.0,
     4433.0,
     4407.0,
-    4272.0
+    4275.0
    ],
-   "fetchedAt": "2026-09-29T15:05:21+08:00",
+   "fetchedAt": "2026-09-29T15:30:18+08:00",
    "error": null,
-   "buy": 4225.0,
-   "sell": 4272.0,
-   "quoteTime": "2026/09/29 15:00",
+   "buy": 4228.0,
+   "sell": 4275.0,
+   "quoteTime": "2026/09/29 15:25",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-29T15:05:21+08:00",
-   "lastSuccessAt": "2026-09-29T15:05:21+08:00"
+   "lastAttemptAt": "2026-09-29T15:30:18+08:00",
+   "lastSuccessAt": "2026-09-29T15:30:18+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -90,10 +90,10 @@
    "decimals": 2,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 897.35,
+   "price": 898.3,
    "prevClose": 930.35,
-   "change": -33.0,
-   "changePct": -3.5471,
+   "change": -32.05,
+   "changePct": -3.4449,
    "date": "2026-09-29",
    "points": 263,
    "spark": [
@@ -136,18 +136,18 @@
     935.1,
     938.5,
     930.35,
-    897.35
+    898.3
    ],
-   "fetchedAt": "2026-09-29T15:05:24+08:00",
+   "fetchedAt": "2026-09-29T15:30:21+08:00",
    "error": null,
-   "buy": 887.75,
-   "sell": 897.35,
-   "quoteTime": "2026/09/29 15:00",
+   "buy": 888.7,
+   "sell": 898.3,
+   "quoteTime": "2026/09/29 15:25",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-29T15:05:24+08:00",
-   "lastSuccessAt": "2026-09-29T15:05:24+08:00"
+   "lastAttemptAt": "2026-09-29T15:30:21+08:00",
+   "lastSuccessAt": "2026-09-29T15:30:21+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -231,7 +231,9 @@
    "error": null,
    "source": "local",
    "lastAttemptAt": "2026-09-29T15:05:26+08:00",
-   "lastSuccessAt": "2026-09-29T15:05:26+08:00"
+   "lastSuccessAt": "2026-09-29T15:05:26+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
   }
  }
 }
