@@ -785,7 +785,14 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
-## 2026-09-29 · 分析系列 A1-6 人民幣補齊＋「52 週」名符其實＋換匯助手＋「一眼看懂」（標籤 `stopA1-6`；等驗收後合併）
+## 2026-09-29 · 分析系列 A1-6 人民幣補齊＋「52 週」名符其實＋換匯助手＋「一眼看懂」（標籤 `stopA1-6`；2026-09-30 合併 c3c24ba）
+
+**合併紀錄（2026-09-30）**
+
+- 合併 commit **c3c24ba**（`--no-ff`；第一個 parent 是 main 的 95b4f92，第二個是分支的 55e24d6）。合併在另一個暫時的 worktree 做，主目錄留在 main、排程照跑。
+- 衝突只有四個分析輸出檔（`data/analysis` 的 status／risk／decompose／cost）：main 上的是舊程式每天 15:30 算的，分支上的是 9/27 的種子。兩邊都不拿——改在沙盒用「合併後的程式＋main 最新的資料」真的跑一次 `analyze.py --slot review`，拿它的產出當新種子：結束碼 0、對外請求 3 次（人民幣週線補最近幾週、美元兌人民幣週線補最近幾週、證交所那一檔）；其餘 11 條長歷史週一已經補過、這次不必抓。
+- 匯率日線兩個檔沒有衝突：9/25 中秋節、9/28 教師節補假，台銀沒有掛牌，main 從分支開出去之後沒有新的匯率點；合併後各 400 點（2025-02-13～2026-09-24），日期由舊到新、沒有重複。
+- 合併後的樹上全套測試 481 條全綠。
 
 **先講四件跟原本預期不一樣的事**
 
@@ -886,7 +893,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 
 ```bash
 git revert --no-edit e3d2c5c..stopA1-6          # 合併前：在分支上把 A1-6 的全部 commit 反轉
-git revert -m 1 <A1-6 的合併 commit> && git push  # 合併後：退整個 A1-6（編號用 git log --oneline --merges -3 查）
+git revert -m 1 c3c24ba && git push              # 合併後：退整個 A1-6（2026-09-30 合併）
 ```
 退回後換匯助手、人民幣的分析項目與「近 n 個交易日」的寫法消失，卡片回到「近 N 個月」；私人倉庫裡的 `fx-plan.json` 不受影響（公開倉庫從來沒有它）。
 匯率日線那兩個檔會回到 145 點——退回之後雲端每天照常往後追加，不會壞。
@@ -966,7 +973,7 @@ git revert -m 1 <A1-6 的合併 commit> && git push  # 合併後：退整個 A1-
 
 ```bash
 git revert --no-edit stopA1-6..feat/stopA1-6      # 合併前：只退這一段修正，回到 tag 那一版（舊模型）
-git revert -m 1 <A1-6 的合併 commit> && git push  # 合併後：修正跟 A1-6 在同一個合併裡，要退就整個 A1-6 一起退
+git revert -m 1 c3c24ba && git push              # 合併後：修正跟 A1-6 在同一個合併裡，要退就整個 A1-6 一起退
 ```
 
 ---
