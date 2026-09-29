@@ -383,16 +383,19 @@
     return h;
   }
 
-  function rangeHtml(a, ind) {
+  function rangeHtml(a, ind, points) {
     var r = ind.range;
     if (!r) return '';
     var d = a.decimals;
     var sig = ind.signal;
-    var windowText = r.full ? '52 週' : ('近 ' + Math.max(1, Math.round(r.days / 21)) + ' 個月');
+    // 視窗叫什麼由 js/indicators.js 決定（資料夠一年才叫 52 週，門檻的數字只寫在那一支）；這裡不自己判斷
+    var I = window.Indicators;
+    var first = I.windowStart(points, r.days);
+    var since = I.windowSince(r, first);
     var h = '<div class="range-bar">';
     h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
-           '<span style="font-size:12px;color:var(--text-faint)">' + windowText +
-           '區間位置</span>' +
+           '<span style="font-size:12px;color:var(--text-faint)">' +
+           esc(I.windowName(r)) + '區間位置' + (since ? '（' + esc(since) + '）' : '') + '</span>' +
            '<span class="signal ' + sig.level + '"><span class="dot"></span>' +
            esc(sig.label) + '</span>' +
          '</div>';
@@ -402,7 +405,7 @@
          '<span>第 ' + r.percentile.toFixed(0) + ' 百分位</span>' +
          '<span>最高 ' + num(r.high, d) + '</span></div>';
     h += '<div class="range-note">分類規則：低於 25% → 相對低檔區；25%～75% → 中性；' +
-         '高於 75% → 相對高檔區。目前' + esc(sig.rule) + '。' +
+         '高於 75% → 相對高檔區。目前' + esc(I.signalRule(r, first)) + '。' +
          (r.full ? '' : '（這項標的目前只有 ' + r.days + ' 個交易日的資料，' +
            '所以是用實際區間算的，不是完整 52 週。）') +
          '</div>';
@@ -487,7 +490,7 @@
           esc(points[0].d) + ' ～ ' + esc(points[points.length - 1].d) + '</span>' +
       '</div>' +
       metricsHtml(a, ind) +
-      rangeHtml(a, ind) +
+      rangeHtml(a, ind, points) +
       analysisHtml(a);
 
     var ok = window.Charts.drawHistory(
@@ -503,11 +506,11 @@
 
   /* ---------------------------------------------------------- 分析（A1-5）：卡片裡的「分析」摺疊區
    *
-   * 預設收合。第一次展開才抓 data/analysis/risk.json（需要成本項的四張卡再抓 cost.json），抓過就存在 state.analysis 重複用；
+   * 預設收合。第一次展開才抓 data/analysis/risk.json（需要成本項的五張卡再抓 cost.json），抓過就存在 state.analysis 重複用；
    * decompose.json 與 data/history-long 完全不由這一頁載入。開頁時什麼都不抓——首屏的請求數跟 A1-5 之前一樣。
    * 畫什麼由 js/card-analysis.js 決定（純函式），這裡只負責抓與掛。
    */
-  var COST_IDS = { tw00646: true, tw00679b: true, gold_twd: true, gold_bar: true };
+  var COST_IDS = { tw00646: true, tw00679b: true, gold_twd: true, gold_cny: true, gold_bar: true };
 
   function analysisHtml(a) {
     return '<details class="ana" data-ana="' + esc(a.id) + '">' +
@@ -628,11 +631,14 @@
   function updateSignal(a, hist) {
     var node = document.querySelector('[data-signal="' + a.id + '"]');
     if (!node) return;
-    var ind = window.Indicators.computeAll((hist && hist.points) || [], a.price);
+    var points = (hist && hist.points) || [];
+    var ind = window.Indicators.computeAll(points, a.price);
     var s = ind.signal;
     node.className = 'signal ' + s.level;
     node.innerHTML = '<span class="dot"></span>' + esc(s.label);
-    node.title = s.rule;
+    // 燈號的判定（s.level、s.label）一個字沒動；提示文字裡的視窗名稱照實際天數寫
+    node.title = window.Indicators.signalRule(
+      ind.range, window.Indicators.windowStart(points, ind.range && ind.range.days));
   }
 
   function loadHistories(latest) {

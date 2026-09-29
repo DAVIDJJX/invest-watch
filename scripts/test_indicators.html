@@ -46,7 +46,23 @@
       });
     });
   });
-  document.getElementById('result').textContent = JSON.stringify({ loaded: !!window.Indicators, cases: out });
+  // A1-6：視窗叫什麼（52 週／近 n 個交易日）。上面 30 組 cases 是 A1-5 釘住的，一個字都不動；這裡另外算一份 labels。
+  // 12 點是條塊卡現在的天數；226／227 是門檻的兩邊；400 點時視窗只取最後 252 點。
+  var I = window.Indicators;
+  function label(n) {
+    var pts = series('wave', n);
+    var ind = I.computeAll(pts, pts[pts.length - 1].c);
+    var first = I.windowStart(pts, ind.range.days);
+    return { days: ind.range.days, full: ind.range.full, first: first, firstPoint: pts[0].d,
+             name: I.windowName(ind.range), since: I.windowSince(ind.range, first), label: I.windowLabel(ind.range, first),
+             rule: I.signalRule(ind.range, first), pinnedRule: ind.signal.rule };
+  }
+  var labels = { error: null };
+  try {
+    labels = { threshold: I.FULL_YEAR_DAYS, n12: label(12), n226: label(226), n227: label(227), n252: label(252), n400: label(400),
+               none: { name: I.windowName(null), label: I.windowLabel(null, null), rule: I.signalRule(null, null), start: I.windowStart([], 5) } };
+  } catch (e) { labels = { error: String(e && e.message) }; }
+  document.getElementById('result').textContent = JSON.stringify({ loaded: !!window.Indicators, cases: out, labels: labels });
 })();
 </script>
 </body>

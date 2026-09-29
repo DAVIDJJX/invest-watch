@@ -1,0 +1,302 @@
+{
+ "generatedAt": "2026-09-30T00:50:46+08:00",
+ "slot": "review",
+ "labels": {
+  "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
+  "單一來源": "只有一個來源，沒有拿別的來源對過",
+  "有對照": "有拿別的來源核對過（核對的方法與日期寫在旁邊）",
+  "多來源一致": "兩個以上獨立來源給出一致的值",
+  "歷史模擬": "拿歷史資料照規則重演一遍算出來的，不是實際發生過的交易"
+ },
+ "notes": [
+  "位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔，比例是對預算池算的。這裡沒有任何個人的金額。",
+  "網銀或大額換匯的優惠不在計算內",
+  "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票",
+  "以上為量化整理與歷史模擬，未經實盤驗證，不構成投資建議"
+ ],
+ "rules": {
+  "label": "規則試算",
+  "input": "5 年百分位（週線即期賣出的視窗，拿最新的日線即期賣出去比）",
+  "table": [
+   {
+    "bucket": "< 20%",
+    "ratioPct": 100
+   },
+   {
+    "bucket": "20–40%",
+    "ratioPct": 60
+   },
+   {
+    "bucket": "40–60%",
+    "ratioPct": 40
+   },
+   {
+    "bucket": "60–80%",
+    "ratioPct": 20
+   },
+   {
+    "bucket": "> 80%",
+    "ratioPct": 0,
+    "word": "觀望"
+   }
+  ],
+  "appliesTo": "預算池（到目前為止累積的預算 − 已經換掉的台幣）",
+  "note": "1 年百分位並列顯示但不進規則（1 年太短）"
+ },
+ "currencies": {
+  "USD": {
+   "assetId": "fx_usd",
+   "priceLabel": "即期賣出",
+   "label": "有對照",
+   "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）",
+   "latest": {
+    "d": "2026-09-24",
+    "spotSell": 31.83,
+    "dateSource": "finmind"
+   },
+   "percentiles": {
+    "1y": {
+     "pct": 72.6,
+     "n": 252,
+     "from": "2025-09-16",
+     "through": "2026-09-24",
+     "value": 31.83,
+     "valueDate": "2026-09-24",
+     "low": 30.09,
+     "lowDate": "2025-09-17",
+     "high": 32.52,
+     "highDate": "2026-08-04",
+     "window": "252 個交易日（日線）"
+    },
+    "5y": {
+     "pct": 65.9,
+     "n": 260,
+     "from": "2021-09-11",
+     "through": "2026-09-24",
+     "value": 31.83,
+     "valueDate": "2026-09-24",
+     "low": 27.66,
+     "lowDate": "2022-01-14",
+     "high": 33.15,
+     "highDate": "2025-03-28",
+     "window": "260 週（週線）"
+    },
+    "10y": {
+     "pct": 81.2,
+     "n": 520,
+     "from": "2016-09-10",
+     "through": "2026-09-24",
+     "value": 31.83,
+     "valueDate": "2026-09-24",
+     "low": 27.66,
+     "lowDate": "2021-06-11",
+     "high": 33.15,
+     "highDate": "2025-03-28",
+     "window": "520 週（週線）"
+    }
+   },
+   "distance1y": {
+    "fromLowPct": 5.78,
+    "fromHighPct": -2.12
+   },
+   "spreads": {
+    "note": "網銀或大額換匯的優惠不在計算內",
+    "label": "有對照",
+    "spot": {
+     "d": "2026-09-24",
+     "buy": 31.73,
+     "sell": 31.83,
+     "spreadPct": 0.315
+    },
+    "spotSpread1y": {
+     "n": 252,
+     "from": "2025-09-16",
+     "through": "2026-09-24",
+     "medianPct": 0.317,
+     "minPct": 0.308,
+     "maxPct": 0.333
+    },
+    "cash": {
+     "d": "2026-09-24",
+     "buy": 31.38,
+     "sell": 32.05,
+     "spreadPct": 2.113
+    },
+    "cashVsSpot": {
+     "d": "2026-09-24",
+     "cashSell": 32.05,
+     "spotSell": 31.83,
+     "pct": 0.691
+    }
+   },
+   "rule": {
+    "bucket": "60–80%",
+    "ratioPct": 20,
+    "percentile5y": 65.9,
+    "label": "規則試算"
+   }
+  },
+  "CNY": {
+   "assetId": "fx_cny",
+   "priceLabel": "即期賣出",
+   "label": "有對照",
+   "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）",
+   "latest": {
+    "d": "2026-09-24",
+    "spotSell": 4.758,
+    "dateSource": "finmind"
+   },
+   "percentiles": {
+    "1y": {
+     "pct": 84.5,
+     "n": 252,
+     "from": "2025-09-16",
+     "through": "2026-09-24",
+     "value": 4.758,
+     "valueDate": "2026-09-24",
+     "low": 4.252,
+     "lowDate": "2025-09-16",
+     "high": 4.833,
+     "highDate": "2026-08-04",
+     "window": "252 個交易日（日線）"
+    },
+    "5y": {
+     "pct": 96.9,
+     "n": 260,
+     "from": "2021-09-10",
+     "through": "2026-09-24",
+     "value": 4.758,
+     "valueDate": "2026-09-24",
+     "low": 4.063,
+     "lowDate": "2025-07-04",
+     "high": 4.814,
+     "highDate": "2026-07-31",
+     "window": "260 週（週線）"
+    },
+    "10y": {
+     "pct": 98.3,
+     "n": 520,
+     "from": "2016-09-10",
+     "through": "2026-09-24",
+     "value": 4.758,
+     "valueDate": "2026-09-24",
+     "low": 4.063,
+     "lowDate": "2025-07-04",
+     "high": 4.814,
+     "highDate": "2026-07-31",
+     "window": "520 週（週線）"
+    }
+   },
+   "distance1y": {
+    "fromLowPct": 11.9,
+    "fromHighPct": -1.55
+   },
+   "spreads": {
+    "note": "網銀或大額換匯的優惠不在計算內",
+    "label": "有對照",
+    "spot": {
+     "d": "2026-09-24",
+     "buy": 4.708,
+     "sell": 4.758,
+     "spreadPct": 1.056
+    },
+    "spotSpread1y": {
+     "n": 252,
+     "from": "2025-09-16",
+     "through": "2026-09-24",
+     "medianPct": 1.082,
+     "minPct": 1.04,
+     "maxPct": 1.183
+    },
+    "cash": {
+     "d": "2026-09-24",
+     "buy": 4.636,
+     "sell": 4.798,
+     "spreadPct": 3.434
+    },
+    "cashVsSpot": {
+     "d": "2026-09-24",
+     "cashSell": 4.798,
+     "spotSell": 4.758,
+     "pct": 0.841
+    }
+   },
+   "rule": {
+    "bucket": "> 80%",
+    "ratioPct": 0,
+    "percentile5y": 96.9,
+    "label": "規則試算"
+   }
+  }
+ },
+ "backtest": {
+  "label": "歷史模擬",
+  "currency": "CNY",
+  "computedOn": "2026-09-30",
+  "months": 36,
+  "model": "預算池",
+  "schema": 2,
+  "method": {
+   "data": "人民幣週線長歷史的即期賣出（2013 起）；每個月第一根週棒是決策日",
+   "percentile": "5 年百分位只用決策日（含）之前的 260 根週棒算，不夠 234 根的月份不當決策日——不偷看未來",
+   "pool": "預算池：每個月把月預算放進池子；池子＝到目前為止累積的預算 − 已經換掉的台幣。沒換的錢留在池子裡，之後便宜時可以一次多換",
+   "A": "每月固定換一個月預算",
+   "B": "每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣",
+   "pureB": "每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換",
+   "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜",
+   "bigWins": "改善達到裁決門檻的視窗，各自找出單月換最多的那個決策日再歸戶；日期都一樣，就是同一次事件被重複計算"
+  },
+  "main": {
+   "model": "預算池",
+   "n": 76,
+   "firstWindow": "2017-07",
+   "lastWindow": "2023-10",
+   "decisions": 111,
+   "firstDecision": "2017-07-07",
+   "lastDecision": "2026-09-04",
+   "winSharePct": 89.5,
+   "tieSharePct": 0.0,
+   "medianImprovePct": 0.089,
+   "worstImprovePct": -0.063,
+   "bestImprovePct": 1.244,
+   "finishedSharePct": 100.0,
+   "medianRateA": 4.41583,
+   "medianRateB": 4.39674,
+   "bigWins": {
+    "thresholdPct": 0.5,
+    "n": 16,
+    "events": [
+     {
+      "d": "2025-05-02",
+      "month": "2025-05",
+      "windows": 16
+     }
+    ],
+    "sameEvent": true,
+    "note": "改善達到門檻的視窗，各自找出單月換最多的那個決策日；日期都一樣，就是同一次事件被重複計算",
+    "firstWindow": "2022-07",
+    "lastWindow": "2023-10"
+   },
+   "pure": {
+    "notDoneSharePct": 77.6,
+    "medianSpentSharePct": 95.9,
+    "medianRate": 4.39119,
+    "medianRateA": 4.41583,
+    "note": "純 B 花的錢比較少，不能直接比"
+   }
+  },
+  "decision": {
+   "default": "A",
+   "word": "固定分批",
+   "thresholds": {
+    "winSharePct": 55.0,
+    "medianImprovePct": 0.5
+   },
+   "reason": "B 贏的視窗比例 89.5%、中位數改善 0.089%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）"
+  },
+  "notes": [
+   "這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折",
+   "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
+  ]
+ }
+}

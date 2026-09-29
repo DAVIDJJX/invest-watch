@@ -5,6 +5,7 @@
  * 有什麼顯示什麼、沒有的項目不顯示；每個數字旁邊都有資料標籤與資料日期；不算任何加總、沒有任何判斷。
  * 「目前距高點」畫一條小橫條：刻度從 0 到該標的的歷史最大回檔——那是位置，不是評分，旁邊仍印數字。
  * 橫條的資料日期是最後一根完成週棒那天，跟卡片上方的日線報價日期不是同一天，兩個日期並列印出來。
+ * A1-6：人民幣存摺卡多一列存摺價差（cost.json 的 goldSpreadCny）；人民幣匯率卡多一個「換匯助手 →」入口，連到分析分頁。
  *
  * 純函式：facts(asset, risk, cost) 回一個物件；render(facts) 回 HTML 字串。不 fetch、不碰 DOM。
  * 抓檔與掛進卡片的事在 js/app.js（第一次展開才抓）。
@@ -112,8 +113,9 @@
     } else if (p && p.status && p.status.indexOf('未接') === 0) {
       items.push({ key: 'premium', name: '折溢價', valueText: p.status, label: p.label || '', date: '', note: p.reason || '' });
     }
-    var g = cost.goldSpread;
-    if (id === 'gold_twd' && g && g.latest) {
+    // 黃金存摺的價差：台幣那張看 goldSpread，人民幣那張看 goldSpreadCny（A1-6），算法一樣
+    var g = id === 'gold_twd' ? cost.goldSpread : (id === 'gold_cny' ? cost.goldSpreadCny : null);
+    if (g && g.latest) {
       items.push({ key: 'spread', name: '存摺價差（本行賣出 − 本行買入）÷ 中價', valueText: pctText(g.latest.spreadPct),
                    label: g.label || '單一來源', date: g.latest.d,
                    note: g.summary && typeof g.summary.medianPct === 'number' ? g.summary.n + ' 天中位數 ' + pctText(g.summary.medianPct) : '' });
@@ -128,6 +130,12 @@
     return items;
   }
 
+  /* ------------------------------------------------------------ 連到分析分頁的入口（A1-6）：人民幣匯率卡連到換匯助手 */
+  var LINKS = {
+    fx_cny: [{ key: 'fx-helper', text: '換匯助手 →', href: 'analysis.html#fx',
+               note: '人民幣現在的位置、換匯成本、分批表與歷史模擬' }]
+  };
+
   function facts(asset, risk, cost) {
     var id = asset && asset.id;
     var r = riskFacts(id, risk);
@@ -135,6 +143,7 @@
     var k = costFacts(id, cost);
     return {
       id: id, quoteDate: (asset && asset.date) || '', risk: r, correlation: c, cost: k,
+      links: LINKS[id] || [],
       any: !!(r || (c && c.available) || k.length),
       notInMatrix: r ? null : '不在相關矩陣（沒有週線長歷史）',
       generatedAt: (risk && risk.generatedAt) || ''
@@ -156,9 +165,17 @@
            '<div class="ana-bar-scale"><span>0%</span><span>歷史最大回檔 ' + esc(pctText(cu.scaleMaxPct)) + '</span></div>';
   }
 
+  function linksHtml(links) {
+    if (!links || !links.length) return '';
+    return '<div class="ana-group ana-links">' + links.map(function (l) {
+      return '<div class="ana-linkrow"><a class="ana-link" href="' + esc(l.href) + '">' + esc(l.text) + '</a>' +
+             (l.note ? '<span class="ana-note">' + esc(l.note) + '</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
   function render(f) {
     if (!f) return '<p class="ana-empty">讀不到分析資料。</p>';
-    if (!f.any) return '<p class="ana-empty">這個標的目前沒有分析項目。</p>';
+    if (!f.any) return '<p class="ana-empty">這個標的目前沒有分析項目。</p>' + linksHtml(f.links);
     var h = '';
     if (f.risk) {
       h += '<div class="ana-group"><div class="ana-title">風險</div>';
@@ -188,6 +205,7 @@
       f.cost.forEach(function (it) { h += row(it); });
       h += '</div>';
     }
+    h += linksHtml(f.links);
     h += '<div class="ana-foot">資料標籤：估算／單一來源／有對照／多來源一致；日期是資料自己的日期。這裡只有事實，沒有任何判斷。</div>';
     return h;
   }

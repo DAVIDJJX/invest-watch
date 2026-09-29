@@ -14,6 +14,10 @@
  * 試算（A1-3）：結果在使用者自己的私人倉庫 adhoc/ 底下，按一下才讀：先讀 adhoc/index.json（1 個請求）列表，
  * 點某個代號才讀那一檔；沒有 index 時用 listDir 列目錄當備援。代號只出現在瀏覽器裡。
  *
+ * 換匯助手（A1-6）：公開的位置、成本、規則表、歷史模擬來自 data/analysis/fx.json；計畫起始月、每月預算、目標總額、期限、已換紀錄
+ * 按一下才從私人倉庫讀，算法與設定檔的鍵名全部在 js/fxplan.js。這一段是全站第一個照「呈現原則」做的畫面：
+ * 圖示＋狀態詞＋規則＋白話（js/plain.js）、名詞點一下有解釋（js/glossary.js）、幾個圖示各看各的不加總。
+ *
  * 測試：scripts/test_analysis_debug.html 把假資料塞進 render()，再由 scripts/test_analysis_debug_js.py
  * 用無頭瀏覽器檢查表格有渲染、日期欄非空、頁面上沒有不該出現的字與鍵名。
  */
@@ -247,6 +251,40 @@
             tdRaw(pctText(r.rFxPct) + '（' + dateSpan(r.dFx) + '）'), td(pctText(r.combinedPct)), td(pctText(r.residualPct))];
         }));
     }
+
+    // A1-6：人民幣對台幣的變動，拆成「美元對台幣」與「美元對人民幣」兩塊
+    var y = dc.cny;
+    h += '<h3>人民幣兌台幣 ＝ 美元兌台幣 ÷ 美元兌人民幣 ＋ 殘差（週）</h3>';
+    if (!y) {
+      h += '<p class="muted">沒有人民幣拆解。</p>';
+    } else if (y.reason) {
+      h += '<p class="warn">這一段沒算出來：' + esc(y.reason) + '</p>';
+    } else {
+      h += '<p>' + esc(y.formula) + '　資料標籤：' + esc(y.label) + '</p>' + notesList(y.notes);
+      var wins = y.windows || {};
+      h += table(['視窗', '人民幣兌台幣', '美元兌台幣', '美元兌人民幣', '合成', '殘差'], ['1y', '3y'].map(function (k) {
+        var w = wins[k];
+        var name = k === '1y' ? '1 年（52 週）' : '3 年（156 週）';
+        if (!w || typeof w.rCnyTwdPct !== 'number') return [td(name), '<td colspan="5">資料不足<div class="muted">' + esc((w && w.reason) || '') + '</div></td>'];
+        return ['<td>' + esc(name) + '<div class="muted">' + dateSpan(w.from) + '～' + dateSpan(w.through) + '</div></td>',
+          td(pctText(w.rCnyTwdPct)), td(pctText(w.rUsdTwdPct)), td(pctText(w.rUsdCnyPct)), td(pctText(w.combinedPct)), td(pctText(w.residualPct))];
+      }));
+      h += '<p class="muted">怎麼讀：合成＝(1＋美元兌台幣的變動) ÷ (1＋美元兌人民幣的變動) − 1；美元兌人民幣是負的，表示人民幣對美元變貴。</p>';
+      var s52 = y.summary52;
+      if (s52 && s52.n) {
+        h += '<p>每週殘差（最近 ' + esc(s52.n) + ' 週，' + dateSpan(s52.from) + '～' + dateSpan(s52.through) + '）：中位數 ' + pctText(s52.medianPct) +
+             '、最小 ' + pctText(s52.minPct) + '、最大 ' + pctText(s52.maxPct) + '</p>';
+      } else {
+        h += '<p class="muted">每週殘差：資料不足</p>';
+      }
+      var weekly = (y.weekly || []).slice(-10).reverse();
+      h += '<h4>最近 ' + weekly.length + ' 週</h4>' + table(
+        ['週（週一）', '人民幣兌台幣中價（日期）', '美元兌台幣中價（日期）', '美元兌人民幣（日期）', '公式值', '殘差'],
+        weekly.map(function (r) {
+          return [dateCell(r.week), tdRaw(num(r.cnyTwdMid, 4) + '（' + dateSpan(r.dCny) + '）'), tdRaw(num(r.usdTwdMid, 4) + '（' + dateSpan(r.dUsd) + '）'),
+            tdRaw(num(r.usdCny, 4) + '（' + dateSpan(r.dUsdCny) + '）'), td(num(r.implied, 4)), td(pctText(r.residualPct))];
+        }));
+    }
     return h;
   }
 
@@ -315,6 +353,19 @@
         if (gs.summary && gs.summary.n) {
           h += '<p>' + gs.summary.n + ' 天（' + dateSpan(gs.summary.from) + '～' + dateSpan(gs.summary.through) + '）：中位數 ' + pctText(gs.summary.medianPct) +
             '、最小 ' + pctText(gs.summary.minPct) + '、最大 ' + pctText(gs.summary.maxPct) + '</p>';
+        }
+      }
+      // A1-6：人民幣計價的黃金存摺，算法跟台幣那張一樣
+      var gc = cost.goldSpreadCny;
+      h += '<h3>黃金存摺（人民幣）價差（本行賣出 − 本行買入）÷ 中價</h3>';
+      if (!gc || gc.reason) {
+        h += '<p class="muted">' + esc((gc && gc.reason) || '沒有資料') + '</p>';
+      } else {
+        h += '<p>最新 ' + dateSpan(gc.latest.d) + '：本行買入 ' + num(gc.latest.buy, 2) + '、本行賣出 ' + num(gc.latest.sell, 2) + '，價差 ' + pctText(gc.latest.spreadPct) +
+          '　資料標籤：' + esc(gc.label) + '</p>';
+        if (gc.summary && gc.summary.n) {
+          h += '<p>' + gc.summary.n + ' 天（' + dateSpan(gc.summary.from) + '～' + dateSpan(gc.summary.through) + '）：中位數 ' + pctText(gc.summary.medianPct) +
+            '、最小 ' + pctText(gc.summary.minPct) + '、最大 ' + pctText(gc.summary.maxPct) + '</p>';
         }
       }
       var bp = cost.barPremium;
@@ -513,11 +564,329 @@
     return h;
   }
 
+  /* ------------------------------------------------------------ 換匯助手（A1-6）
+   *
+   * 公開的部分（位置、成本、規則表、歷史模擬）來自 data/analysis/fx.json，開頁就畫。
+   * 私人的部分（計畫起始月、月預算、目標總額、期限、已換紀錄）按一下才從【私人】倉庫讀進瀏覽器；算法（預算池模型）與設定檔的鍵名全部在 js/fxplan.js，
+   * 這裡只拿算好的結果去畫，表單欄位的 id 用 fxp_ 開頭、不用鍵名；這一段永遠不把任何金額印到主控台。
+   * 呈現照 docs/ANALYSIS.md「呈現原則」：圖示＋狀態詞＋這次的數字＋規則一起出現；每個數字下面一行白話；
+   * 幾個圖示各自獨立、不加總；名詞點一下有解釋（js/plain.js、js/glossary.js）。
+   */
+  var FX_FIXED_NOTES = ['人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票',
+                        '以上為量化整理與歷史模擬，未經實盤驗證，不構成投資建議'];
+  var FX_NAMES = { CNY: '人民幣', USD: '美元' };
+  var FX_ORDER = ['CNY', 'USD'];
+  var FX_METHOD_WORD = { A: '固定分批', B: '依位置調整' };
+
+  function term(name, label) { return window.Glossary.term(name, label); }
+  function plain(kind, data) { return window.Plain.line(kind, data); }
+  function rate3(x) { return num(x, 3); }
+  function money(x) { return num(x, 0); }
+  function pct1(x) { return typeof x === 'number' ? num(x, 1) + '%' : '—'; }
+  function pct3(x) { return typeof x === 'number' ? num(x, 3) + '%' : '—'; }
+  function signed(x, nd) { return typeof x === 'number' ? (x > 0 ? '+' : '') + num(x, nd) + '%' : '—'; }
+  function between(a, b) { return (a && b) ? dateSpan(a) + '～' + dateSpan(b) : '—'; }
+  /* 表頭可以放名詞按鈕（所以表頭不跳脫，呼叫的人自己負責）；列可以帶 class（標出「現在在這一檔」）；手機上橫向捲動 */
+  function rawTable(headers, rows, cls) {
+    var h = '<div class="fx-wrap"><table class="fx-table' + (cls ? ' ' + cls : '') + '"><thead><tr>' +
+      headers.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>';
+    rows.forEach(function (r) { h += '<tr' + (r.cls ? ' class="' + r.cls + '"' : '') + '>' + (r.cells || r).join('') + '</tr>'; });
+    return h + '</tbody></table></div>';
+  }
+  function currentMonth(now) {
+    var t = now ? new Date(now).getTime() : Date.now();
+    return new Date(t + 8 * 3600 * 1000).toISOString().slice(0, 7);          // 台北時間的年月
+  }
+  function fxDecision(fx) {
+    var d = fx && fx.backtest && fx.backtest.decision;
+    return (d && d.default === 'B') ? 'B' : 'A';                              // 沒有裁決資料就當作沒過門檻：固定分批
+  }
+
+  /* 一眼看懂：三格並排，各自獨立。前兩格是三態圖示，第三格是比例＋白話一句。 */
+  function fxGlance(fx) {
+    var c = ((fx && fx.currencies) || {}).CNY || {};
+    var P = window.Plain;
+    var p5 = (c.percentiles || {})['5y'] || {};
+    var sp = c.spreads || {};
+    var h = '<div class="glance-row" id="fx-glance">';
+    h += P.badge(P.positionState(p5.pct), '人民幣現在');
+    h += P.badge(P.costState((sp.spot || {}).spreadPct, (sp.spotSpread1y || {}).medianPct), '換匯成本');
+    var rule = c.rule || {};
+    var bt = (fx && fx.backtest) || {};
+    var method = fxDecision(fx);
+    var th = (bt.decision && bt.decision.thresholds) || {};
+    var quota = P.sentence('quota', { pct: rule.percentile5y, ratioPct: rule.ratioPct, bucket: rule.bucket });
+    var word, because;
+    if (typeof rule.ratioPct !== 'number') {
+      word = P.NA; because = P.NA;
+    } else if (method === 'B') {
+      word = '預算池的 ' + num(rule.ratioPct, 0) + '%';
+      because = quota;
+    } else {
+      word = '固定分批：每月換一個月預算';
+      because = '歷史模擬裡，依位置調整沒有比每個月換一樣多好到過門檻，所以預設顯示固定分批。規則表對照：' + quota;
+    }
+    h += '<div class="glance" data-aspect="quota" data-method="' + esc(method) + '">' +
+           '<div class="glance-title">本月規則試算</div>' +
+           '<div class="glance-main"><span class="glance-word">' + esc(word) + '</span></div>' +
+           '<div class="glance-because">' + esc(because) + '</div>' +
+           '<div class="glance-rule">規則：歷史模擬要同時過兩個門檻（換得比較便宜的視窗 ≥ ' + num(th.winSharePct, 0) +
+             '%、中位數改善 ≥ ' + num(th.medianImprovePct, 1) + '%）才預設顯示規則表的比例，否則顯示固定分批</div>' +
+         '</div>';
+    return h + '</div>';
+  }
+
+  function fxPctCell(x, years) {
+    if (!x) return '<td>資料不足' + plain('position', {}) + '</td>';
+    if (typeof x.pct !== 'number') return '<td>資料不足<div class="muted">' + esc(x.reason || '') + '</div>' + plain('position', {}) + '</td>';
+    return '<td><b>' + pct1(x.pct) + '</b>' +
+      '<div class="muted">' + esc(x.window || '') + '，' + between(x.from, x.through) + '</div>' +
+      '<div class="muted">最低 ' + rate3(x.low) + '（' + dateSpan(x.lowDate) + '）、最高 ' + rate3(x.high) + '（' + dateSpan(x.highDate) + '）</div>' +
+      plain('position', { pct: x.pct, years: years }) + '</td>';
+  }
+  function fxPosition(fx) {
+    var cs = (fx && fx.currencies) || {};
+    var h = '<h3>位置：現在的匯率排在歷史的哪裡</h3>';
+    h += rawTable(['幣別', '即期賣出（台銀牌告）', '1 年' + term('百分位'), '5 年' + term('百分位'), '10 年' + term('百分位'), '距 1 年低點／高點'],
+      FX_ORDER.filter(function (k) { return cs[k]; }).map(function (k) {
+        var c = cs[k], p = c.percentiles || {}, l = c.latest || {}, d = c.distance1y || {};
+        return [
+          '<td>' + esc(FX_NAMES[k] || k) + '<div class="muted">' + esc(k) + '／TWD　資料標籤：' + esc(c.label || '') + '</div></td>',
+          '<td><b>' + rate3(l.spotSell) + '</b><div class="muted">' + (l.d ? dateSpan(l.d) : '—') + '</div></td>',
+          fxPctCell(p['1y'], 1), fxPctCell(p['5y'], 5), fxPctCell(p['10y'], 10),
+          '<td>' + (typeof d.fromLowPct === 'number' ? signed(d.fromLowPct, 2) + '／' + signed(d.fromHighPct, 2) : '資料不足') +
+            plain('distance', d) + '</td>'
+        ];
+      }), 'fx-wide');
+    var any = cs.CNY || cs.USD;
+    if (any && any.originNote) h += '<p class="muted">' + esc(any.originNote) + '　百分位＝視窗裡小於或等於現在這個價的比例；1 年用日線、5 年與 10 年用週線，都拿最新的即期賣出去比。</p>';
+    return h;
+  }
+  function fxSpreadCell(x, kind, extra) {
+    if (!x || typeof (x.spreadPct === undefined ? x.pct : x.spreadPct) !== 'number') return '<td>資料不足' + plain(kind, {}) + '</td>';
+    var v = x.spreadPct === undefined ? x.pct : x.spreadPct;
+    return '<td><b>' + pct3(v) + '</b><div class="muted">' + (x.d ? dateSpan(x.d) : '—') + (extra ? '　' + extra : '') + '</div>' +
+      plain(kind, { pct: v }) + '</td>';
+  }
+  function fxCosts(fx) {
+    var cs = (fx && fx.currencies) || {};
+    var h = '<h3>換匯成本：銀行掛的兩個價格差多少</h3>';
+    h += rawTable(['幣別', term('即期') + term('價差'), '即期價差的 1 年' + term('中位數'), term('現鈔') + '價差', '現金賣出比即期賣出貴'],
+      FX_ORDER.filter(function (k) { return cs[k]; }).map(function (k) {
+        var s = cs[k].spreads || {}, m = s.spotSpread1y || {};
+        return [
+          '<td>' + esc(FX_NAMES[k] || k) + '<div class="muted">資料標籤：' + esc(s.label || cs[k].label || '') + '</div></td>',
+          fxSpreadCell(s.spot, 'spread', s.spot ? '即期買入 ' + rate3(s.spot.buy) + '、即期賣出 ' + rate3(s.spot.sell) : ''),
+          (typeof m.medianPct === 'number'
+            ? '<td><b>' + pct3(m.medianPct) + '</b><div class="muted">' + esc(m.n) + ' 個交易日，' + between(m.from, m.through) +
+              '；最小 ' + pct3(m.minPct) + '、最大 ' + pct3(m.maxPct) + '</div></td>'
+            : '<td>資料不足<div class="muted">' + esc(m.reason || '') + '</div></td>'),
+          fxSpreadCell(s.cash, 'spread', s.cash ? '現金買入 ' + rate3(s.cash.buy) + '、現金賣出 ' + rate3(s.cash.sell) : ''),
+          fxSpreadCell(s.cashVsSpot, 'cash', '')
+        ];
+      }), 'fx-wide');
+    h += '<p class="muted">價差＝（銀行賣給你的價 − 銀行向你收的價）÷ 兩者的中間價。網銀或大額換匯的優惠不在計算內。現鈔那兩欄只有當天的值，沒有歷史。</p>';
+    return h;
+  }
+  function fxPoolNote() {
+    return term('預算池') + '＝從計畫起始月到現在累積的預算 − 這段期間已經換掉的台幣；每個月把月預算放進去，沒換的錢留在裡面，之後便宜時可以一次多換。';
+  }
+  function fxRules(fx) {
+    var c = ((fx && fx.currencies) || {}).CNY || {};
+    var rules = (fx && fx.rules) || {}, rule = c.rule || {};
+    var p1 = (c.percentiles || {})['1y'] || {};
+    var h = '<h3>規則表（分批表）</h3>';
+    h += rawTable(['5 年' + term('百分位'), '本月額度（佔' + term('預算池') + '的比例）', ''], (rules.table || []).map(function (r) {
+      var here = r.bucket === rule.bucket;
+      return { cls: here ? 'fx-here' : '', cells: [td(r.bucket), td(num(r.ratioPct, 0) + '%' + (r.ratioPct === 0 ? '（觀望）' : '')),
+        td(here ? '← 現在在這一檔（5 年百分位 ' + pct1(rule.percentile5y) + '）' : '')] };
+    }));
+    h += '<p>規則試算：本月額度 <b>' + (typeof rule.ratioPct === 'number' ? '預算池的 ' + num(rule.ratioPct, 0) + '%' : '資料不足') + '</b>　<span class="muted">資料標籤：' +
+         esc(rule.label || rules.label || '') + '</span></p>' + plain('quota', { pct: rule.percentile5y, ratioPct: rule.ratioPct, bucket: rule.bucket });
+    h += '<p class="muted">' + fxPoolNote() + '</p>';
+    h += '<p class="muted">1 年百分位 ' + (typeof p1.pct === 'number' ? pct1(p1.pct) : '資料不足') + '：並列參考，不進規則（1 年太短）。' +
+         '有設定期限時另有保底：池子 ÷ 剩餘月數；同時有設目標總額時，再跟「還差的人民幣 × 現在的即期賣出 ÷ 剩餘月數」比，取較大者。' +
+         '本月額度取規則額度與保底的較大者，但不超過池子；三個數字都印出來。</p>';
+    return h;
+  }
+  function fxBacktest(fx) {
+    var b = fx && fx.backtest;
+    var h = '<h3>' + term('歷史模擬') + '：依位置調整，有沒有比每個月換一樣多好</h3>';
+    if (!b || !b.main) return h + '<p class="warn">沒有歷史模擬的結果。預設顯示固定分批。</p>' + plain('backtest', {});
+    var d = b.decision || {}, th = d.thresholds || {}, m = b.method || {}, mn = b.main;
+    h += '<p id="fx-decision">裁決：預設顯示 <b>' + esc(d.word || FX_METHOD_WORD[fxDecision(fx)]) + '</b>。<span class="muted">' + esc(d.reason || '') +
+         '　門檻寫死在程式裡：換得比較便宜的視窗 ≥ ' + num(th.winSharePct, 0) + '% 而且中位數改善 ≥ ' + num(th.medianImprovePct, 1) + '%，只看主要比較。</span></p>';
+    var cnySpot = ((((fx.currencies || {}).CNY || {}).spreads || {}).spot || {}).spreadPct;
+    h += '<div id="fx-story">' + plain('backtestStory', { winSharePct: mn.winSharePct, tieSharePct: mn.tieSharePct, medianImprovePct: mn.medianImprovePct,
+                                                          thresholds: th, spreadPct: cnySpot, bigWins: mn.bigWins, method: fxDecision(fx) }) + '</div>';
+    h += plain('backtest', { n: mn.n, months: b.months, winSharePct: mn.winSharePct, tieSharePct: mn.tieSharePct,
+                             medianImprovePct: mn.medianImprovePct, worstImprovePct: mn.worstImprovePct });
+    if (!mn.n) {
+      h += '<p class="warn">資料不足：' + esc(mn.reason || '湊不出視窗') + '</p>';
+    } else {
+      h += rawTable(['比較', '視窗', 'B 換得比較便宜的視窗', '平手', term('中位數') + '改善', '最差／最好', 'B 在期限前換完的視窗', '平均匯率的中位數（A／B）'],
+        [[td('主要比較：B（預算池＋期限保底）對 A（每月固定換一個月預算）；總額一樣'),
+          td(mn.n + ' 個（' + (mn.firstWindow || '') + '～' + (mn.lastWindow || '') + '）'),
+          td(pct1(mn.winSharePct)), td(pct1(mn.tieSharePct)), td(signed(mn.medianImprovePct, 3)),
+          td(signed(mn.worstImprovePct, 3) + '／' + signed(mn.bestImprovePct, 3)), td(pct1(mn.finishedSharePct)),
+          td(num(mn.medianRateA, 5) + '／' + num(mn.medianRateB, 5))]], 'fx-wide');
+      var pu = mn.pure || {};
+      h += '<p class="muted">' + fxPoolNote() + '</p>';
+      h += '<p class="muted">A＝' + esc(m.A || '') + '。B＝' + esc(m.B || '') + '。改善為正表示 B 換到的人民幣比較便宜。</p>';
+      var bw = mn.bigWins;
+      if (bw && typeof bw.n === 'number') {
+        h += '<p class="muted" id="fx-bigwins">改善 ' + num(bw.thresholdPct, 1) + '% 以上的視窗 ' + esc(bw.n) + ' 個' +
+             (bw.n ? '（' + esc(bw.firstWindow) + '～' + esc(bw.lastWindow) + ' 起算）；它們單月換最多的那一天：' +
+               (bw.events || []).map(function (e) { return dateSpan(e.d) + '（' + esc(e.windows) + ' 個視窗）'; }).join('、') : '') +
+             '。' + esc(bw.note || '') + '。</p>';
+      }
+      h += '<p class="muted" id="fx-pure">純 B（' + esc(m.pureB || '不保底') + '）：沒換完預算的視窗 ' + pct1(pu.notDoneSharePct) + '，一般只花掉 ' + pct1(pu.medianSpentSharePct) +
+           ' 的預算；它的平均匯率中位數 ' + num(pu.medianRate, 5) + '，同一批視窗 A 是 ' + num(pu.medianRateA, 5) + '——' + esc(pu.note || '花的錢比較少，不能直接比') + '。</p>';
+    }
+    h += notesList((b.notes || []).concat([m.percentile || '']).filter(function (x) { return x; }));
+    h += '<p class="muted">資料標籤：' + esc(b.label || '') + '；模型：' + esc(b.model || '—') + '；這一輪是 ' + (b.computedOn ? dateSpan(b.computedOn) : '—') +
+         ' 算的（每週一重算，其餘天沿用）' + (b.reused ? '，今天沿用' : '') +
+         (mn.n ? '。決策點 ' + esc(mn.decisions) + ' 個（' + between(mn.firstDecision, mn.lastDecision) + '）' : '') + '。</p>';
+    return h;
+  }
+
+  /* 私人的部分：本月試算、已換紀錄與累計、表單。s.result 是 FxPlan.compute 算好的結果（預算池模型）。 */
+  function fxTrial(r) {
+    if (!r) return '';
+    if (!r.ok) {
+      return '<p class="warn">設定檔有問題，沒有算：</p><ul>' + (r.errors || []).map(function (e) { return '<li class="warn">' + esc(e) + '</li>'; }).join('') + '</ul>';
+    }
+    var pool = r.pool, f = r.floor, rows = [];
+    rows.push([td('預算池（月初）'), td(money(pool.atMonthStartTwd) + ' 元'),
+      td('從 ' + r.since + ' 起 ' + r.monthsIn + ' 個月 × 月預算 ' + money(r.budgetTwd) + ' 元 − 本月以前已換 ' + money(pool.spentBeforeTwd) + ' 元')]);
+    rows.push([td('固定分批（A）'), td(money(r.fixed.twd) + ' 元'),
+      td('一個月預算' + (r.fixed.twd < r.budgetTwd ? '，但池子裡只有這麼多' : ''))]);
+    rows.push([td('規則額度（B，依位置調整）'), td(r.rule ? money(r.rule.twd) + ' 元' : '資料不足'),
+      td(r.rule ? '池子 × ' + num(r.rule.ratioPct, 0) + '%（5 年百分位 ' + pct1(r.rule.percentile5y) + '，落在「' + r.rule.bucket + '」）' : '沒有規則試算的資料')]);
+    if (!f) {
+      rows.push([td('保底'), td('沒有'), td('沒有設定期限，所以沒有保底')]);
+    } else if (typeof f.twd !== 'number') {
+      rows.push([td('保底'), td('沒有算'), td(f.reason || '')]);
+    } else {
+      var how = '池子 ÷ 剩餘 ' + f.monthsLeft + ' 個月（到 ' + f.deadline + '）＝ ' + money(f.poolPartTwd) + ' 元';
+      if (f.goalPartTwd !== null) {
+        how += '；目標那一半：月初還差 ' + num(f.atMonthStartCny, 0) + ' 人民幣 × ' + f.spotDate + ' 的即期賣出 ' + rate3(f.spotSell) + ' ÷ ' + f.monthsLeft +
+               ' 個月＝ ' + money(f.goalPartTwd) + ' 元；兩個取較大者';
+      } else if (f.goalNote) {
+        how += '；' + f.goalNote;
+      }
+      rows.push([td('保底'), td(money(f.twd) + ' 元'), td(how)]);
+    }
+    var why = '預設顯示「' + FX_METHOD_WORD[r.method] + '」；' + (f && typeof f.twd === 'number'
+      ? '跟保底比取較大者——這次是' + (r.quotaFrom === 'floor' ? '保底比較大' : '「' + FX_METHOD_WORD[r.method] + '」比較大或一樣')
+      : '沒有保底可以比');
+    if (r.cappedByPool) why += '；算出來是 ' + money(r.uncappedTwd) + ' 元，超過池子了，以池子為上限（手上沒有的錢不能換）';
+    rows.push({ cls: 'fx-here', cells: [td('本月額度'), td(r.quotaTwd === null ? '資料不足' : money(r.quotaTwd) + ' 元'), td(why)] });
+    rows.push([td('本月已換'), td(money(pool.spentThisMonthTwd) + ' 元'), td(r.month + ' 的紀錄加總')]);
+    rows.push([td('本月還沒換的額度'), td(r.leftTwd === null ? '資料不足' : money(r.leftTwd) + ' 元'), td('本月額度 − 本月已換，最少是 0')]);
+    rows.push([td('預算池（現在）'), td(money(pool.nowTwd) + ' 元'), td('月初的池子 − 本月已換；沒換的會留到下個月')]);
+    var h = '<h4>本月試算（' + dateSpan(r.month) + '）</h4>' + rawTable(['項目', '金額', '怎麼算的'], rows);
+    h += '<p class="muted">本月額度用月初的池子算：換完本月額度之後再回來看，「本月還沒換的額度」會是 0，不會把剩下的池子再乘一次比例。</p>';
+    if (r.warnings && r.warnings.length) h += '<ul>' + r.warnings.map(function (w) { return '<li class="muted">' + esc(w) + '</li>'; }).join('') + '</ul>';
+    return h;
+  }
+  function fxRecords(r) {
+    if (!r || !r.ok) return '';
+    var h = '<h4>已換紀錄與累計</h4>';
+    if (!r.records.length) return h + '<p class="muted">還沒有任何已換紀錄。</p>';
+    h += table(['月份', '台幣', '匯率', '換到的人民幣'], r.records.map(function (x) {
+      return [dateCell(x.month), td(money(x.twd)), td(num(x.rate, 4)), td(num(x.cny, 2))];
+    }));
+    h += '<p>累計：台幣 ' + money(r.doneTwd) + ' 元，換到人民幣 ' + num(r.doneCny, 2) + '，平均匯率 ' + num(r.averageRate, 4) + '。</p>';
+    if (r.goal) {
+      h += '<p>目標總額 ' + num(r.goal.cny, 0) + ' 人民幣，還差 ' + num(r.goal.remainingCny, 2) + '。</p>';
+    }
+    return h;
+  }
+
+  /* 表單：欄位 id 用 fxp_ 開頭（fxp_start、fxp_budget、fxp_target、fxp_deadline、fxp_m_0…）——刻意不用設定檔的鍵名。 */
+  function renderFxForm(values, canEdit) {
+    var v = values || {};
+    var dis = canEdit ? '' : ' disabled';
+    var recs = (v.records || []).slice();
+    recs.push({ month: '', twd: '', rate: '' });                              // 最後永遠留一列空白可以填
+    var h = '<form id="fxp-form" onsubmit="return false;"><table><tbody>';
+    h += '<tr><td><label for="fxp_start">計畫起始月（YYYY-MM）</label></td><td><input type="text" id="fxp_start" name="fxp_start" placeholder="2026-10" value="' + esc(v.start || '') + '"' + dis + '></td></tr>';
+    h += '<tr><td><label for="fxp_budget">每月預算（台幣）</label></td><td><input type="number" min="0" step="1" id="fxp_budget" name="fxp_budget" value="' + esc(v.budget === undefined ? '' : v.budget) + '"' + dis + '></td></tr>';
+    h += '<tr><td><label for="fxp_target">目標總額（人民幣，選填）</label></td><td><input type="number" min="0" step="1" id="fxp_target" name="fxp_target" value="' + esc(v.target === undefined ? '' : v.target) + '"' + dis + '></td></tr>';
+    h += '<tr><td><label for="fxp_deadline">期限（YYYY-MM，選填）</label></td><td><input type="text" id="fxp_deadline" name="fxp_deadline" placeholder="2027-06" value="' + esc(v.deadline || '') + '"' + dis + '></td></tr>';
+    h += '</tbody></table>';
+    h += '<table id="fxp-records"><thead><tr><th>月份（YYYY-MM）</th><th>台幣</th><th>當時的匯率</th></tr></thead><tbody>';
+    recs.forEach(function (r, i) {
+      h += '<tr><td><input type="text" id="fxp_m_' + i + '" name="fxp_m_' + i + '" placeholder="2026-09" value="' + esc(r.month || '') + '"' + dis + '></td>' +
+           '<td><input type="number" min="0" step="1" id="fxp_t_' + i + '" name="fxp_t_' + i + '" value="' + esc(r.twd === undefined ? '' : r.twd) + '"' + dis + '></td>' +
+           '<td><input type="number" min="0" step="0.0001" id="fxp_r_' + i + '" name="fxp_r_' + i + '" value="' + esc(r.rate === undefined ? '' : r.rate) + '"' + dis + '></td></tr>';
+    });
+    h += '</tbody></table>';
+    h += canEdit
+      ? '<p><button type="button" id="fxp-save">儲存到私人倉庫</button>　<span class="muted">只寫到你自己的私人倉庫；commit 訊息不含任何數字。預算池從計畫起始月開始累積。要多填一筆：先存檔，下面會多出一列空白。要刪一筆：把那一列三格都清空再存。</span></p>'
+      : '<p class="muted">要編輯：先到設定頁貼上同步金鑰並開啟雲端同步。</p>';
+    return h + '<div id="fxp-msg"></div></form>';
+  }
+  function readFxForm(root) {
+    var r = root || document;
+    function val(id) { var el = r.querySelector('#' + id); return el ? String(el.value).trim() : ''; }
+    var out = { start: val('fxp_start'), budget: val('fxp_budget'), target: val('fxp_target'), deadline: val('fxp_deadline'), records: [] };
+    for (var i = 0; r.querySelector('#fxp_m_' + i); i++) {
+      var rec = { month: val('fxp_m_' + i), twd: val('fxp_t_' + i), rate: val('fxp_r_' + i) };
+      if (rec.month === '' && rec.twd === '' && rec.rate === '') continue;      // 三格都空＝沒有這一筆
+      out.records.push(rec);
+    }
+    return out;
+  }
+  function renderFxPlan(state) {
+    var s = state || { status: 'unset' };
+    var h = '<h3>我的換匯設定與本月試算（只在瀏覽器端）</h3>';
+    h += '<p class="muted">計畫起始月、每月預算、目標總額、期限、已換紀錄只從你的私人倉庫讀進瀏覽器計算，不上傳、不寫進任何公開檔。</p>';
+    h += '<p><button type="button" id="fxp-load">讀取我的換匯設定（從私人倉庫）</button>　<span id="fxp-status" class="muted"></span></p>';
+    if (s.status === 'loading') {
+      h += '<p class="muted">讀取中…</p>';
+    } else if (s.status === 'error') {
+      h += '<p class="warn">讀不到：' + esc(s.reason || '') + '</p>';
+    } else if (s.status === 'set') {
+      h += '<div id="fxp-result">' + fxTrial(s.result) + fxRecords(s.result) + '</div>';
+      h += '<h4>設定檔</h4><div id="fxp-formbox">' + renderFxForm(s.formValues, !!s.canEdit) + '</div>';
+    } else {
+      h += '<p id="fxp-unset"><b>未設定</b>' + (s.reason ? '　<span class="muted">' + esc(s.reason) + '</span>' : '') +
+           '　<span class="muted">沒有設定也看得到上面的位置、成本、規則表與歷史模擬；金額要有設定才算。</span></p>';
+      if (s.showForm) h += '<h4>建立設定檔</h4><div id="fxp-formbox">' + renderFxForm(s.formValues, !!s.canEdit) + '</div>';
+    }
+    return h;
+  }
+
+  function renderFx(fx, planState) {
+    var h = '<h2>換匯助手（人民幣）</h2>';
+    if (!window.Plain || !window.Glossary || !window.FxPlan) {
+      return h + '<p class="warn">這一頁沒有載到 js/plain.js／js/glossary.js／js/fxplan.js，換匯助手畫不出來。</p>';
+    }
+    if (!fx) {
+      h += '<p class="warn">讀不到 data/analysis/fx.json——分析還沒跑過，或檔案缺失。</p>';
+    } else {
+      h += '<p class="muted">產生時間 ' + dateSpan(fx.generatedAt) + '。' + esc((fx.notes || [])[0] || '') + '</p>';
+      h += '<h3>一眼看懂</h3>' + fxGlance(fx);
+      h += '<p class="muted">三格各看各的，這裡不把它們加起來。有底線的名詞點一下有解釋。</p>';
+      h += fxPosition(fx) + fxCosts(fx) + fxRules(fx) + fxBacktest(fx);
+    }
+    h += '<div id="fx-plan">' + renderFxPlan(planState) + '</div>';
+    h += '<ul class="fx-fixed-notes">' + FX_FIXED_NOTES.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
+    return h;
+  }
+
   /* ------------------------------------------------------------ 組合 */
   function render(data, targets) {
     targets = targets || {};
     var pick = function (key) { return targets[key] || document.getElementById(key); };
     var s = pick('status'), r = pick('risk'), d = pick('decompose'), c = pick('cost'), k = pick('concentration');
+    var fxBox = pick('fx');
+    if (fxBox && data.fx !== undefined) {
+      fxBox.innerHTML = renderFx(data.fx, data.fxPlan);
+      if (window.Glossary) window.Glossary.wire(fxBox);
+    }
     if (s) s.innerHTML = renderStatus(data.status);
     if (r) r.innerHTML = renderRisk(data.risk);
     if (d) d.innerHTML = renderDecompose(data.decompose);
@@ -635,15 +1004,67 @@
     wire();
   }
 
+  /* 換匯助手的互動：按一下才去私人倉庫讀；儲存前驗證、確認倉庫是私人的。只重畫 #fx-plan 那一塊；這裡不把任何值印到主控台。 */
+  function wireFx(fx) {
+    var box = document.getElementById('fx-plan');
+    if (!box || !window.FxPlan) return;
+    var F = window.FxPlan;
+    function result(plan) { return F.compute(plan, ((fx && fx.currencies) || {}).CNY, currentMonth(), fxDecision(fx)); }
+    function setState(state) { box.innerHTML = renderFxPlan(state); wire(); }
+    function canEdit() { return !!(window.Storage && window.Storage.getMode() === 'github' && window.Storage.hasPat()); }
+    function loadPlan() {
+      setState({ status: 'loading' });
+      return window.Storage.loadFile(F.FILE).then(function (r) {
+        if (!r.data) {
+          var reason = r.reason === 'not-github' ? '本機模式或還沒貼同步金鑰：到設定頁開啟雲端同步後再讀' : '私人倉庫裡還沒有 ' + F.FILE;
+          var blankValues = F.toFormValues(F.emptyTemplate());
+          blankValues.start = currentMonth();                                 // 新的設定檔：計畫起始月先帶這個月，看得到、可以改
+          setState({ status: 'unset', reason: reason, showForm: canEdit(), canEdit: canEdit(), formValues: blankValues });
+          return;
+        }
+        setState({ status: 'set', result: result(r.data), formValues: F.toFormValues(r.data), canEdit: canEdit() });
+      }).catch(function (e) { setState({ status: 'error', reason: e && e.message }); });
+    }
+    function savePlan() {
+      var msg = document.getElementById('fxp-msg');
+      var plan = F.fromForm(readFxForm(box));
+      var v = F.validate(plan);
+      if (!v.ok) { msg.innerHTML = '<p class="warn">沒有存：' + v.errors.map(esc).join('；') + '</p>'; return; }
+      msg.innerHTML = '<p class="muted">確認倉庫是私人的、寫入中…' + (v.warnings.length ? '（提醒：' + esc(v.warnings.join('；')) + '）' : '') + '</p>';
+      window.Storage.testConnection().then(function () {
+        return window.Storage.saveFile(F.FILE, plan, 'fx-plan 更新');             // commit 訊息固定這幾個字，不帶任何數字
+      }).then(function () {
+        setState({ status: 'set', result: result(plan), formValues: F.toFormValues(plan), canEdit: true });
+        var m2 = document.getElementById('fxp-msg');
+        if (m2) m2.innerHTML = '<p class="ok">已存到私人倉庫，上面是用新設定算的。</p>';
+      }).catch(function (e) { msg.innerHTML = '<p class="warn">沒有存：' + esc(e && e.message) + '</p>'; });
+    }
+    function wire() {
+      var b = document.getElementById('fxp-load');
+      if (b) b.addEventListener('click', function () {
+        if (!window.Storage || !window.Lock) { setState({ status: 'error', reason: '這一頁沒有載到 storage.js／lock.js' }); return; }
+        window.Lock.gate(function () { window.Storage.init().then(loadPlan); });
+      });
+      var sv = document.getElementById('fxp-save');
+      if (sv) sv.addEventListener('click', savePlan);
+    }
+    wire();
+  }
+
   function boot() {
     Promise.all([fetchJSON('data/analysis/status.json'), fetchJSON('data/analysis/risk.json'), fetchJSON('data/analysis/decompose.json'),
-                 fetchJSON('data/analysis/cost.json'), fetchJSON('data/analysis/static-costs.json')])
+                 fetchJSON('data/analysis/cost.json'), fetchJSON('data/analysis/static-costs.json'), fetchJSON('data/analysis/fx.json')])
       .then(function (all) {
         render({ status: all[0], risk: all[1], decompose: all[2], cost: all[3], staticCosts: all[4], concentration: { status: 'unset' },
-                 adhoc: { status: 'idle' } });
+                 adhoc: { status: 'idle' }, fx: all[5], fxPlan: { status: 'unset' } });
         wireConcentration(all[1]);
         wireAdhoc();
+        wireFx(all[5]);
         wireSorting();
+        // 從卡片的「換匯助手 →」進來（網址帶 #fx）：內容是讀完檔才畫的，畫好之後再捲到那一段
+        var hash = (window.location.hash || '').slice(1);
+        var target = hash && document.getElementById(hash);
+        if (target && target.scrollIntoView) target.scrollIntoView();
       });
   }
 
@@ -651,5 +1072,7 @@
                            renderDecompose: renderDecompose, renderCost: renderCost, renderConcentration: renderConcentration,
                            renderProfileForm: renderProfileForm, readFormValues: readFormValues, renderAdhoc: renderAdhoc,
                            renderAdhocDetail: renderAdhocDetail, esc: esc, num: num,
-                           sortTable: sortTable, wireSorting: wireSorting, corrColor: corrColor };
+                           sortTable: sortTable, wireSorting: wireSorting, corrColor: corrColor,
+                           renderFx: renderFx, renderFxPlan: renderFxPlan, renderFxForm: renderFxForm, readFxForm: readFxForm,
+                           fxGlance: fxGlance, fxDecision: fxDecision, currentMonth: currentMonth };
 })();

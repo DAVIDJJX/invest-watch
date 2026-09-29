@@ -169,6 +169,9 @@ ANALYSIS_PATHS = (
     "data/analysis/nav/tw00646.json",
     "data/analysis/nav/tw00679b.json",
     "data/history-long/sp500tr.json",     # 追蹤差的基準序列（EXTRA_LONG_SERIES），不在 assets.json 裡
+    # A1-6
+    "data/analysis/fx.json",
+    "data/history-long/usdcny.json",      # 人民幣拆解的基準序列（EXTRA_LONG_SERIES）；fx_cny 的長歷史跟著 assets.json 走
 )
 
 

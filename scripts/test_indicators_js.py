@@ -72,5 +72,69 @@ class TestIndicatorsPinned(unittest.TestCase):
         self.assertEqual(levels, {"low", "mid", "high"})
 
 
+class TestWindowLabel(unittest.TestCase):
+    """A1-6：滿 227 個交易日才叫「52 週」，否則照實寫「近 n 個交易日（資料自 <起日>）」。
+    門檻只有一個數字（Indicators.FULL_YEAR_DAYS），區間位置的 full、卡片標題、規則句都看它。
+    對照組：門檻改成 10 → 只有 12 天資料的卡也變成 52 週 → 這一組會紅（上面釘住的 fixture 也會紅）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.labels = run_page().get("labels") or {}
+
+    def test_page_computed_the_labels(self):
+        self.assertIsNone(self.labels.get("error"), "測試頁算視窗名稱時出錯：%s" % self.labels.get("error"))
+        self.assertEqual(self.labels.get("threshold"), 227)
+
+    def test_short_history_is_never_called_52_weeks(self):
+        x = self.labels["n12"]
+        self.assertEqual((x["days"], x["full"]), (12, False))
+        self.assertEqual(x["name"], "近 12 個交易日")
+        self.assertEqual(x["since"], "資料自 2025-09-01")
+        self.assertEqual(x["label"], "近 12 個交易日（資料自 2025-09-01）")
+        self.assertTrue(x["rule"].startswith("位於近 12 個交易日（資料自 2025-09-01）區間第 "), x["rule"])
+        self.assertNotIn("52 週", x["label"] + x["rule"])
+
+    def test_threshold_is_exactly_227(self):
+        below, at = self.labels["n226"], self.labels["n227"]
+        self.assertEqual((below["days"], below["full"], below["name"]), (226, False, "近 226 個交易日"))
+        self.assertEqual((at["days"], at["full"], at["name"], at["since"], at["label"]), (227, True, "52 週", "", "52 週"))
+        self.assertTrue(at["rule"].startswith("位於52 週區間第 "), at["rule"])
+
+    def test_long_history_uses_the_last_252_days_and_their_first_date(self):
+        x = self.labels["n400"]
+        self.assertEqual((x["days"], x["full"], x["name"]), (252, True, "52 週"))
+        self.assertEqual(x["firstPoint"], "2025-09-01")
+        self.assertEqual(x["first"], "2026-01-27")                          # 400 點的第 149 點（往回數 252 點）：2025-09-01 ＋ 148 天
+        self.assertEqual(self.labels["n252"]["first"], "2025-09-01")
+
+    def test_display_rule_keeps_the_same_verdict_as_the_pinned_signal(self):
+        """畫面上的規則句只改視窗名稱；箭頭後面的判定（低於 25%／落在中間／高於 75%）跟釘住的燈號一字不差。"""
+        for key in ("n12", "n226", "n227", "n252", "n400"):
+            x = self.labels[key]
+            self.assertEqual(x["rule"].split("→")[1], x["pinnedRule"].split("→")[1], key)
+            self.assertEqual(x["rule"].split("區間第")[1], x["pinnedRule"].split("區間第")[1], key)
+
+    def test_no_data_says_so(self):
+        none = self.labels["none"]
+        self.assertEqual((none["name"], none["label"], none["start"]), ("", "", None))
+        self.assertEqual(none["rule"], "歷史資料還不夠算出區間位置")
+
+    def test_app_js_takes_the_name_from_indicators_and_has_no_threshold_of_its_own(self):
+        with open(os.path.join(ROOT, "js", "app.js"), encoding="utf-8") as fh:
+            app = fh.read()
+        block = app[app.index("function rangeHtml("):app.index("/*\n   * 實體條塊的展開內容")]
+        self.assertIn("I.windowName(r)", block)
+        self.assertIn("I.windowSince(r, first)", block)
+        self.assertIn("I.signalRule(r, first)", block)
+        self.assertNotIn("r.full ? '52 週'", app)                            # 舊的寫法（自己判斷、寫「近 N 個月」）不可以回來
+        self.assertNotIn("個月'", block)
+        self.assertNotIn("227", app)
+        self.assertNotIn("* 0.9", app)
+        with open(os.path.join(ROOT, "js", "indicators.js"), encoding="utf-8") as fh:
+            ind = fh.read()
+        self.assertEqual(ind.count("var FULL_YEAR_DAYS = 227;"), 1)
+        self.assertNotIn("TRADING_DAYS_YEAR * 0.9", ind)                    # 門檻只有一個數字
+
+
 if __name__ == "__main__":
     unittest.main()

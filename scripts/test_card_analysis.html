@@ -50,7 +50,16 @@
                    tw00679b: { status: '接了（每個交易日存一筆）', latest: [ { d: '2026-09-24', price: 25.28, nav: 25.1281, premiumPct: 0.6, tag: '預估' } ],
                                estimated: { n: 30, medianPct: 0.4, label: '估算' }, official: { n: 0, reason: '累積不到 20 個交易日（目前 0）', label: '單一來源' } } },
         goldSpread: { label: '單一來源', latest: { d: '2026-09-24', buy: 4330, sell: 4382, spreadPct: 1.19 }, summary: { n: 262, medianPct: 1.1, minPct: 1.05, maxPct: 1.2 } },
+        goldSpreadCny: { label: '單一來源', latest: { d: '2026-09-24', buy: 900, sell: 910, spreadPct: 1.77 }, summary: { n: 262, medianPct: 1.66, minPct: 1.5, maxPct: 1.8 } },
         barPremium: { label: '單一來源', n: 12, from: '2026-08-31', latest: { d: '2026-09-24', goldSell: 4382, rows: [ { spec: '1 公斤', grams: 1000, price: 4441200, perGram: 4441.2, premiumPct: 1.35 }, { spec: '金鑽 1 台兩', grams: 37.5, price: 167822, perGram: 4475.3, premiumPct: 2.13 } ] } } };
+      // A1-6 之前的 cost.json 沒有人民幣存摺的價差；A1-6 之後的 risk.json 多了人民幣匯率
+      var COST_BEFORE = JSON.parse(JSON.stringify(COST)); delete COST_BEFORE.goldSpreadCny;
+      var RISK_AFTER = JSON.parse(JSON.stringify(RISK));
+      RISK_AFTER.assets.fx_cny = { name: 'CNY/TWD', assetClass: 'fx', currency: 'TWD', bars: 709, lastBar: '2026-09-18', dataLabel: '有對照',
+        volatility: { '1y': { pct: 3.3, from: '2025-09-19', through: '2026-09-18', label: '有對照' }, '5y': { pct: 4.4, from: '2021-09-03', through: '2026-09-18', label: '有對照' } },
+        maxDrawdown: { pct: -20, peakDate: '2015-10-02', troughDate: '2025-07-04', recoveredDate: null, label: '有對照' },
+        currentDrawdown: { pct: -8, highDate: '2015-10-02', dataThrough: '2026-09-18', label: '有對照' } };
+      RISK_AFTER.correlation.matrix.fx_cny = { fx_cny: { r: 1, n: 156 }, fx_usd: { r: 0.8, n: 156, through: '2026-09-18' }, gspc: { r: 0.1, n: 150, through: '2026-09-08' } };
       var A646 = { id: 'tw00646', name: '元大 S&P500', date: '2026-09-24' };
       var results = [];
       function check(name, fn) {
@@ -124,12 +133,49 @@
           var bar = CA.facts({ id: 'gold_bar', date: '2026-09-24' }, RISK, COST);
           var barHtml = CA.render(bar);
           if (bar.cost.length !== 2 || barHtml.indexOf('金鑽 1 台兩') < 0 || barHtml.indexOf('2.13%') < 0) p.push('條塊卡應列每個規格的溢價');
-          var cny = CA.facts({ id: 'gold_cny', date: '2026-09-24' }, RISK, COST);
-          if (cny.any || CA.render(cny).indexOf('這個標的目前沒有分析項目') < 0) p.push('人民幣存摺應顯示「這個標的目前沒有分析項目」');
-          var fxc = CA.facts({ id: 'fx_cny' }, RISK, COST);
-          if (fxc.any) p.push('人民幣匯率也應該沒有項目');
+          var cny = CA.facts({ id: 'gold_cny', date: '2026-09-24' }, RISK, COST_BEFORE);
+          if (cny.any || CA.render(cny).indexOf('這個標的目前沒有分析項目') < 0) p.push('沒有價差資料時，人民幣存摺應顯示「這個標的目前沒有分析項目」');
+          var fxc = CA.facts({ id: 'fx_cny' }, RISK, COST_BEFORE);
+          if (fxc.any) p.push('沒有週線長歷史時，人民幣匯率不該有風險、相關、成本任何一列');
           var none = CA.render(null);
           if (none.indexOf('讀不到') < 0) p.push('沒有資料時要說讀不到');
+        });
+        check('gold_cny_card_shows_its_own_spread', function (p) {
+          /* 對照組：人民幣存摺拿到台幣那張的價差（兩張卡對調）→ 這一條會紅。 */
+          var f = CA.facts({ id: 'gold_cny', date: '2026-09-24' }, RISK, COST);
+          var html = CA.render(f);
+          if (!f.any || f.cost.length !== 1) { p.push('人民幣存摺應該剛好一列成本，得到 ' + f.cost.length); return; }
+          if (html.indexOf('存摺價差') < 0 || html.indexOf('1.77%') < 0) p.push('人民幣存摺的價差沒顯示');
+          if (html.indexOf('1.19%') >= 0) p.push('人民幣存摺顯示成台幣那張的價差');
+          if (html.indexOf('262 天中位數 1.66%') < 0) p.push('中位數沒顯示');
+          if (html.indexOf('不在相關矩陣') < 0) p.push('沒有長歷史的卡要寫「不在相關矩陣」');
+          if (html.indexOf('這個標的目前沒有分析項目') >= 0) p.push('有價差了就不該再說沒有分析項目');
+          var d = box(html);
+          var tg = d.querySelector('.ana-row .ana-tag');
+          if (!tg || tg.innerText.indexOf('單一來源') < 0 || tg.innerText.indexOf('2026-09-24') < 0) p.push('價差那一列要有資料標籤與日期');
+          var twd = CA.render(CA.facts({ id: 'gold_twd', date: '2026-09-24' }, RISK, COST));
+          if (twd.indexOf('1.19%') < 0 || twd.indexOf('1.77%') >= 0) p.push('台幣存摺的價差被人民幣那張蓋掉了');
+        });
+        check('fx_cny_card_links_to_the_exchange_helper', function (p) {
+          /* 對照組：把「換匯助手 →」的連結拿掉、或連到別的地方 → 這一條會紅。 */
+          var f = CA.facts({ id: 'fx_cny', date: '2026-09-24' }, RISK_AFTER, COST);
+          var d = box(CA.render(f));
+          var a = d.querySelector('a.ana-link');
+          if (!a) { p.push('人民幣匯率卡沒有「換匯助手 →」'); return; }
+          if (a.innerText.trim() !== '換匯助手 →') p.push('連結文字不對：' + a.innerText);
+          if (a.getAttribute('href') !== 'analysis.html#fx') p.push('連結應該連到分析分頁的換匯助手，得到 ' + a.getAttribute('href'));
+          if (!f.risk || f.risk.items.length !== 3 || d.innerText.indexOf('3.30%') < 0) p.push('有週線長歷史之後，人民幣匯率卡要有風險三項');
+          if (!f.correlation || !f.correlation.available || f.correlation.mostAligned.id !== 'fx_usd') p.push('人民幣匯率卡要有相關列');
+          if (d.innerText.indexOf('這個標的目前沒有分析項目') >= 0) p.push('有風險列了就不該再說沒有分析項目');
+          Array.prototype.forEach.call(d.querySelectorAll('.ana-row'), function (r) {
+            if (!r.querySelector('.ana-tag')) p.push('入口那一行不該佔用事實列的樣式（事實列每一列都有標籤與日期）');
+          });
+          var bare = box(CA.render(CA.facts({ id: 'fx_cny' }, RISK, COST_BEFORE)));
+          if (!bare.querySelector('a.ana-link') || bare.innerText.indexOf('這個標的目前沒有分析項目') < 0) p.push('沒有任何事實列時，也要有入口，並照實說沒有分析項目');
+          ['fx_usd', 'gold_cny', 'gold_twd', 'tw00646', 'gspc'].forEach(function (id) {
+            var other = box(CA.render(CA.facts({ id: id }, RISK_AFTER, COST)));
+            if (other.querySelector('a.ana-link')) p.push(id + ' 不該有換匯助手的入口');
+          });
         });
         check('premium_median_shown_only_after_twenty_days', function (p) {
           var f = CA.facts({ id: 'tw00679b', date: '2026-09-24' }, RISK, COST);
@@ -139,10 +185,10 @@
         });
         check('no_judgement_words_or_totals_in_rendered_text', function (p) {
           /* 對照組：把數字換成一個假的加總數字 → 這一條會紅。 */
-          var all = [A646, { id: 'tw00679b' }, { id: 'gold_twd' }, { id: 'gold_bar' }, { id: 'gold_cny' }, { id: 'gspc' }].map(function (a) { return CA.render(CA.facts(a, RISK, COST)); }).join('\n');
+          var all = [A646, { id: 'tw00679b' }, { id: 'gold_twd' }, { id: 'gold_bar' }, { id: 'gold_cny' }, { id: 'gspc' }, { id: 'fx_cny' }, { id: 'fx_usd' }].map(function (a) { return CA.render(CA.facts(a, RISK_AFTER, COST)); }).join('\n');
           var t = document.createElement('div'); t.innerHTML = all; var text = t.innerText;
           ['本行賣' + '出', '本行買入'].forEach(function (e) { text = text.split(e).join(''); });
-          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數', '評分', '幾分'].forEach(function (w) {
+          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數', '評分', '幾分', '偏' + '買', '偏' + '賣', '主' + '力'].forEach(function (w) {
             if (text.indexOf(w) >= 0) p.push('畫出來的文字出現「' + w + '」');
           });
           if (/\d+\s*分\b/.test(text)) p.push('出現「N 分」這種寫法');

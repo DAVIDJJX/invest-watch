@@ -8,6 +8,7 @@
   <!-- 這一頁不連網、不讀資料檔：把假的 status／risk／decompose 塞進 js/analysis.js（分析分頁）的 render()，
        再逐題檢查畫出來的東西，結果以 JSON 放在下面那個 id 叫 result 的區塊，給 test_analysis_debug_js.py 讀。 -->
   <section id="status"></section>
+  <section id="fx"></section>
   <section id="risk"></section>
   <section id="decompose"></section>
   <section id="cost"></section>
@@ -16,6 +17,9 @@
   <pre id="result"></pre>
   <script src="../js/storage.js"></script>
   <script src="../js/concentration.js"></script>
+  <script src="../js/plain.js"></script>
+  <script src="../js/glossary.js"></script>
+  <script src="../js/fxplan.js"></script>
   <script src="../js/analysis.js"></script>
   <script>
     (function () {
@@ -104,16 +108,66 @@
         tw2330: { tw2330: { r: 1, n: 156 }, tw00646: { r: 0.51, n: 156 }, tw00679b: { r: 0.03, n: 156 }, gold_intl: { r: 0.11, n: 156 }, btc: { r: 0.10, n: 156 }, fx_usd: { r: -0.32, n: 154 } },
         tw00646: { tw2330: { r: 0.51, n: 156 } }, tw00679b: { tw2330: { r: 0.03, n: 156 } }, gold_intl: { tw2330: { r: 0.11, n: 156 } }, btc: { tw2330: { r: 0.10, n: 156 } }, fx_usd: { tw2330: { r: -0.32, n: 154 } } } };
       FIX.risk.correlation.ids = FIX.risk.correlation.ids.concat(CORR.ids); FIX.risk.correlation.matrix = Object.assign(FIX.risk.correlation.matrix, CORR.matrix);
+      // 換匯助手（A1-6）的假資料：匯率 5、百分位 72、價差 1% 這種一看就是假的整數
+      function fxPct(pct, window, from, through) {
+        return { pct: pct, n: 260, from: from, through: through, value: 5, valueDate: '2026-09-24', low: 4, lowDate: '2025-07-04', high: 5.5, highDate: '2026-07-31', window: window };
+      }
+      FIX.fx = { generatedAt: '2026-09-25T15:30:59+08:00', slot: 'review',
+        notes: ['位置與換匯的價差都是事實；規則試算只是把百分位對到規則表的那一檔。這裡沒有任何個人的金額。'],
+        rules: { label: '規則試算', note: '1 年百分位並列顯示但不進規則（1 年太短）',
+                 table: [ { bucket: '< 20%', ratioPct: 100 }, { bucket: '20–40%', ratioPct: 60 }, { bucket: '40–60%', ratioPct: 40 },
+                          { bucket: '60–80%', ratioPct: 20 }, { bucket: '> 80%', ratioPct: 0, word: '觀望' } ] },
+        currencies: {
+          CNY: { assetId: 'fx_cny', label: '有對照', originNote: '原始出處：臺灣銀行牌告匯率（測試用）', latest: { d: '2026-09-24', spotSell: 5, dateSource: 'finmind' },
+                 percentiles: { '1y': fxPct(80, '252 個交易日（日線）', '2025-09-16', '2026-09-24'), '5y': fxPct(72, '260 週（週線）', '2021-09-03', '2026-09-18'),
+                                '10y': { pct: null, n: 100, reason: '資料不足：只有 100 點（至少要 468 點）', window: '520 週（週線）' } },
+                 distance1y: { fromLowPct: 25, fromHighPct: -9.09 },
+                 spreads: { label: '有對照', note: '網銀或大額換匯的優惠不在計算內',
+                            spot: { d: '2026-09-24', buy: 4.95, sell: 5, spreadPct: 1.005 },
+                            spotSpread1y: { n: 252, from: '2025-09-16', through: '2026-09-24', medianPct: 1, minPct: 0.9, maxPct: 1.2 },
+                            cash: { d: '2026-09-24', buy: 4.9, sell: 5.05, spreadPct: 3.015 },
+                            cashVsSpot: { d: '2026-09-24', cashSell: 5.05, spotSell: 5, pct: 1 } },
+                 rule: { bucket: '60–80%', ratioPct: 20, percentile5y: 72, label: '規則試算' } },
+          USD: { assetId: 'fx_usd', label: '有對照', originNote: '原始出處：臺灣銀行牌告匯率（測試用）', latest: { d: '2026-09-24', spotSell: 30, dateSource: 'finmind' },
+                 percentiles: { '1y': { pct: null, n: 145, reason: '資料不足：只有 145 點（至少要 227 點）', window: '252 個交易日（日線）' },
+                                '5y': fxPct(33, '260 週（週線）', '2021-09-03', '2026-09-18'), '10y': fxPct(44, '520 週（週線）', '2016-09-02', '2026-09-18') },
+                 distance1y: { reason: '資料不足：只有 145 點（至少要 227 點）' },
+                 spreads: { label: '有對照', spot: { d: '2026-09-24', buy: 29.9, sell: 30, spreadPct: 0.334 },
+                            spotSpread1y: { n: 145, reason: '資料不足：只有 145 點（至少要 227 點）' },
+                            cash: { reason: '資料不足：latest.json 沒有現鈔牌價' }, cashVsSpot: { reason: '資料不足：沒有現鈔牌價' } },
+                 rule: { bucket: '20–40%', ratioPct: 60, percentile5y: 33, label: '規則試算' } } },
+        backtest: { label: '歷史模擬', currency: 'CNY', computedOn: '2026-09-21', months: 36, model: '預算池',
+                    method: { pool: '預算池：每個月把月預算放進池子；沒換的錢留在池子裡，之後便宜時可以一次多換', A: '每月固定換一個月預算',
+                              B: '每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣',
+                              pureB: '每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換',
+                              percentile: '5 年百分位只用決策日（含）之前的 260 根週棒算——不偷看未來' },
+                    main: { model: '預算池', n: 76, firstWindow: '2017-07', lastWindow: '2023-10', decisions: 111, firstDecision: '2017-07-07', lastDecision: '2026-09-04',
+                            winSharePct: 89.5, tieSharePct: 0, medianImprovePct: 0.089, worstImprovePct: -0.063, bestImprovePct: 1.244,
+                            finishedSharePct: 100, medianRateA: 4.5, medianRateB: 4.4,
+                            bigWins: { thresholdPct: 0.5, n: 16, firstWindow: '2022-07', lastWindow: '2023-10', sameEvent: true,
+                                       events: [ { d: '2025-05-02', month: '2025-05', windows: 16 } ],
+                                       note: '改善達到門檻的視窗，各自找出單月換最多的那個決策日；日期都一樣，就是同一次事件被重複計算' },
+                            pure: { notDoneSharePct: 77.6, medianSpentSharePct: 95.9, medianRate: 4.3, medianRateA: 4.5, note: '純 B 花的錢比較少，不能直接比' } },
+                    decision: { default: 'A', word: '固定分批', thresholds: { winSharePct: 55, medianImprovePct: 0.5 },
+                                reason: 'B 贏的視窗比例 89.5%、中位數改善 0.089%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）' },
+                    notes: ['這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折'] } };
+      // 假的換匯設定：11111、22222 這種一看就是假的數字；一樣用 fromForm 組（設定檔的鍵名只准在 fxplan.js 裡出現）
+      var FAKE_FX_VALUES = { start: '2026-07', budget: '11111', target: '22222', deadline: '2027-02',
+                             records: [ { month: '2026-08', twd: '3333', rate: '4.4444' }, { month: '2026-09', twd: '1111', rate: '5' } ] };
       var results = [];
       function check(name, fn) {
         var problems = [];
         try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
         results.push({ name: name, ok: problems.length === 0, problems: problems });
       }
-      var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render && window.Concentration && window.Storage);
+      var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render && window.Concentration && window.Storage &&
+                      window.Plain && window.Glossary && window.FxPlan);
       if (loaded) {
         var facts = Concentration.facts(FAKE_PROFILE, FIX.risk.correlation);
         FIX.concentration = { status: 'set', facts: facts, formValues: Concentration.toFormValues(FAKE_PROFILE), canEdit: true };
+        var FAKE_FX_PLAN = FxPlan.fromForm(FAKE_FX_VALUES);
+        var fxResult = FxPlan.compute(FAKE_FX_PLAN, FIX.fx.currencies.CNY, '2026-09', AnalysisDebug.fxDecision(FIX.fx));
+        FIX.fxPlan = { status: 'set', result: fxResult, formValues: FxPlan.toFormValues(FAKE_FX_PLAN), canEdit: true };
         AnalysisDebug.render(FIX);
         var $ = function (sel) { return document.querySelector(sel); };
         var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
@@ -160,7 +214,7 @@
           var exempt = ['不構成投資建議', '本行賣出', '本行買入', '即期賣出', '即期買入', '現金賣出', '現金買入', '掛牌賣出'];
           var t = text;
           exempt.forEach(function (e) { t = t.split(e).join(''); });
-          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數'].forEach(function (w) {
+          ['買' + '進', '賣' + '出', '建' + '議', '總' + '分', '分' + '數', '偏' + '買', '偏' + '賣', '主' + '力'].forEach(function (w) {
             if (t.indexOf(w) >= 0) p.push('頁面上出現「' + w + '」');
           });
         });
@@ -284,6 +338,231 @@
           AnalysisDebug.sortTable(table, 5, 'asc');                       // 年化波動 1 年：12.34 vs 15.1
           if (table.tBodies[0].rows[0].cells[0].innerText.indexOf('gspc') < 0) p.push('升冪後第一列應是 gspc');
           if (!ths[5].classList.contains('asc')) p.push('排序方向沒標在表頭');
+        });
+        // ------------------------------------------------------------ 換匯助手（A1-6）
+        var COUNTING = /[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)/;
+        var AMOUNTS = ['11111', '11,111', '22222', '22,222', '3333', '3,333', '4.4444', '30,000', '28,889', '17,893'];   // 後三個是算出來的池子與保底
+        function fxBox(fx, state) { var d = document.createElement('div'); d.innerHTML = AnalysisDebug.renderFx(fx, state); return d; }
+        check('fx_glance_row_has_icon_word_number_and_rule_in_every_cell', function (p) {
+          /* 對照組：一眼看懂那一列不印狀態詞或不印規則 → 這一條會紅。 */
+          var cells = $$('#fx #fx-glance .glance');
+          if (cells.length !== 3) { p.push('一眼看懂應有三格，得到 ' + cells.length); return; }
+          cells.forEach(function (c, i) {
+            var word = c.querySelector('.glance-word'), rule = c.querySelector('.glance-rule'), because = c.querySelector('.glance-because'), title = c.querySelector('.glance-title');
+            if (!title || !title.innerText.trim()) p.push('第 ' + (i + 1) + ' 格沒有標題');
+            if (!word || !word.innerText.trim()) p.push('第 ' + (i + 1) + ' 格沒有狀態詞');
+            if (!rule || rule.innerText.trim().indexOf('規則：') !== 0) p.push('第 ' + (i + 1) + ' 格沒有印規則');
+            if (!because || !because.innerText.trim()) p.push('第 ' + (i + 1) + ' 格沒有印這次的數字或白話');
+            if (i < 2 && !c.querySelector('.glance-icon svg')) p.push('第 ' + (i + 1) + ' 格沒有圖示');
+          });
+          if (cells[0].querySelector('.glance-word').innerText.trim() !== '偏貴') p.push('5 年百分位 72 應是偏貴');
+          if (cells[0].querySelector('.glance-because').innerText.indexOf('72.0%') < 0) p.push('位置那一格沒有印百分位');
+          if (cells[1].querySelector('.glance-word').innerText.trim() !== '正常') p.push('價差 1.005 對中位數 1 應是正常');
+          if (cells[2].querySelector('.glance-word').innerText.indexOf('固定分批') < 0) p.push('沒過門檻時第三格應顯示固定分批');
+          if (cells[2].querySelector('.glance-because').innerText.indexOf('20%') < 0) p.push('第三格要並列規則表對照的比例');
+          var b = JSON.parse(JSON.stringify(FIX.fx)); b.backtest.decision.default = 'B'; b.backtest.decision.word = '依位置調整';
+          var third = fxBox(b, { status: 'unset' }).querySelectorAll('#fx-glance .glance')[2];
+          if (third.querySelector('.glance-word').innerText.indexOf('20%') < 0 || third.innerText.indexOf('固定分批：') >= 0) p.push('過門檻時第三格應顯示規則表的比例');
+        });
+        check('fx_never_counts_aspects', function (p) {
+          /* 對照組：在一眼看懂那一列加一句「幾個面向怎樣」→ 這一條會紅。 */
+          var t = $('#fx').innerText;
+          if (COUNTING.test(t)) p.push('換匯助手出現面向計數：' + COUNTING.exec(t)[0]);
+          if (!COUNTING.test('3 個面向偏貴')) p.push('計數的檢查式自己壞了');
+          if (t.indexOf('三格各看各的') < 0) p.push('沒有寫明這幾格不加總');
+        });
+        check('fx_position_and_cost_tables_have_numbers_dates_and_plain_lines', function (p) {
+          var t = $('#fx').innerText;
+          ['72.0%', '80.0%', '33.0%', '1.005%', '3.015%', '1.000%', '0.334%'].forEach(function (x) { if (t.indexOf(x) < 0) p.push('沒有顯示 ' + x); });
+          if (t.indexOf('只有 100 點') < 0 || t.indexOf('只有 145 點') < 0) p.push('資料不足沒有寫原因');
+          if (t.indexOf('現金賣出比即期賣出貴') < 0) p.push('沒有現鈔比即期貴多少那一欄');
+          /* 對照組：頁面上把現鈔與即期兩欄對調 → 這一條會紅。 */
+          var costTable = $$('#fx table.fx-table').filter(function (x) { return x.innerText.indexOf('現金賣出比即期賣出貴') >= 0; })[0];
+          var cnyRow = costTable && costTable.tBodies[0].rows[0];
+          if (!cnyRow) { p.push('沒有換匯成本表'); return; }
+          if (cnyRow.cells[1].innerText.indexOf('1.005%') < 0 || cnyRow.cells[1].innerText.indexOf('即期買入 4.950') < 0) p.push('即期價差那一欄放的不是即期的數字');
+          if (cnyRow.cells[3].innerText.indexOf('3.015%') < 0 || cnyRow.cells[3].innerText.indexOf('現金買入 4.900') < 0) p.push('現鈔價差那一欄放的不是現鈔的數字');
+          if (cnyRow.cells[4].innerText.indexOf('1.000%') < 0) p.push('現鈔比即期貴多少那一欄不對');
+          if (t.indexOf('網銀或大額換匯的優惠不在計算內') < 0) p.push('沒有網銀優惠那一句');
+          if (t.indexOf('過去 5 年裡，有 72% 的時候比現在便宜或一樣。') < 0) p.push('百分位下面沒有白話');
+          var lines = $$('#fx .plain-line');
+          if (lines.length < 12) p.push('白話行太少：' + lines.length);
+          lines.forEach(function (l) { if (!l.innerText.trim()) p.push('有一行白話是空的'); });
+          if (!lines.some(function (l) { return l.innerText.trim() === '資料不足'; })) p.push('資料不足的數字下面也要有一行「資料不足」');
+          if ($$('#fx button.term').length < 5) p.push('名詞按鈕太少：' + $$('#fx button.term').length);
+          var btn = $('#fx button.term');
+          btn.click();
+          if (!$('#fx .term-def')) p.push('名詞點一下沒有展開解釋（render 之後要掛上點擊）');
+          btn.click();
+        });
+        check('fx_rule_table_marks_the_current_bucket', function (p) {
+          /* 對照組：規則表少畫一檔 → 這一條會紅。 */
+          var tables = $$('#fx table.fx-table');
+          var rule = tables.filter(function (x) { return x.innerText.indexOf('本月額度（佔預算池的比例）') >= 0; })[0];
+          if (!rule) { p.push('沒有規則表'); return; }
+          var rows = rule.querySelectorAll('tbody tr');
+          if (rows.length !== 5) p.push('規則表應有 5 檔，得到 ' + rows.length);
+          var text = Array.prototype.map.call(rows, function (r) { return r.cells[0].innerText.trim() + '=' + r.cells[1].innerText.trim(); }).join('｜');
+          if (text !== '< 20%=100%｜20–40%=60%｜40–60%=40%｜60–80%=20%｜> 80%=0%（觀望）') p.push('規則表內容不對：' + text);
+          var here = rule.querySelectorAll('tr.fx-here');
+          if (here.length !== 1 || here[0].innerText.indexOf('60–80%') < 0 || here[0].innerText.indexOf('72.0%') < 0) p.push('沒有標出現在在哪一檔');
+          var t = $('#fx').innerText;
+          if (t.indexOf('規則試算：本月額度 預算池的 20%') < 0) p.push('沒有「規則試算：本月額度 預算池的 X%」那一句');
+          if (t.indexOf('規則額度是預算池的 20%') < 0) p.push('白話那一句要說比例是對預算池算的');
+          if (t.indexOf('沒換的錢留在裡面') < 0) p.push('沒有解釋預算池是什麼');
+          if (t.indexOf('不超過池子') < 0) p.push('沒有寫本月額度不超過池子');
+          if (t.indexOf('1 年百分位 80.0%：並列參考，不進規則') < 0) p.push('1 年百分位沒有並列');
+        });
+        check('fx_backtest_summary_shows_decision_overlap_note_and_pure_b', function (p) {
+          /* 對照組：把視窗重疊那一句拿掉 → 這一條會紅。 */
+          var t = $('#fx').innerText;
+          var d = $('#fx-decision');
+          if (!d || d.innerText.indexOf('固定分批') < 0) p.push('沒有顯示裁決結果');
+          if (!d || d.innerText.indexOf('55%') < 0 || d.innerText.indexOf('0.5%') < 0) p.push('沒有顯示裁決門檻');
+          if (t.indexOf('不是獨立樣本') < 0 || t.indexOf('勝率的參考價值要打折') < 0) p.push('沒有視窗重疊那一句');
+          if (t.indexOf('76 個') < 0 || t.indexOf('2017-07') < 0) p.push('沒有視窗數與起訖');
+          if (t.indexOf('89.5%') < 0 || t.indexOf('+0.089%') < 0) p.push('主要比較的數字沒顯示');
+          if (t.indexOf('-0.063%／+1.244%') < 0) p.push('最差與最好沒顯示');
+          if (t.indexOf('4.50000／4.40000') < 0) p.push('A 與 B 平均匯率的中位數沒顯示');
+          var main = $$('#fx table.fx-table').filter(function (x) { return x.innerText.indexOf('主要比較') >= 0; })[0];
+          if (!main || main.tBodies[0].rows.length !== 1) p.push('回測表應該只有主要比較一列（舊模型的對照列已經拿掉）');
+          else if (main.tBodies[0].rows[0].cells[6].innerText.trim() !== '100.0%') p.push('沒有顯示 B 在期限前換完的視窗比例');
+          if (t.indexOf('所需步調') >= 0) p.push('舊模型的對照列還在');
+          var pure = $('#fx-pure');
+          if (!pure || pure.innerText.indexOf('77.6%') < 0 || pure.innerText.indexOf('95.9%') < 0 || pure.innerText.indexOf('4.30000') < 0 ||
+              pure.innerText.indexOf('不能直接比') < 0) p.push('純 B 的沒換完比例、平均匯率與「不能直接比」沒顯示');
+          if (t.indexOf('歷史模擬') < 0) p.push('資料標籤「歷史模擬」沒顯示');
+          if (t.indexOf('模型：預算池') < 0) p.push('沒有寫是哪一個模型算的');
+          if (t.indexOf('不偷看未來') < 0) p.push('沒有寫百分位只用當時之前的資料');
+          if (t.indexOf('依位置調整換得比較便宜的有 89.5%') < 0 || t.indexOf('最差的一次反而貴 0.06%') < 0) p.push('回測的白話那一句沒有帶數字');
+          /* 對照組：頁面不印「贏得多的那幾次來自同一次事件」→ 這一條會紅。 */
+          var story = $('#fx-story');
+          var want = '歷史上依位置分批在大多數期間（89.5%）略勝，但中位數只多 0.09%，比換一次的價差（1.01%）還小；贏得多的那 16 個期間（便宜 0.5% 以上），' +
+                     '大筆換匯都落在同一次事件（2025-05），等於同一件事被重複算了 16 次。所以預設顯示固定分批。';
+          if (!story || story.innerText.trim() !== want) p.push('歷史模擬的結論那一句不對：' + (story && story.innerText.trim()));
+          var bigw = $('#fx-bigwins');
+          if (!bigw || bigw.innerText.indexOf('16 個') < 0 || bigw.innerText.indexOf('2025-05-02') < 0 || bigw.innerText.indexOf('2022-07～2023-10') < 0) p.push('沒有列出贏得多的視窗與它們大筆換匯的那一天');
+          var split = JSON.parse(JSON.stringify(FIX.fx));
+          split.backtest.main.bigWins.events = [ { d: '2025-05-02', month: '2025-05', windows: 10 }, { d: '2020-03-06', month: '2020-03', windows: 6 } ];
+          var sb = fxBox(split, { status: 'unset' });
+          if (sb.querySelector('#fx-story').innerText.indexOf('同一次事件') >= 0 || sb.querySelector('#fx-story').innerText.indexOf('分散在 2 個不同的月份') < 0) p.push('事件有兩次時頁面不可以說是同一次');
+          var old = JSON.parse(JSON.stringify(FIX.fx));
+          delete old.backtest.main.bigWins;
+          var ob = fxBox(old, { status: 'unset' });
+          if (ob.querySelector('#fx-bigwins')) p.push('沒有這一段資料時不該硬畫');
+          if (ob.querySelector('#fx-story').innerText.indexOf('同一次事件') >= 0) p.push('沒有這一段資料時不可以說是同一次事件');
+          var flat = JSON.parse(JSON.stringify(FIX.fx));
+          flat.backtest.main.winSharePct = 0; flat.backtest.main.tieSharePct = 100; flat.backtest.main.medianImprovePct = 0; flat.backtest.main.worstImprovePct = 0;
+          if (fxBox(flat, { status: 'unset' }).innerText.indexOf('兩種做法每一次都換到一樣的匯率，沒有差別') < 0) p.push('全部平手時白話要直說沒有差別');
+          var thin = JSON.parse(JSON.stringify(FIX.fx));
+          thin.backtest.main = { model: '預算池', n: 0, reason: '資料不足：湊不出任何一個 36 個月的視窗（決策點 20 個）' };
+          var tb = fxBox(thin, { status: 'unset' });
+          if (tb.innerText.indexOf('湊不出任何一個 36 個月的視窗') < 0) p.push('回測資料不足時要寫原因');
+        });
+        check('fx_fixed_notes_are_always_there', function (p) {
+          var notes = ['人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票', '以上為量化整理與歷史模擬，未經實盤驗證，不構成投資' + '建' + '議'];
+          var t = $('#fx').innerText;
+          notes.forEach(function (n) { if (t.indexOf(n) < 0) p.push('固定註記沒顯示：' + n.slice(0, 12)); });
+          var none = fxBox(null, { status: 'unset' });
+          if (!none.querySelector('.warn') || none.innerText.indexOf('讀不到') < 0) p.push('沒有 fx.json 時要紅字說讀不到');
+          notes.forEach(function (n) { if (none.innerText.indexOf(n) < 0) p.push('讀不到資料時固定註記也要在'); });
+          if (none.querySelector('#fx-glance')) p.push('讀不到資料時不該畫一眼看懂');
+          var nobt = JSON.parse(JSON.stringify(FIX.fx)); nobt.backtest = { reason: '沒有 fx_cny 的週線長歷史' };
+          var nb = fxBox(nobt, { status: 'unset' });
+          if (nb.innerText.indexOf('沒有歷史模擬的結果') < 0) p.push('沒有回測時要說沒有');
+          if (nb.querySelectorAll('#fx-glance .glance')[2].innerText.indexOf('固定分批') < 0) p.push('沒有回測時預設固定分批');
+        });
+        check('fx_unset_state_shows_no_amounts_and_no_form', function (p) {
+          var d = fxBox(FIX.fx, { status: 'unset', reason: '私人倉庫裡還沒有設定檔' });
+          var t = d.innerText;
+          if (t.indexOf('未設定') < 0) p.push('沒有顯示未設定');
+          if (!d.querySelector('#fxp-load')) p.push('沒有讀取按鈕');
+          if (d.querySelector('#fxp-form')) p.push('未設定且不能編輯時不該有表單');
+          if (d.querySelector('#fxp-result')) p.push('未設定時不該有試算結果');
+          AMOUNTS.forEach(function (a) { if (d.innerHTML.indexOf(a) >= 0) p.push('未設定的畫面出現金額 ' + a); });
+          if (/[0-9] 元/.test(d.querySelector('#fx-plan').innerText)) p.push('未設定的畫面不該出現任何「元」的金額');
+          var d2 = fxBox(FIX.fx, { status: 'unset', reason: 'x', showForm: true, canEdit: true, formValues: FxPlan.toFormValues(FxPlan.emptyTemplate()) });
+          if (!d2.querySelector('#fxp-form') || !d2.querySelector('#fxp-save')) p.push('可以編輯時應該顯示建立設定檔的表單');
+          var d3 = fxBox(FIX.fx, { status: 'error', reason: '測試錯誤' });
+          if (!d3.querySelector('#fx-plan .warn') || d3.innerText.indexOf('測試錯誤') < 0) p.push('讀不到私人設定時要紅字');
+        });
+        check('fx_set_state_prints_both_numbers_and_the_larger_one', function (p) {
+          /* 對照組：只印本月額度、不印「比例 × 月預算」與「保底」兩個數字 → 這一條會紅。 */
+          var r = fxResult;
+          if (!r.ok) { p.push('假設定沒算出來'); return; }
+          var box = $('#fxp-result');
+          if (!box) { p.push('沒有試算結果區'); return; }
+          var t = box.innerText;
+          var floorTwd = (22222 - 3333 / 4.4444) / 6 * 5;                     // 目標那一半：還差的人民幣 × 即期賣出 5 ÷ 剩餘 6 個月
+          if (Math.abs(r.floor.twd - floorTwd) > 1e-6) p.push('保底算錯：' + r.floor.twd + ' 對 ' + floorTwd);
+          function money(x) { return Math.round(x).toLocaleString('zh-TW'); }
+          var rowsText = Array.prototype.map.call(box.querySelectorAll('table.fx-table tbody tr'), function (tr) { return tr.innerText.replace(/\s+/g, ' ').trim(); });
+          function rowOf(name) { return rowsText.filter(function (x) { return x.indexOf(name) === 0; })[0] || ''; }
+          if (rowOf('預算池（月初）').indexOf('30,000 元') < 0) p.push('月初的池子應該是三個月預算減掉之前換的：' + rowOf('預算池（月初）'));
+          if (rowOf('預算池（月初）').indexOf('從 2026-07 起 3 個月') < 0) p.push('池子那一列沒有寫怎麼算的');
+          if (rowOf('規則額度').indexOf('6,000 元') < 0 || rowOf('規則額度').indexOf('池子 × 20%') < 0) p.push('規則額度應該是池子 × 20%：' + rowOf('規則額度'));
+          if (rowOf('保底').indexOf(money(floorTwd) + ' 元') < 0 || rowOf('保底').indexOf('池子 ÷ 剩餘 6 個月') < 0 || rowOf('保底').indexOf('5,000 元') < 0 ||
+              rowOf('保底').indexOf('兩個取較大者') < 0) p.push('保底那一列要印池子那一半、目標那一半與取較大者：' + rowOf('保底'));
+          if (rowOf('預算池（現在）').indexOf('28,889 元') < 0) p.push('現在的池子沒印');
+          if (t.indexOf('不會把剩下的池子再乘一次比例') < 0) p.push('沒有說明本月額度用月初的池子算');
+          if (t.indexOf('固定分批（A）') < 0 || t.indexOf(money(11111) + ' 元') < 0) p.push('固定分批的金額沒印');
+          if (t.indexOf(money(floorTwd) + ' 元') < 0) p.push('保底的金額沒印');
+          var tight = FxPlan.compute(FxPlan.fromForm({ start: '2026-09', budget: '11111', target: '22222', deadline: '2026-10' }), FIX.fx.currencies.CNY, '2026-09', 'A');
+          var tbx = fxBox(FIX.fx, { status: 'set', result: tight, formValues: {}, canEdit: false }).querySelector('#fxp-result tr.fx-here');
+          if (!tbx || tbx.innerText.indexOf('11,111 元') < 0 || tbx.innerText.indexOf('超過池子了，以池子為上限') < 0) p.push('保底比池子大時，本月額度要以池子為上限並寫出來');
+          if (r.quotaFrom !== 'floor' || t.indexOf('保底比較大') < 0) p.push('這組假資料應該是保底比較大');
+          var row = box.querySelector('tr.fx-here');
+          if (!row || row.innerText.indexOf('本月額度') < 0 || row.innerText.indexOf(money(floorTwd) + ' 元') < 0) p.push('本月額度那一列沒有標出來');
+          if (t.indexOf('本月已換') < 0 || t.indexOf(money(1111) + ' 元') < 0) p.push('本月已換沒印');
+          if (t.indexOf(money(floorTwd - 1111) + ' 元') < 0) p.push('本月還沒換的額度沒印');
+          if (t.indexOf('已換紀錄與累計') < 0 || t.indexOf('4.4444') < 0) p.push('已換紀錄沒印');
+          if (t.indexOf('平均匯率') < 0 || t.indexOf('還差') < 0) p.push('累計與還差多少沒印');
+          if (box.querySelectorAll('table').length < 2) p.push('應有試算表與紀錄表');
+          var bad = fxBox(FIX.fx, { status: 'set', result: FxPlan.compute(FxPlan.fromForm({ budget: 'abc' }), FIX.fx.currencies.CNY, '2026-09', 'A'), formValues: {}, canEdit: true });
+          if (!bad.querySelector('#fxp-result .warn') || bad.innerText.indexOf('月預算要填數字') < 0) p.push('設定檔有錯時要紅字列出，不是硬算');
+        });
+        check('fx_plan_keys_and_amounts_never_reach_ids_or_attributes', function (p) {
+          /* 對照組：表單欄位改用設定檔的鍵名當 id、或把金額塞進 data- 屬性 → 這一條會紅。 */
+          var html = document.documentElement.outerHTML.replace(/<script[\s\S]*?<\/script>/g, '');
+          ['monthlyBudget' + 'Twd', 'target' + 'Cny', 'deadline' + 'Month', 'conver' + 'ted', 'start' + 'Month'].forEach(function (k) {
+            if (html.indexOf(k) >= 0) p.push('渲染出來的 DOM 裡出現換匯設定檔的鍵名「' + k + '」');
+          });
+          if (html.indexOf('FAKE_FX') >= 0) p.push('fixture 名稱洩進 DOM');
+          var inputs = $$('#fxp-form input');
+          if (inputs.length !== 4 + 3 * 3) p.push('表單應有 4 個設定欄位＋（2 筆紀錄＋1 列空白）× 3 格，得到 ' + inputs.length);
+          inputs.forEach(function (i) {
+            if (i.id.indexOf('fxp_') !== 0 || i.name !== i.id) p.push('表單欄位的 id／name 不是 fxp_ 開頭：' + i.id + '／' + i.name);
+          });
+          if ($('#fxp_budget').value !== '11111' || $('#fxp_r_0').value !== '4.4444' || $('#fxp_start').value !== '2026-07') p.push('表單沒有帶入設定值');
+          // 金額只能出現在文字與輸入框的 value；其他任何屬性（id、name、class、data-*、title、href…）都不行
+          $$('#fx *').forEach(function (el) {
+            Array.prototype.forEach.call(el.attributes, function (a) {
+              if (a.name === 'value') return;
+              AMOUNTS.forEach(function (x) { if (String(a.value).indexOf(x) >= 0) p.push('金額 ' + x + ' 出現在 <' + el.tagName.toLowerCase() + '> 的 ' + a.name + ' 屬性'); });
+            });
+          });
+          // 公開的那一半（#fx 扣掉 #fx-plan）一個金額都不能有
+          var pub = $('#fx').cloneNode(true);
+          var priv = pub.querySelector('#fx-plan');
+          priv.parentNode.removeChild(priv);
+          AMOUNTS.forEach(function (x) { if (pub.innerHTML.indexOf(x) >= 0) p.push('公開的那一半出現金額 ' + x); });
+        });
+        check('fx_form_reads_back_and_skips_blank_rows', function (p) {
+          var d = document.createElement('div');
+          d.innerHTML = AnalysisDebug.renderFxForm(FxPlan.toFormValues(FAKE_FX_PLAN), true);
+          var v = AnalysisDebug.readFxForm(d);
+          if (v.start !== '2026-07' || v.budget !== '11111' || v.target !== '22222' || v.deadline !== '2027-02') p.push('讀回來的設定值不對');
+          if (v.records.length !== 2) p.push('最後那一列空白不該算一筆，得到 ' + v.records.length + ' 筆');
+          if (JSON.stringify(FxPlan.fromForm(v)) !== JSON.stringify(FAKE_FX_PLAN)) p.push('表單讀回來再組一次，應該跟原本的設定一樣');
+          d.querySelector('#fxp_t_1').value = '';
+          d.querySelector('#fxp_m_1').value = '';
+          d.querySelector('#fxp_r_1').value = '';
+          if (AnalysisDebug.readFxForm(d).records.length !== 1) p.push('三格都清空＝刪掉那一筆');
+          var ro = document.createElement('div');
+          ro.innerHTML = AnalysisDebug.renderFxForm(FxPlan.toFormValues(FAKE_FX_PLAN), false);
+          if (ro.querySelector('#fxp-save')) p.push('不能編輯時不該有儲存按鈕');
+          if (!ro.querySelector('#fxp_budget').disabled) p.push('不能編輯時欄位要鎖住');
+          if (AnalysisDebug.currentMonth('2026-09-30T23:30:00+08:00') !== '2026-09' || AnalysisDebug.currentMonth('2026-09-30T17:00:00Z') !== '2026-10') p.push('現在是幾月要用台北時間算');
         });
         check('missing_status_is_loud', function (p) {
           var box = document.createElement('div');

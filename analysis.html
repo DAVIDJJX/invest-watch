@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1420">
 <meta name="robots" content="noindex">
-<meta name="description" content="分析：風險總表、相關矩陣、成本、拆解，以及只在瀏覽器裡算的集中度與私人倉庫的試算清單。">
+<meta name="description" content="分析：換匯助手、風險總表、相關矩陣、成本、拆解，以及只在瀏覽器裡算的集中度與私人倉庫的試算清單。">
 <title>分析 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css?v=20260925-3">
+<link rel="stylesheet" href="css/style.css?v=20260930-1">
 <style>
   /* 分析分頁自己的表格樣式（不動 css/style.css 既有的選擇器） */
   .ana-page h2 { margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 4px; font-size: 18px; }
@@ -38,6 +38,14 @@
   .ana-page td.corr { color: var(--text); }
   .ana-page .matrix-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--text-faint); margin-top: -6px; }
   .ana-page .matrix-legend i { display: inline-block; width: 14px; height: 10px; border-radius: 2px; vertical-align: middle; margin-right: 4px; border: 1px solid var(--line); }
+  /* 換匯助手（A1-6）：表格在手機上橫向捲動；「現在在這一檔」那一列加底色；圖示與白話的樣式在 css/style.css（全站共用） */
+  .ana-page section#fx { scroll-margin-top: 96px; }          /* 從卡片的「換匯助手 →」跳進來時，標題不要被上面固定的頁首蓋住 */
+  .ana-page .fx-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .ana-page table.fx-wide { min-width: 820px; }
+  .ana-page table.fx-table td b { font-size: 14px; font-variant-numeric: tabular-nums; }
+  .ana-page tr.fx-here td { background: var(--bg-soft); font-weight: 600; }
+  .ana-page .fx-fixed-notes { font-size: 12px; color: var(--text-dim); padding-left: 18px; margin-top: 14px; }
+  .ana-page #fxp-form input[type=text], .ana-page #fxp-form input[type=number] { width: 130px; }
 </style>
 </head>
 <body class="ana-page">
@@ -61,6 +69,7 @@
 <main class="wrap">
   <p class="muted">每一格數字旁邊都有資料日期與資料標籤（估算／單一來源／有對照／多來源一致）；方法與定義見 <a href="docs/ANALYSIS.md">docs/ANALYSIS.md</a>。這一頁只列事實，不做任何加總或判斷。</p>
   <section id="status"></section>
+  <section id="fx"></section>
   <section id="risk"></section>
   <section id="cost"></section>
   <section id="decompose"></section>
@@ -76,10 +85,13 @@
   </footer>
 </main>
 
-<script src="js/lock.js?v=20260925-3"></script>
-<script src="js/storage.js?v=20260925-3"></script>
-<script src="js/concentration.js?v=20260925-3"></script>
-<script src="js/analysis.js?v=20260925-3"></script>
+<script src="js/lock.js?v=20260930-1"></script>
+<script src="js/storage.js?v=20260930-1"></script>
+<script src="js/concentration.js?v=20260930-1"></script>
+<script src="js/plain.js?v=20260930-1"></script>
+<script src="js/glossary.js?v=20260930-1"></script>
+<script src="js/fxplan.js?v=20260930-1"></script>
+<script src="js/analysis.js?v=20260930-1"></script>
 <script>AnalysisDebug.boot();</script>
 </body>
 </html>

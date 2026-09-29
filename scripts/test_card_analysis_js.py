@@ -13,6 +13,7 @@ test_card_analysis_js.py — 分析系列 A1-5：儀表板卡片裡的「分析�
   3. 最同向＝r 最高；最不相關＝|r| 最接近 0；反向最強只在 r < −0.3 時顯示。
   4. 沒有週線長歷史的卡只列成本項；什麼都沒有的卡寫「這個標的目前沒有分析項目」。
   5. 畫出來的文字沒有判斷用語、沒有任何加總後的單一數字。
+  6. A1-6：人民幣存摺卡有自己的存摺價差；人民幣匯率卡有「換匯助手 →」入口（連到 analysis.html#fx），別的卡沒有。
 """
 import html
 import json
@@ -63,7 +64,7 @@ class TestCardAnalysisJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/card-analysis.js")
-        self.assertEqual(self.report.get("total"), 7)
+        self.assertEqual(self.report.get("total"), 9)
 
     def test_expanded_card_has_content(self):
         self.case("expanded_card_has_risk_correlation_and_cost")
@@ -81,6 +82,14 @@ class TestCardAnalysisJs(unittest.TestCase):
 
     def test_cards_without_long_history(self):
         self.case("cards_without_long_history_show_only_cost_or_nothing")
+
+    def test_gold_cny_spread(self):
+        """A1-6。對照組：人民幣存摺拿到台幣那張的價差 → 這一條會紅。"""
+        self.case("gold_cny_card_shows_its_own_spread")
+
+    def test_fx_cny_links_to_the_exchange_helper(self):
+        """A1-6。對照組：把「換匯助手 →」的連結拿掉 → 這一條會紅。"""
+        self.case("fx_cny_card_links_to_the_exchange_helper")
 
     def test_premium_median_rule(self):
         self.case("premium_median_shown_only_after_twenty_days")

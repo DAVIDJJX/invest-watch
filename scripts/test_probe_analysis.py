@@ -207,6 +207,8 @@ class FakeNet(object):
                 return resp(404, YAHOO_404)
             if "ISF.L" in u:
                 return resp(200, yahoo_body("1wk", 7, 700, currency="GBp"))
+            if "CNY%3DX" in u:
+                return resp(200, yahoo_body("1wk", 7, 700, last_value=7.12, currency="CNY"))
             if "XAUUSD%3DX" in u or "XAU%3DX" in u:
                 return resp(200, yahoo_body("1d", 1, 260, end=int(NOW.timestamp()) - DAY, last_value=4300.0))
             if "range=max" in u:
@@ -998,6 +1000,41 @@ class TestAdhocProbe(FrozenNow):
         payload, _, _ = self.run_all(only={"adhoc"}, overrides={"ISF.L": resp(200, yahoo_body("1wk", 7, 700, currency=None))})
         row = [r for r in payload["results"] if r["key"] == "Y-16"][0]
         self.assertIn("currency=None", row["note"])
+
+
+class TestFxProbe(FrozenNow):
+    """A1-6 的 fx 組：四列、四個請求；回補範圍的有效列不夠要降級；美元兌人民幣的值要在合理範圍。"""
+
+    def test_group_has_four_items_and_four_requests(self):
+        payload, net, _ = self.run_all(only={"fx"})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(sorted(states), ["F-10", "F-11a", "F-11b", "Y-17"])
+        for k in states:
+            self.assertEqual(states[k], P.OK, k)
+        self.assertEqual(len(net.requests), 4)
+        urls = [r.url for r in net.requests]
+        self.assertTrue(any("data_id=CNY&start_date=2006-01-01" in u for u in urls))
+        self.assertTrue(any("CNY%3DX" in u and "period1=345600" in u for u in urls))
+        recent = [u for u in urls if "TaiwanExchangeRate" in u and "2006-01-01" not in u]
+        self.assertEqual(len(recent), 2)
+        for u in recent:
+            start = u.split("start_date=")[1][:10]
+            self.assertLess(start, (NOW - timedelta(days=560)).strftime("%Y-%m-%d"))          # 問得夠早：約 400 個營業日
+        row = [r for r in payload["results"] if r["key"] == "Y-17"][0]
+        self.assertIn("currency=CNY", row["note"])
+
+    def test_backfill_range_with_too_few_rows_is_degraded(self):
+        few = [{"date": recent(i + 1), "currency": "USD", "cash_buy": 31.0, "cash_sell": 32.0, "spot_buy": 31.4, "spot_sell": 31.5}
+               for i in range(120)]
+        payload, _, _ = self.run_all(only={"fx"}, overrides={"data_id=USD&start_date=": resp(200, finmind_body(few))})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(states["F-11a"], P.DEGRADED)
+        self.assertEqual(states["F-11b"], P.OK)
+
+    def test_usdcny_out_of_range_is_degraded(self):
+        payload, _, _ = self.run_all(only={"fx"}, overrides={"CNY%3DX": resp(200, yahoo_body("1wk", 7, 700, last_value=0.14, currency="CNY"))})
+        states = dict((r["key"], r["state"]) for r in payload["results"])
+        self.assertEqual(states["Y-17"], P.DEGRADED)                                          # 0.14 是倒過來的報價，不收
 
 
 class TestControlsAndOutput(FrozenNow):

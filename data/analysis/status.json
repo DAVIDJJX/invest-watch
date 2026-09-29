@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-09-29T15:30:54+08:00",
- "lastRun": "2026-09-29T15:30:54+08:00",
+ "generatedAt": "2026-09-30T00:50:46+08:00",
+ "lastRun": "2026-09-30T00:50:46+08:00",
  "slot": "review",
  "ok": true,
  "mode": "live",
@@ -9,9 +9,10 @@
  "produced": [
   "data/analysis/risk.json",
   "data/analysis/decompose.json",
-  "data/analysis/cost.json"
+  "data/analysis/cost.json",
+  "data/analysis/fx.json"
  ],
- "requests": 1,
+ "requests": 3,
  "longHistory": {
   "gold_intl": {
    "points": 1361,
@@ -63,12 +64,23 @@
    "lastDate": "2026-09-24",
    "action": "最後一根 2026-09-24 已是最近一個完成週（週一 2026-09-21），這週不必抓"
   },
+  "fx_cny": {
+   "points": 710,
+   "lastDate": "2026-09-24",
+   "action": "incremental：抓到 5 週，合併後 710 週"
+  },
   "sp500tr": {
    "points": 2021,
    "lastDate": "2026-09-21",
    "action": "最後一根 2026-09-21 已是最近一個完成週（週一 2026-09-21），這週不必抓"
+  },
+  "usdcny": {
+   "points": 1288,
+   "lastDate": "2026-09-21",
+   "action": "incremental：抓到 5 根（略過進行中 2 根），合併後 1288 根",
+   "barsStartOn": "Mon"
   }
  },
  "note": "分析只在 review（15:30）那一輪跑；出錯不影響行情與報告。錯誤訊息不含機器名與路徑。",
- "finishedAt": "2026-09-29T15:30:56+08:00"
+ "finishedAt": "2026-09-30T00:50:56+08:00"
 }

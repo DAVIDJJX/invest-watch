@@ -94,7 +94,29 @@ EXTRA_LONG_SERIES = [
     {"id": "sp500tr", "kind": "yahoo", "symbol": "^SP500TR", "name": "S&P 500 總報酬指數（含股息再投資）",
      "currency": "USD", "unit": "點", "assetClass": "index",
      "note": "只是 00646 追蹤差的基準序列，不進 assets.json、不做卡片"},
+    # A1-6：人民幣拆解的基準（2026-09-27 探測 Y-17：CNY=X 週線 2001-06 起可用，currency=CNY）
+    {"id": "usdcny", "kind": "yahoo", "symbol": "CNY=X", "name": "美元兌人民幣（一美元換幾元人民幣）",
+     "currency": "CNY", "unit": "人民幣 / 1 美元", "assetClass": "fx", "riskExclude": True,
+     "note": "只是人民幣拆解的基準序列，不進 assets.json、不做卡片、不進風險表與相關矩陣"},
 ]
+
+# ---- A1-6：匯率與換匯助手 ----
+FX_CURRENCIES = (("fx_usd", "USD"), ("fx_cny", "CNY"))
+FX_DAILY_WINDOW = 252                                    # 1 年（日線）
+FX_MIN_DAILY = 227                                       # 1 年視窗至少要這麼多點——跟 js/indicators.js 同一個數字（252 × 0.9 進位）
+FX_WEEK_WINDOWS = {"5y": 260, "10y": 520}
+FX_BACKTEST_MONTHS = 36
+FX_BACKTEST_LOOKBACK = 260
+FX_BACKTEST_MIN_LOOKBACK = 234
+FX_DECISION_WIN_SHARE = 55.0                             # 裁決門檻：B 贏的視窗比例（%）
+FX_DECISION_MEDIAN = 0.5                                 # 裁決門檻：平均匯率改善的中位數（%），約一次即期價差
+FX_BACKTEST_MODEL = "預算池"                             # 回測與本月試算用的模型；沿用上一次的結果之前先核對，模型換了就重算
+FX_BACKTEST_SCHEMA = 2                                   # 回測結果的格式版本（2＝多了「贏得多的視窗來自哪一次事件」）；格式換了也重算
+LABEL_SIMULATED = "歷史模擬"
+FX_BANK_NOTE = "網銀或大額換匯的優惠不在計算內"
+FX_CNY_NOTE = "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
+FX_FOOT_NOTE = "以上為量化整理與歷史模擬，未經實盤驗證，不構成投資建議"
+FX_OVERLAP_NOTE = "這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折"
 # 證交所 all_etf.txt：正式抓法＝fetch_data 的標頭＋這個 Referer（2026-09-25 A1-2 探測：runner 上 200；沒有 Referer 會回 502「安全性考量」頁）
 ALL_ETF_URL = "https://mis.twse.com.tw/stock/data/all_etf.txt"
 ALL_ETF_HEADERS = {"Accept": "application/json, text/plain, */*", "Referer": "https://mis.twse.com.tw/stock/index.jsp"}
@@ -388,8 +410,17 @@ def weekly_from_daily_fx(rows, today=None):
     return out
 
 
-def fetch_fx_weekly(f, code, start_date, today=None):
-    rows = fd.fetch_finmind_fx(f, code, start_date)
+def fetch_fx_weekly(f, code, start_date, today=None, stats=None):
+    """stats 有給的話，把來源總列數、有效列數、第一筆有效日期記進去（人民幣 2013 以前都是 -1 哨兵，要在檔頭交代丟了幾列）。"""
+    if stats is None:
+        rows = fd.fetch_finmind_fx(f, code, start_date)
+        return weekly_from_daily_fx(rows, today)
+    url = "%s?dataset=TaiwanExchangeRate&data_id=%s&start_date=%s" % (fd.FINMIND_URL, code, start_date)
+    j = f.get(url, delay=1.0, expect_json=True, headers={"Accept": "application/json, text/plain, */*"})
+    rows = fd.parse_finmind_fx(j, code)
+    raw = [r for r in (j.get("data") or []) if isinstance(r, dict) and r.get("currency") == code]
+    stats.update({"sourceRows": len(raw), "validRows": len(rows), "droppedRows": len(raw) - len(rows),
+                  "firstValidDate": rows[0]["date"] if rows else None})
     return weekly_from_daily_fx(rows, today)
 
 
@@ -478,7 +509,7 @@ def long_targets(assets):
         sym = yahoo_symbol(a)
         if sym:
             out.append({"id": a["id"], "kind": "yahoo", "symbol": sym, "asset": a})
-        elif a["id"] == FX_LONG_ID and a.get("type") == "finmind_fx":
+        elif a.get("type") == "finmind_fx":                # A1-6：匯率全部都要長歷史（美元、人民幣）
             out.append({"id": a["id"], "kind": "finmind", "symbol": a.get("symbol") or "USD", "asset": a})
     for e in EXTRA_LONG_SERIES:
         out.append({"id": e["id"], "kind": e["kind"], "symbol": e["symbol"], "asset": e})
@@ -533,12 +564,17 @@ def update_long_history(target, f, now, status, only=None, offline=False, dry_ru
             status["warnings"].append("history-long %s 的週棒多半從 %s 開始，不是星期一——跟其他標的的 ISO 週對齊會差幾天"
                                       % (aid, info["dominantWeekday"]))
         return merged
-    new_pts = fetch_fx_weekly(f, target["symbol"], p1, today=now.date())
+    stats = {}
+    new_pts = fetch_fx_weekly(f, target["symbol"], p1, today=now.date(), stats=stats)
     merged = merge_weekly(old_pts, new_pts, key=lambda p: iso_week(p["d"]))
     head = {"id": aid, "name": a["name"], "symbol": target["symbol"], "interval": "1wk", "source": "finmind",
             "sourceLabel": fd.FINMIND_FX_LABEL, "originNote": FX_ORIGIN_NOTE, "currency": a.get("currency"), "unit": a.get("unit"),
             "dateSourceNote": DATE_SOURCE_NOTES["finmind"], "crossCheck": FX_LABEL_NOTE,
             "note": "c 是即期賣出；每個 ISO 週取最後一個營業日那一筆，抓取當週還沒走完所以不收。FinMind 用 -1 代表沒有牌價，那些列在解析時就丟掉了。"}
+    if mode == "full":                                    # 整段回補時才知道來源一共給了幾列、丟了幾列哨兵
+        head["fullFetch"] = dict(stats, startDate=p1)
+    elif existing and existing.get("fullFetch"):
+        head["fullFetch"] = existing["fullFetch"]
     save_long(aid, head, merged, paths)
     entry.update({"action": "%s：抓到 %d 週，合併後 %d 週" % (mode, len(new_pts), len(merged)),
                   "points": len(merged), "lastDate": merged[-1]["d"] if merged else None})
@@ -675,7 +711,8 @@ def build_risk(series, assets_by_id, now):
     for aid, pts in sorted(series.items()):
         a = assets_by_id.get(aid, {})
         rets = weekly_returns(pts)
-        label = LABEL_CROSSCHECKED if aid == FX_LONG_ID else LABEL_SINGLE
+        is_fx = a.get("type") == "finmind_fx" or aid == FX_LONG_ID
+        label = LABEL_CROSSCHECKED if is_fx else LABEL_SINGLE
         entry = {"name": a.get("name"), "assetClass": a.get("assetClass"), "currency": a.get("currency"),
                  "bars": len(pts), "firstBar": pts[0]["d"] if pts else None, "lastBar": pts[-1]["d"] if pts else None,
                  "lastWeek": iso_week(pts[-1]["d"]) if pts else None, "dataLabel": label,
@@ -683,7 +720,7 @@ def build_risk(series, assets_by_id, now):
                  "maxDrawdown": dict(max_drawdown(pts) or {}, label=label) if pts else None,
                  "currentDrawdown": dict(current_drawdown(pts) or {}, label=label) if pts else None,
                  "tenYearWindow": ten_year_window(pts)}
-        if aid == FX_LONG_ID:
+        if is_fx:
             entry["originNote"] = FX_ORIGIN_NOTE
             entry["crossCheck"] = FX_LABEL_NOTE
         out["assets"][aid] = entry
@@ -835,7 +872,7 @@ def build_decompose(series, now, problems, paths=None):
     paths = paths or default_paths()
     out = {"generatedAt": iso(now), "slot": "review", "labels": LABEL_NOTES,
            "notes": ["拆解全部是估算：公式與殘差的意義寫在各自的 notes；這裡只有事實與資料標籤，沒有任何判斷。"],
-           "gold": None, "tw00646": None}
+           "gold": None, "tw00646": None, "cny": None}
     try:
         gold_pts = load_history_daily("gold_twd", paths)
         gc_pts = load_history_daily("gold_intl", paths)
@@ -867,7 +904,55 @@ def build_decompose(series, now, problems, paths=None):
     except AnalyzeError as e:
         problems.append("拆解（00646）：%s" % e)
         out["tw00646"] = {"reason": str(e)}
+    try:                                                  # A1-6：人民幣 ＝ 美元對台幣 ÷ 美元對人民幣 ＋ 殘差
+        need = ("fx_cny", FX_LONG_ID, "usdcny")
+        missing = [k for k in need if not series.get(k)]
+        if missing:
+            raise AnalyzeError("缺長歷史：%s" % "、".join(missing))
+        out["cny"] = decompose_cny(series["fx_cny"], series[FX_LONG_ID], series["usdcny"])
+        out["cny"]["inputs"] = {k: {"bars": len(series[k]), "lastBar": series[k][-1]["d"]} for k in need}
+    except AnalyzeError as e:
+        problems.append("拆解（人民幣）：%s" % e)
+        out["cny"] = {"reason": str(e)}
     return out
+
+
+def decompose_cny(p_cny, p_usd, p_usdcny):
+    """台幣兌人民幣 ≈ 台幣兌美元 ÷ 美元兌人民幣 ＋ 殘差（週線、ISO 週對齊；台銀的兩條用即期中價）。
+    視窗報酬：人民幣對台幣的變動 ≈ (1＋美元對台幣的變動) ÷ (1＋美元對人民幣的變動) − 1。"""
+    m_cny, m_usd, m_x = week_map(p_cny, value=fx_mid), week_map(p_usd, value=fx_mid), week_map(p_usdcny)
+    common = sorted(set(m_cny) & set(m_usd) & set(m_x))
+    if len(common) < 60:
+        raise AnalyzeError("資料不足：三條序列重疊只有 %d 週（至少要 60 週）" % len(common))
+    rows = []
+    for k in common:
+        implied = m_usd[k][1] / m_x[k][1]
+        rows.append({"week": k.strftime("%Y-%m-%d"), "dCny": m_cny[k][0], "cnyTwdMid": round(m_cny[k][1], 4),
+                     "dUsd": m_usd[k][0], "usdTwdMid": round(m_usd[k][1], 4), "dUsdCny": m_x[k][0], "usdCny": round(m_x[k][1], 4),
+                     "implied": round(implied, 4), "residualPct": round((m_cny[k][1] / implied - 1.0) * 100.0, 3)})
+    windows = {}
+    for name, w in (("1y", 52), ("3y", 156)):
+        if len(common) <= w:
+            windows[name] = {"reason": "資料不足：重疊只有 %d 週（至少要 %d 週）" % (len(common), w + 1)}
+            continue
+        a, b = common[-1 - w], common[-1]
+        r_cny = m_cny[b][1] / m_cny[a][1] - 1.0
+        r_usd = m_usd[b][1] / m_usd[a][1] - 1.0
+        r_x = m_x[b][1] / m_x[a][1] - 1.0
+        combined = (1.0 + r_usd) / (1.0 + r_x) - 1.0
+        windows[name] = {"weeks": w, "from": m_cny[a][0], "through": m_cny[b][0],
+                         "rCnyTwdPct": round(r_cny * 100.0, 3), "rUsdTwdPct": round(r_usd * 100.0, 3),
+                         "rUsdCnyPct": round(r_x * 100.0, 3), "combinedPct": round(combined * 100.0, 3),
+                         "residualPct": round((r_cny - combined) * 100.0, 3)}
+    tail = [r["residualPct"] for r in rows[-52:]]
+    return {"formula": "台幣兌人民幣 ≈ 台幣兌美元 ÷ 美元兌人民幣 ＋ 殘差", "label": LABEL_ESTIMATE,
+            "notes": ["人民幣對台幣的變動，可以拆成兩塊：美元對台幣怎麼動、美元對人民幣怎麼動。美元對人民幣漲（人民幣貶），人民幣對台幣就跌。",
+                      "台幣兌美元、台幣兌人民幣是台銀牌告的即期中價（每週最後一個營業日）；美元兌人民幣是 Yahoo 的 CNY=X 週線收盤。",
+                      "殘差＝台銀兩個幣別的價差不同 ＋ 兩個來源的報價時點不同 ＋ 在岸與離岸人民幣的差；全部是估算。"],
+            "windows": windows,
+            "summary52": {"n": len(tail), "from": rows[-len(tail)]["dCny"], "through": rows[-1]["dCny"],
+                          "medianPct": round(median(tail), 3), "minPct": round(min(tail), 3), "maxPct": round(max(tail), 3)},
+            "weekly": rows[-26:]}
 
 
 # ==========================================================================
@@ -1140,8 +1225,8 @@ def build_premium(f, offline, paths, problems, now):
     return out
 
 
-def gold_spread(gold_pts):
-    """黃金存摺價差＝(本行賣出 − 本行買入) ÷ 中價，每日一筆。"""
+def gold_spread(gold_pts, source="gold_twd"):
+    """黃金存摺價差＝(本行賣出 − 本行買入) ÷ 中價，每日一筆。台幣與人民幣兩本存摺同一個算法。"""
     rows = []
     for p in gold_pts:
         b, s_ = p.get("buy"), p.get("sell")
@@ -1155,7 +1240,7 @@ def gold_spread(gold_pts):
     return {"label": LABEL_SINGLE, "latest": rows[-1], "daily": rows,
             "summary": {"n": len(rows), "from": rows[0]["d"], "through": rows[-1]["d"], "medianPct": round(median(xs), 3),
                         "meanPct": round(mean(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3)},
-            "notes": ["台銀黃金存摺沒有手續費，成本就是這個價差；資料來自家用電腦抓的台銀牌價（data/history/gold_twd.json）。"]}
+            "notes": ["台銀黃金存摺沒有手續費，成本就是這個價差；資料來自家用電腦抓的台銀牌價（data/history/%s.json）。" % source]}
 
 
 def bar_premium(bar_pts, gold_pts):
@@ -1204,6 +1289,14 @@ def build_cost(series, now, problems, paths=None, f=None, offline=False):
     except AnalyzeError as e:
         problems.append("成本（黃金價差）：%s" % e)
         cost["goldSpread"] = {"reason": str(e)}
+    try:                                                  # A1-6：人民幣那一本存摺
+        cny_pts = load_history_daily("gold_cny", paths)
+        if not cny_pts:
+            raise AnalyzeError("沒有 gold_cny 的日線歷史")
+        cost["goldSpreadCny"] = gold_spread(cny_pts, source="gold_cny")
+    except AnalyzeError as e:
+        problems.append("成本（黃金價差，人民幣）：%s" % e)
+        cost["goldSpreadCny"] = {"reason": str(e)}
     try:
         bars = load_history_daily("gold_bar", paths)
         if not bars:
@@ -1403,6 +1496,295 @@ def adhoc_run(symbol, asset_class, expense_ratio, out, now=None, fetcher=None, p
     return status, code
 
 
+# ==========================================================================
+# A1-6：匯率與換匯助手（fx.json 是公開的，只有市場資料算出來的東西；個人的預算與紀錄只在私人倉庫與瀏覽器）
+# ==========================================================================
+
+def percentile_of(value, window_values):
+    """value 在視窗裡排第幾：視窗內小於等於它的比例（%）。"""
+    xs = [x for x in window_values if isinstance(x, (int, float))]
+    if not xs or not isinstance(value, (int, float)):
+        return None
+    return round(sum(1 for x in xs if x <= value) / float(len(xs)) * 100.0, 1)
+
+
+def fx_rule(percentile):
+    """分批規則表：5 年百分位 → 本月額度比例（%）。邊界：20、40、60 屬於較高的那一檔；80 屬於 60–80%。"""
+    if not isinstance(percentile, (int, float)):
+        return None
+    if percentile < 20:
+        return {"bucket": "< 20%", "ratioPct": 100}
+    if percentile < 40:
+        return {"bucket": "20–40%", "ratioPct": 60}
+    if percentile < 60:
+        return {"bucket": "40–60%", "ratioPct": 40}
+    if percentile <= 80:
+        return {"bucket": "60–80%", "ratioPct": 20}
+    return {"bucket": "> 80%", "ratioPct": 0}
+
+
+FX_RULE_TABLE = [{"bucket": "< 20%", "ratioPct": 100}, {"bucket": "20–40%", "ratioPct": 60}, {"bucket": "40–60%", "ratioPct": 40},
+                 {"bucket": "60–80%", "ratioPct": 20}, {"bucket": "> 80%", "ratioPct": 0, "word": "觀望"}]
+
+
+def fx_position(points, window, min_points, current=None):
+    """最後 window 點裡的位置。current 有給（{d, c}）就拿它當「現在」去比這個視窗；沒給就用視窗最後一點。
+    不夠 min_points 就資料不足。回傳百分位、最低最高與日期。"""
+    tail = [p for p in points if isinstance(p.get("c"), (int, float))][-window:]
+    if len(tail) < min_points:
+        return {"pct": None, "n": len(tail), "reason": "資料不足：只有 %d 點（至少要 %d 點）" % (len(tail), min_points)}
+    cur = current if current and isinstance(current.get("c"), (int, float)) else tail[-1]
+    values = [p["c"] for p in tail] + ([cur["c"]] if cur is not tail[-1] else [])
+    lo, hi = min(tail, key=lambda p: p["c"]), max(tail, key=lambda p: p["c"])
+    return {"pct": percentile_of(cur["c"], values), "n": len(tail), "from": tail[0]["d"], "through": tail[-1]["d"],
+            "value": cur["c"], "valueDate": cur["d"],
+            "low": lo["c"], "lowDate": lo["d"], "high": hi["c"], "highDate": hi["d"]}
+
+
+def spread_pct(buy, sell):
+    if not (isinstance(buy, (int, float)) and isinstance(sell, (int, float))) or buy <= 0 or sell <= 0:
+        return None
+    return round((sell - buy) / ((buy + sell) / 2.0) * 100.0, 3)
+
+
+def fx_costs(daily, latest_asset):
+    """即期價差、現鈔價差、現金賣出比即期賣出貴多少——各附資料日期。即期取日線最後一點，現鈔只有 latest.json 當天那一筆。"""
+    out = {"note": FX_BANK_NOTE, "label": LABEL_CROSSCHECKED}
+    spot = [p for p in daily if p.get("spotBuy") and p.get("spotSell")]
+    if spot:
+        last = spot[-1]
+        out["spot"] = {"d": last["d"], "buy": last["spotBuy"], "sell": last["spotSell"], "spreadPct": spread_pct(last["spotBuy"], last["spotSell"])}
+        xs = [spread_pct(p["spotBuy"], p["spotSell"]) for p in spot[-FX_DAILY_WINDOW:]]
+        xs = [x for x in xs if x is not None]
+        if len(xs) >= FX_MIN_DAILY:
+            out["spotSpread1y"] = {"n": len(xs), "from": spot[-len(xs)]["d"], "through": last["d"], "medianPct": round(median(xs), 3),
+                                   "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3)}
+        else:
+            out["spotSpread1y"] = {"n": len(xs), "reason": "資料不足：只有 %d 點（至少要 %d 點）" % (len(xs), FX_MIN_DAILY)}
+    else:
+        out["spot"] = {"reason": "資料不足：日線沒有即期買入與即期賣出"}
+    a = latest_asset or {}
+    cb, cs = a.get("cashBuy"), a.get("cashSell")
+    if isinstance(cb, (int, float)) and isinstance(cs, (int, float)) and a.get("date"):
+        out["cash"] = {"d": a["date"], "buy": cb, "sell": cs, "spreadPct": spread_pct(cb, cs)}
+        ss = (out.get("spot") or {}).get("sell")
+        if isinstance(ss, (int, float)) and (out["spot"].get("d") == a["date"]):
+            out["cashVsSpot"] = {"d": a["date"], "cashSell": cs, "spotSell": ss, "pct": round((cs / ss - 1.0) * 100.0, 3)}
+        else:
+            out["cashVsSpot"] = {"reason": "資料不足：現鈔與即期不是同一天的牌價"}
+    else:
+        out["cash"] = {"reason": "資料不足：latest.json 沒有現鈔牌價"}
+        out["cashVsSpot"] = {"reason": "資料不足：沒有現鈔牌價"}
+    return out
+
+
+def monthly_decisions(weekly):
+    """每個月第一根週棒的索引（日期落在該月的第一根）。"""
+    out, seen = [], set()
+    for i, p in enumerate(weekly):
+        m = p["d"][:7]
+        if m not in seen:
+            seen.add(m)
+            out.append(i)
+    return out
+
+
+def decision_percentile(weekly, i, lookback=FX_BACKTEST_LOOKBACK, min_lookback=FX_BACKTEST_MIN_LOOKBACK):
+    """第 i 根週棒當天看到的 5 年百分位：只用第 i 根（含）之前的 lookback 根，絕不看之後的資料。不夠 min_lookback 根回 None。"""
+    window = weekly[max(0, i - lookback + 1): i + 1]
+    if len(window) < min_lookback:
+        return None
+    return percentile_of(weekly[i]["c"], [p["c"] for p in window])
+
+
+def fx_pool_quota(ratio, pool, floor=0.0):
+    """預算池模型的本月額度＝max(規則比例 × 池子, 保底)，但不得超過池子——手上沒有的錢不能換。"""
+    if pool <= 0:
+        return 0.0
+    return min(max(ratio * pool, floor, 0.0), pool)
+
+
+def fx_pool_plan(ratios, with_floor=True, budget=1.0):
+    """預算池照月走一遍：每個月先把月預算放進池子，再換掉本月額度；沒換的留在池子裡，之後便宜時可以一次多換。
+    with_floor：保底＝池子 ÷ 剩餘月數，期限＝最後一個月（那個月保底等於整個池子，所以一定清空）。
+    ratios 是每個月的規則比例（0～1）；回傳每個月換掉的金額，單位是月預算。"""
+    pool, out, n = 0.0, [], len(ratios)
+    for t, ratio in enumerate(ratios):
+        pool += budget
+        floor = pool / float(n - t) if with_floor else 0.0
+        quota = fx_pool_quota(ratio, pool, floor)
+        out.append(quota)
+        pool -= quota
+    return out
+
+
+def fx_biggest_index(plan):
+    """這個視窗裡單月換最多的是第幾個月（一樣多就取最早的那一個）。"""
+    return plan.index(max(plan)) if plan else None
+
+
+def fx_big_wins(wins, threshold=FX_DECISION_MEDIAN):
+    """改善達到門檻的視窗，各自找出「單月換最多」的那個決策日，再按日期歸戶。
+    日期都一樣，就表示這些視窗贏的是同一次事件——視窗重疊，同一件事被重複計算。"""
+    big = [w for w in wins if w.get("improvePct") is not None and w["improvePct"] >= threshold]
+    count = {}
+    for w in big:
+        count[w["bigDay"]] = count.get(w["bigDay"], 0) + 1
+    events = sorted(({"d": d, "month": d[:7], "windows": k} for d, k in count.items()), key=lambda e: (-e["windows"], e["d"]))
+    out = {"thresholdPct": threshold, "n": len(big), "events": events, "sameEvent": len(events) == 1,
+           "note": "改善達到門檻的視窗，各自找出單月換最多的那個決策日；日期都一樣，就是同一次事件被重複計算"}
+    if big:
+        out["firstWindow"], out["lastWindow"] = big[0]["from"], big[-1]["from"]
+    return out
+
+
+def fx_backtest(weekly, months=FX_BACKTEST_MONTHS):
+    """分批規則的歷史回測（歷史模擬）。weekly：[{d, c}]，c 是即期賣出（換外幣時付的價）。月預算當 1 單位。
+      A：每月固定換 1 單位。
+      B（預算池＋期限保底）：每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，
+        最後一個月把池子清空，所以總額跟 A 一樣，才比得公平。
+      純 B：每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換，不能直接跟 A 比。"""
+    ws = [p for p in weekly if isinstance(p.get("c"), (int, float)) and p["c"] > 0]
+    decisions = []
+    for i in monthly_decisions(ws):
+        pct_ = decision_percentile(ws, i)
+        if pct_ is not None:
+            decisions.append({"d": ws[i]["d"], "rate": ws[i]["c"], "pct": pct_, "ratio": fx_rule(pct_)["ratioPct"] / 100.0})
+    wins = []
+    for k in range(0, len(decisions) - months + 1):
+        seq = decisions[k:k + months]
+        rates = [x["rate"] for x in seq]
+        ratios = [x["ratio"] for x in seq]
+        plan_b = fx_pool_plan(ratios, with_floor=True)
+        plan_p = fx_pool_plan(ratios, with_floor=False)
+        cny_a = sum(1.0 / r for r in rates)
+        spent_b, cny_b = sum(plan_b), sum(q / r for q, r in zip(plan_b, rates))
+        spent_p, cny_p = sum(plan_p), sum(q / r for q, r in zip(plan_p, rates))
+        rate_a = months / cny_a
+        rate_b = spent_b / cny_b if cny_b > 0 else None
+        wins.append({"from": seq[0]["d"][:7], "through": seq[-1]["d"][:7], "rateA": round(rate_a, 5),
+                     "rateB": round(rate_b, 5) if rate_b else None,
+                     "improvePct": round((rate_a - rate_b) / rate_a * 100.0, 4) if rate_b else None,
+                     "finished": abs(spent_b - months) < 1e-6,
+                     "bigDay": seq[fx_biggest_index(plan_b)]["d"],
+                     "pureSpentShare": round(spent_p / float(months) * 100.0, 1),
+                     "pureRate": round(spent_p / cny_p, 5) if cny_p > 0 else None,
+                     "pureDone": spent_p + 1e-6 >= months})
+    wins = [w for w in wins if w["improvePct"] is not None]
+    if not wins:
+        return {"model": FX_BACKTEST_MODEL, "n": 0,
+                "reason": "資料不足：湊不出任何一個 %d 個月的視窗（決策點 %d 個）" % (months, len(decisions))}
+    imp = [w["improvePct"] for w in wins]
+    ties = sum(1 for x in imp if abs(x) < 1e-9)
+    pure_rates = [w["pureRate"] for w in wins if w["pureRate"] is not None]
+    return {"model": FX_BACKTEST_MODEL, "n": len(wins), "firstWindow": wins[0]["from"], "lastWindow": wins[-1]["from"],
+            "decisions": len(decisions), "firstDecision": decisions[0]["d"], "lastDecision": decisions[-1]["d"],
+            "winSharePct": round(sum(1 for x in imp if x > 1e-9) / float(len(imp)) * 100.0, 1),
+            "tieSharePct": round(ties / float(len(imp)) * 100.0, 1),
+            "medianImprovePct": round(median(imp), 3), "worstImprovePct": round(min(imp), 3), "bestImprovePct": round(max(imp), 3),
+            "finishedSharePct": round(sum(1 for w in wins if w["finished"]) / float(len(wins)) * 100.0, 1),
+            "medianRateA": round(median([w["rateA"] for w in wins]), 5),
+            "medianRateB": round(median([w["rateB"] for w in wins]), 5),
+            "bigWins": fx_big_wins(wins),
+            "pure": {"notDoneSharePct": round(sum(1 for w in wins if not w["pureDone"]) / float(len(wins)) * 100.0, 1),
+                     "medianSpentSharePct": round(median([w["pureSpentShare"] for w in wins]), 1),
+                     "medianRate": round(median(pure_rates), 5) if pure_rates else None,
+                     "medianRateA": round(median([w["rateA"] for w in wins]), 5),
+                     "note": "純 B 花的錢比較少，不能直接比"}}
+
+
+def fx_decide(main):
+    """裁決寫死：B 贏的比例 ≥ 55% 且中位數改善 ≥ 0.5% 才預設顯示 B；否則預設顯示 A（固定分批）。只看主要比較。"""
+    if not main or not main.get("n"):
+        return {"default": "A", "word": "固定分批", "reason": "回測資料不足，預設顯示固定分批"}
+    ok = main["winSharePct"] >= FX_DECISION_WIN_SHARE and main["medianImprovePct"] >= FX_DECISION_MEDIAN
+    return {"default": "B" if ok else "A", "word": "依位置調整" if ok else "固定分批",
+            "thresholds": {"winSharePct": FX_DECISION_WIN_SHARE, "medianImprovePct": FX_DECISION_MEDIAN},
+            "reason": ("B 贏的視窗比例 %.1f%%、中位數改善 %.3f%%：" % (main["winSharePct"], main["medianImprovePct"])) +
+                      ("兩個門檻都過" if ok else "沒有同時過兩個門檻（≥ %.0f%% 且 ≥ %.1f%%）" % (FX_DECISION_WIN_SHARE, FX_DECISION_MEDIAN))}
+
+
+def build_backtest(weekly, now):
+    main = fx_backtest(weekly)
+    out = {"label": LABEL_SIMULATED, "currency": "CNY", "computedOn": now.strftime("%Y-%m-%d"), "months": FX_BACKTEST_MONTHS,
+           "model": FX_BACKTEST_MODEL, "schema": FX_BACKTEST_SCHEMA,
+           "method": {"data": "人民幣週線長歷史的即期賣出（2013 起）；每個月第一根週棒是決策日",
+                      "percentile": "5 年百分位只用決策日（含）之前的 260 根週棒算，不夠 234 根的月份不當決策日——不偷看未來",
+                      "pool": "預算池：每個月把月預算放進池子；池子＝到目前為止累積的預算 − 已經換掉的台幣。沒換的錢留在池子裡，之後便宜時可以一次多換",
+                      "A": "每月固定換一個月預算",
+                      "B": "每月換 max(規則比例 × 池子, 池子 ÷ 剩餘月數)，不超過池子；期限＝視窗結束，最後一個月把池子清空，所以總額跟 A 一樣",
+                      "pureB": "每月換 規則比例 × 池子，不保底；視窗結束時池子裡常常還有錢沒換",
+                      "improve": "改善＝(A 的平均匯率 − B 的平均匯率) ÷ A 的平均匯率；正值表示 B 換到的人民幣比較便宜",
+                      "bigWins": "改善達到裁決門檻的視窗，各自找出單月換最多的那個決策日再歸戶；日期都一樣，就是同一次事件被重複計算"},
+           "main": main, "decision": fx_decide(main),
+           "notes": [FX_OVERLAP_NOTE, FX_CNY_NOTE]}
+    return out
+
+
+def build_fx(series, now, problems, paths=None):
+    """data/analysis/fx.json：兩個幣別的位置、成本、規則試算的公開部分，加人民幣的回測摘要。"""
+    paths = paths or default_paths()
+    out = {"generatedAt": iso(now), "slot": "review", "labels": dict(LABEL_NOTES, **{LABEL_SIMULATED: "拿歷史資料照規則重演一遍算出來的，不是實際發生過的交易"}),
+           "notes": ["位置、成本都是事實；規則試算只是把百分位對到規則表的那一檔，比例是對預算池算的。這裡沒有任何個人的金額。", FX_BANK_NOTE, FX_CNY_NOTE, FX_FOOT_NOTE],
+           "rules": {"label": "規則試算", "input": "5 年百分位（週線即期賣出的視窗，拿最新的日線即期賣出去比）", "table": FX_RULE_TABLE,
+                     "appliesTo": "預算池（到目前為止累積的預算 − 已經換掉的台幣）",
+                     "note": "1 年百分位並列顯示但不進規則（1 年太短）"},
+           "currencies": {}, "backtest": None}
+    latest = {}
+    if os.path.exists(paths["latest"]):
+        try:
+            with open(paths["latest"], encoding="utf-8") as fh:
+                latest = (json.load(fh) or {}).get("assets") or {}
+        except Exception:                                 # noqa: B902
+            latest = {}
+    for aid, code in FX_CURRENCIES:
+        try:
+            daily = load_history_daily(aid, paths)
+            weekly = series.get(aid) or []
+            if not daily:
+                raise AnalyzeError("沒有 %s 的日線歷史" % aid)
+            cur = {"d": daily[-1]["d"], "c": daily[-1].get("c")}
+            pos = {"1y": dict(fx_position(daily, FX_DAILY_WINDOW, FX_MIN_DAILY), window="%d 個交易日（日線）" % FX_DAILY_WINDOW)}
+            for name, w in FX_WEEK_WINDOWS.items():
+                need = int(math.ceil(w * MIN_COVERAGE))
+                pos[name] = dict(fx_position(weekly, w, need, current=cur), window="%d 週（週線）" % w)
+            y = pos["1y"]
+            dist = ({"fromLowPct": round((y["value"] / y["low"] - 1.0) * 100.0, 2), "fromHighPct": round((y["value"] / y["high"] - 1.0) * 100.0, 2)}
+                    if y.get("pct") is not None else {"reason": y.get("reason")})
+            rule = fx_rule(pos["5y"].get("pct"))
+            out["currencies"][code] = {
+                "assetId": aid, "priceLabel": "即期賣出", "label": LABEL_CROSSCHECKED, "originNote": FX_ORIGIN_NOTE,
+                "latest": {"d": cur["d"], "spotSell": cur["c"], "dateSource": daily[-1].get("dateSource")},
+                "percentiles": pos, "distance1y": dist, "spreads": fx_costs(daily, latest.get(aid)),
+                "rule": (dict(rule, percentile5y=pos["5y"]["pct"], label="規則試算") if rule
+                         else {"reason": pos["5y"].get("reason") or "資料不足"})}
+        except AnalyzeError as e:
+            problems.append("匯率（%s）：%s" % (code, e))
+            out["currencies"][code] = {"reason": str(e)}
+    prev = None
+    p = os.path.join(paths["analysis"], "fx.json")
+    if os.path.exists(p):
+        try:
+            with open(p, encoding="utf-8") as fh:
+                prev = (json.load(fh) or {}).get("backtest")
+        except Exception:                                 # noqa: B902
+            prev = None
+    weekly_cny = series.get("fx_cny") or []
+    reusable = bool(prev and prev.get("main") and prev.get("model") == FX_BACKTEST_MODEL and
+                    prev.get("schema") == FX_BACKTEST_SCHEMA)                 # 別的模型、別的格式算出來的結果不沿用
+    if now.weekday() == 0 or not reusable:                             # 只在週一重算；其餘天沿用，日期照實寫
+        try:
+            if not weekly_cny:
+                raise AnalyzeError("沒有 fx_cny 的週線長歷史")
+            out["backtest"] = build_backtest(weekly_cny, now)
+        except AnalyzeError as e:
+            problems.append("匯率（回測）：%s" % e)
+            out["backtest"] = {"reason": str(e)}
+    else:
+        out["backtest"] = dict(prev, reused=True, reusedOn=now.strftime("%Y-%m-%d"))
+    return out
+
+
 def load_assets(paths=None):
     with open((paths or default_paths())["assets"], encoding="utf-8") as fh:
         return json.load(fh)["assets"]
@@ -1444,7 +1826,8 @@ def run(slot, offline=False, dry_run=False, only=None, now=None, paths=None):
         if not series:
             raise AnalyzeError("沒有任何長歷史可用，風險與拆解都算不出來")
         problems = []
-        risk, rp = build_risk(series, by_id, now)
+        risk_series = dict((k, v) for k, v in series.items() if not by_id.get(k, {}).get("riskExclude"))
+        risk, rp = build_risk(risk_series, by_id, now)
         problems += rp
         write_json(os.path.join(paths["analysis"], "risk.json"), risk)
         status["produced"].append("data/analysis/risk.json")
@@ -1454,6 +1837,9 @@ def run(slot, offline=False, dry_run=False, only=None, now=None, paths=None):
         cost = build_cost(series, now, problems, paths, f=f, offline=offline)
         write_json(os.path.join(paths["analysis"], "cost.json"), cost)
         status["produced"].append("data/analysis/cost.json")
+        fx = build_fx(series, now, problems, paths)
+        write_json(os.path.join(paths["analysis"], "fx.json"), fx)
+        status["produced"].append("data/analysis/fx.json")
         if f is not None:
             status["requests"] = f.count
         status["errors"] += [sanitize(p) for p in problems]
