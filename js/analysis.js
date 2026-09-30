@@ -18,6 +18,13 @@
  * 按一下才從私人倉庫讀，算法與設定檔的鍵名全部在 js/fxplan.js。這一段是全站第一個照「呈現原則」做的畫面：
  * 圖示＋狀態詞＋規則＋白話（js/plain.js）、名詞點一下有解釋（js/glossary.js）、幾個圖示各看各的不加總。
  *
+ * 小白呈現（A1-7）：同一套呈現推到整個分頁——
+ *   最上面一行分析狀態（上次執行時間、有沒有錯），接著是總覽表：每個標的一列、每個面向一格（圖示＋狀態詞），
+ *   跟儀表板卡片上的圖示列是同一份判定（js/card-analysis.js 的 aspects；位置用 js/indicators.js 的同一個燈號函式），
+ *   所以這一頁多讀 data/latest.json 與每個標的的日線。預設順序跟儀表板一樣，可以照某一個面向排序，也可以回到預設。
+ *   既有各區：每個數字下面一行白話、表頭的名詞可以點；相關矩陣改成每個標的一句，逐日／逐週／逐月的明細只在摘要寫白話。
+ *   這一頁不顯示任何計數或加總。
+ *
  * 測試：scripts/test_analysis_debug.html 把假資料塞進 render()，再由 scripts/test_analysis_debug_js.py
  * 用無頭瀏覽器檢查表格有渲染、日期欄非空、頁面上沒有不該出現的字與鍵名。
  */
@@ -41,11 +48,17 @@
     return h + '</tbody></table>';
   }
   function td(x) { return '<td>' + esc(x) + '</td>'; }
+  /* 表頭可以放名詞按鈕的版本：表頭不跳脫，呼叫的人自己負責（名詞按鈕由 term() 產生，裡面的字已經跳脫過） */
+  function tableRaw(headers, rows) {
+    var h = '<table><thead><tr>' + headers.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>';
+    rows.forEach(function (r) { h += '<tr>' + r.join('') + '</tr>'; });
+    return h + '</tbody></table>';
+  }
 
-  /* 可排序的表（風險總表用）：表頭可以點；「資料不足」與「—」永遠排最後 */
-  function sortableTable(headers, rows) {
+  /* 可排序的表（風險總表用）：表頭可以點；「資料不足」與「—」永遠排最後。raw＝表頭不跳脫（裡面有名詞按鈕） */
+  function sortableTable(headers, rows, raw) {
     var h = '<div class="table-wrap"><table class="sortable"><thead><tr>' +
-      headers.map(function (x, i) { return '<th class="sortable" data-col="' + i + '">' + esc(x) + '</th>'; }).join('') + '</tr></thead><tbody>';
+      headers.map(function (x, i) { return '<th class="sortable" data-col="' + i + '">' + (raw ? x : esc(x)) + '</th>'; }).join('') + '</tr></thead><tbody>';
     rows.forEach(function (r) { h += '<tr>' + r.join('') + '</tr>'; });
     return h + '</tbody></table></div>';
   }
@@ -74,7 +87,9 @@
   }
   function wireSorting(root) {
     Array.prototype.forEach.call((root || document).querySelectorAll('table.sortable th.sortable'), function (th) {
-      th.addEventListener('click', function () {
+      th.addEventListener('click', function (ev) {
+        // 點到表頭裡的名詞或它展開的解釋，不是要排序
+        if (ev && ev.target && ev.target.closest && ev.target.closest('button.term, .term-def')) return;
         var table = th.closest('table');
         var col = parseInt(th.getAttribute('data-col'), 10);
         sortTable(table, col, th.classList.contains('desc') ? 'asc' : 'desc');
@@ -124,17 +139,19 @@
   }
 
   /* ------------------------------------------------------------ 風險 */
-  function volCell(v) {
+  function volCell(v, years) {
     if (!v) return td('—');
     if (typeof v.pct !== 'number') return '<td>資料不足<div class="muted">' + esc(v.reason || '') + '</div></td>';
-    return '<td>' + num(v.pct, 2) + '%<div class="muted">' + esc(v.window) + '，至 ' + dateSpan(v.through) + '　' + esc(v.label) + '</div></td>';
+    return '<td>' + num(v.pct, 2) + '%<div class="muted">' + esc(v.window) + '，至 ' + dateSpan(v.through) + '　' + esc(v.label) + '</div>' +
+      plain('volatility', { pct: v.pct, window: years }) + '</td>';
   }
   function renderRisk(rk) {
     var h = '<h2>風險（risk.json）</h2>';
     if (!rk) return h + '<p class="warn">讀不到 data/analysis/risk.json。</p>';
     h += '<p class="muted">產生時間 ' + dateSpan(rk.generatedAt) + '。' + esc((rk.notes || []).join(' ')) + '</p>';
     var ids = Object.keys(rk.assets || {}).sort();
-    h += sortableTable(['標的', '類別', '幣別', '最後完成週棒', '週數', '年化波動 1 年', '年化波動 5 年', '最大回檔', '目前距高點', '10 年視窗', '資料標籤'],
+    h += sortableTable(['標的', '類別', '幣別', '最後完成週棒', '週數', term('年化波動', '年化波動 1 年'), term('年化波動', '年化波動 5 年'),
+                        term('回檔', '最大回檔'), term('目前距高點'), '10 年視窗', term('資料標籤')],
       ids.map(function (id) {
         var a = rk.assets[id];
         var dd = a.maxDrawdown || {};
@@ -144,17 +161,19 @@
           td(id + (a.name ? '　' + a.name : '')), td(a.assetClass), td(a.currency),
           '<td>' + dateSpan(a.lastBar) + '<div class="muted">' + esc(a.lastWeek) + '</div></td>',
           td(a.bars),
-          volCell(a.volatility && a.volatility['1y']), volCell(a.volatility && a.volatility['5y']),
+          volCell(a.volatility && a.volatility['1y'], '1 年'), volCell(a.volatility && a.volatility['5y'], '5 年'),
           '<td>' + pctText(dd.pct) + '<div class="muted">高點 ' + dateSpan(dd.peakDate) + ' → 低點 ' + dateSpan(dd.troughDate) +
-            (dd.recoveredDate ? '，' + dateSpan(dd.recoveredDate) + ' 回到高點' : '，尚未回到高點') + '</div></td>',
-          '<td>' + pctText(cd.pct) + '<div class="muted">高點 ' + dateSpan(cd.highDate) + '，資料至 ' + dateSpan(cd.dataThrough) + '</div></td>',
+            (dd.recoveredDate ? '，' + dateSpan(dd.recoveredDate) + ' 回到高點' : '，尚未回到高點') + '</div>' +
+            (typeof dd.pct === 'number' ? plain('drawdown', { pct: dd.pct, recoveredDate: dd.recoveredDate }) : '') + '</td>',
+          '<td>' + pctText(cd.pct) + '<div class="muted">高點 ' + dateSpan(cd.highDate) + '，資料至 ' + dateSpan(cd.dataThrough) + '</div>' +
+            (typeof cd.pct === 'number' ? plain('currentDrawdown', { pct: cd.pct, highDate: cd.highDate }) : '') + '</td>',
           td(ten.available ? '夠（' + ten.bars + ' 週）' : (ten.reason || '資料不足')),
           td(a.dataLabel)
         ];
-      }));
+      }), true);
     var c = rk.correlation;
     if (c && c.matrix) {
-      h += '<h3>相關係數矩陣（' + esc(c.window) + '，週報酬，成對可用；格內小字是重疊週數）</h3>';
+      h += '<h3>' + term('相關係數') + '矩陣（' + esc(c.window) + '，週報酬，成對可用；格內小字是重疊週數）</h3>';
       var cids = c.ids || Object.keys(c.matrix);
       var rows = cids.map(function (a) {
         return [td(a)].concat(cids.map(function (b) {
@@ -169,6 +188,7 @@
            '<span><i style="background:' + corrColor(0.8) + '"></i>正相關（橙）</span>' +
            '<span>格內數字才是訊息，顏色只是輔助；手機上整張可以左右捲動</span></p>';
       h += '<p class="muted">' + esc(c.note || '') + '　資料標籤：' + esc(c.label) + '</p>';
+      h += corrSentences(c, rk.assets || {}, cids);
     }
     if (rk.problems && rk.problems.length) {
       h += '<ul>' + rk.problems.map(function (p) { return '<li class="warn">' + esc(p) + '</li>'; }).join('') + '</ul>';
@@ -176,12 +196,26 @@
     return h;
   }
 
+  /* 相關矩陣的白話：一格一句會是一百多句，所以改成每個標的一句（最同向、最沒有關係、有沒有常常反方向的） */
+  function corrSentences(c, assets, cids) {
+    var CA = window.CardAnalysis;
+    if (!CA || !CA.correlationFacts || !window.Plain) return '';
+    return '<h4>每個標的一句</h4><ul class="plain-list" id="corr-plain">' + cids.map(function (id) {
+      var f = CA.correlationFacts(id, c, assets);
+      var name = (assets[id] || {}).name;
+      return '<li><b>' + esc(id) + (name ? '　' + esc(name) : '') + '</b>' +
+        plain('correlation', f && f.available ? { most: f.mostAligned, least: f.leastRelated, inverse: f.strongestInverse } : {}) + '</li>';
+    }).join('') + '</ul>';
+  }
+
   /* ------------------------------------------------------------ 拆解 */
-  function summaryLine(title, s) {
+  var DETAIL_NOTE = '<span class="muted">　明細只列數字，白話寫在上面的摘要</span>';
+  function summaryLine(title, s, kind) {
     if (!s) return '';
     if (typeof s.n !== 'number' || !s.n) return '<p class="muted">' + esc(title) + '：資料不足</p>';
     return '<p>' + esc(title) + '（' + esc(s.window) + '，' + dateSpan(s.from) + '～' + dateSpan(s.through) + '）：' +
-      '中位數 ' + pctText(s.medianPct) + '、平均 ' + pctText(s.meanPct) + '、最小 ' + pctText(s.minPct) + '、最大 ' + pctText(s.maxPct) + '</p>';
+      '中位數 ' + pctText(s.medianPct) + '、平均 ' + pctText(s.meanPct) + '、最小 ' + pctText(s.minPct) + '、最大 ' + pctText(s.maxPct) + '</p>' +
+      plain('residual', { pct: s.medianPct, kind: kind, lead: '一般的情況（中位數）' });
   }
   function renderDecompose(dc) {
     var h = '<h2>拆解（decompose.json）</h2>';
@@ -189,7 +223,7 @@
     h += '<p class="muted">產生時間 ' + dateSpan(dc.generatedAt) + '。' + esc((dc.notes || []).join(' ')) + '</p>';
 
     var g = dc.gold;
-    h += '<h3>台銀金價 ＝ 國際金價 × 匯率 ÷ 31.1035 ＋ 殘差</h3>';
+    h += '<h3>台銀金價 ＝ 國際金價 × 匯率 ÷ 31.1035 ＋ ' + term('殘差') + '</h3>';
     if (!g) {
       h += '<p class="warn">沒有黃金拆解。</p>';
     } else if (g.reason) {
@@ -202,24 +236,25 @@
         } else {
           h += table(['現在這一刻', '黃金存摺（本行賣出）', '牌價日期', '國際金價', '金價日期', '匯率中價', '匯率日期', '公式值', '殘差'], [[
             td(g.live.label), td(num(g.live.goldSell, 0)), dateCell(g.live.goldDate), td(num(g.live.gcPrice, 2)), dateCell(g.live.gcDate),
-            td(num(g.live.fxMid, 4)), dateCell(g.live.fxDate), td(num(g.live.implied, 2)), td(pctText(g.live.residualPct))]]);
+            td(num(g.live.fxMid, 4)), dateCell(g.live.fxDate), td(num(g.live.implied, 2)),
+            tdRaw(esc(pctText(g.live.residualPct)) + plain('residual', { pct: g.live.residualPct, kind: 'gold' }))]]);
           h += '<p class="muted">' + esc(g.live.gcNote || '') + '</p>';
         }
       }
-      h += summaryLine('殘差（同一天口徑，GC=F 期貨）', g.summarySameDay);
-      h += summaryLine('殘差（前一日口徑，GC=F 期貨）', g.summaryPrevDay);
+      h += summaryLine('殘差（同一天口徑，GC=F 期貨）', g.summarySameDay, 'gold');
+      h += summaryLine('殘差（前一日口徑，GC=F 期貨）', g.summaryPrevDay, 'gold');
       if (g.spot) {
         if (g.spot.reason) {
           h += '<p class="muted">現貨口徑：' + esc(g.spot.reason) + '</p>';
         } else {
-          h += summaryLine('殘差（同一天口徑，現貨 ' + (g.spot.symbol || '') + '）', g.spot.summarySameDay);
-          h += summaryLine('殘差（前一日口徑，現貨 ' + (g.spot.symbol || '') + '）', g.spot.summaryPrevDay);
+          h += summaryLine('殘差（同一天口徑，現貨 ' + (g.spot.symbol || '') + '）', g.spot.summarySameDay, 'gold');
+          h += summaryLine('殘差（前一日口徑，現貨 ' + (g.spot.symbol || '') + '）', g.spot.summaryPrevDay, 'gold');
           if (g.spot.basis) h += '<p>' + esc(g.spot.basis.note || '') + '　最近 60 日中位數：' + pctText(g.spot.basis.medianPct) + '</p>';
           h += notesList(g.spot.notes);
         }
       }
       var daily = (g.daily || []).slice(-10).reverse();
-      h += '<h4>最近 ' + daily.length + ' 天</h4>' + table(
+      h += '<h4>最近 ' + daily.length + ' 天' + DETAIL_NOTE + '</h4>' + table(
         ['日期', '黃金存摺（本行賣出）', 'GC=F 同日', '同日公式值', '同日殘差', 'GC=F 前一日（日期）', '前一日公式值', '前一日殘差', '匯率中價（日期）'],
         daily.map(function (r) {
           return [dateCell(r.d), td(num(r.goldSell, 0)), td(num(r.gc, 2)), td(num(r.impliedSameDay, 2)), td(pctText(r.residualSameDayPct)),
@@ -240,10 +275,11 @@
         var s = pair[1];
         if (!s || !s.months) { h += '<p class="muted">' + esc(pair[0]) + '：資料不足</p>'; return; }
         h += '<p>' + esc(pair[0]) + '（' + s.months + ' 個月，' + dateSpan(s.from) + '～' + dateSpan(s.through) + '）：' +
-          '殘差累計 ' + pctText(s.residualSumPct) + '、平均 ' + pctText(s.residualMeanPct) + '、標準差 ' + pctText(s.residualStdPct) + '</p>';
+          '殘差累計 ' + pctText(s.residualSumPct) + '、平均 ' + pctText(s.residualMeanPct) + '、標準差 ' + pctText(s.residualStdPct) + '</p>' +
+          plain('residual', { pct: s.residualMeanPct, kind: 'etf', lead: '平均每個月' });
       });
       var monthly = (t.monthly || []).slice(-12).reverse();
-      h += '<h4>最近 ' + monthly.length + ' 個月</h4>' + table(
+      h += '<h4>最近 ' + monthly.length + ' 個月' + DETAIL_NOTE + '</h4>' + table(
         ['月份', '00646（週棒日期）', 'S&P 500（週棒日期）', 'USD/TWD（日期）', '合成', '殘差'],
         monthly.map(function (r) {
           return [dateCell(r.month), tdRaw(pctText(r.r646Pct) + '（' + dateSpan(r.d646) + '）'),
@@ -267,18 +303,21 @@
         var name = k === '1y' ? '1 年（52 週）' : '3 年（156 週）';
         if (!w || typeof w.rCnyTwdPct !== 'number') return [td(name), '<td colspan="5">資料不足<div class="muted">' + esc((w && w.reason) || '') + '</div></td>'];
         return ['<td>' + esc(name) + '<div class="muted">' + dateSpan(w.from) + '～' + dateSpan(w.through) + '</div></td>',
-          td(pctText(w.rCnyTwdPct)), td(pctText(w.rUsdTwdPct)), td(pctText(w.rUsdCnyPct)), td(pctText(w.combinedPct)), td(pctText(w.residualPct))];
+          tdRaw(esc(pctText(w.rCnyTwdPct)) + plain('fxLeg', { total: w.rCnyTwdPct, usdTwd: w.rUsdTwdPct, usdCny: w.rUsdCnyPct })),
+          td(pctText(w.rUsdTwdPct)), td(pctText(w.rUsdCnyPct)), td(pctText(w.combinedPct)),
+          tdRaw(esc(pctText(w.residualPct)) + plain('residual', { pct: w.residualPct, kind: 'cny' }))];
       }));
       h += '<p class="muted">怎麼讀：合成＝(1＋美元兌台幣的變動) ÷ (1＋美元兌人民幣的變動) − 1；美元兌人民幣是負的，表示人民幣對美元變貴。</p>';
       var s52 = y.summary52;
       if (s52 && s52.n) {
         h += '<p>每週殘差（最近 ' + esc(s52.n) + ' 週，' + dateSpan(s52.from) + '～' + dateSpan(s52.through) + '）：中位數 ' + pctText(s52.medianPct) +
-             '、最小 ' + pctText(s52.minPct) + '、最大 ' + pctText(s52.maxPct) + '</p>';
+             '、最小 ' + pctText(s52.minPct) + '、最大 ' + pctText(s52.maxPct) + '</p>' +
+             plain('residual', { pct: s52.medianPct, kind: 'cny', lead: '一般的一週（中位數）' });
       } else {
         h += '<p class="muted">每週殘差：資料不足</p>';
       }
       var weekly = (y.weekly || []).slice(-10).reverse();
-      h += '<h4>最近 ' + weekly.length + ' 週</h4>' + table(
+      h += '<h4>最近 ' + weekly.length + ' 週' + DETAIL_NOTE + '</h4>' + table(
         ['週（週一）', '人民幣兌台幣中價（日期）', '美元兌台幣中價（日期）', '美元兌人民幣（日期）', '公式值', '殘差'],
         weekly.map(function (r) {
           return [dateCell(r.week), tdRaw(num(r.cnyTwdMid, 4) + '（' + dateSpan(r.dCny) + '）'), tdRaw(num(r.usdTwdMid, 4) + '（' + dateSpan(r.dUsd) + '）'),
@@ -289,19 +328,22 @@
   }
 
   /* ------------------------------------------------------------ 成本 */
-  function tdWindow(w) {
+  function tdWindow(w, years) {
     if (!w) return td('—');
     if (w.reason) return '<td>資料不足<div class="muted">' + esc(w.reason) + '</div></td>';
     return '<td>累計 ' + pctText(w.diffPct) + '，年化 ' + pctText(w.annualizedDiffPct) +
-      '<div class="muted">00646 ' + pctText(w.r646Pct) + '、基準（台幣）' + pctText(w.rBenchTwdPct) + '；' + dateSpan(w.from) + '～' + dateSpan(w.through) + '（' + esc(w.weeks) + ' 週）</div></td>';
+      '<div class="muted">00646 ' + pctText(w.r646Pct) + '、基準（台幣）' + pctText(w.rBenchTwdPct) + '；' + dateSpan(w.from) + '～' + dateSpan(w.through) + '（' + esc(w.weeks) + ' 週）</div>' +
+      plain('tracking', { annualPct: w.annualizedDiffPct, years: years }) + '</td>';
   }
+  function premiumMinDays() { return (window.CardAnalysis && window.CardAnalysis.PREMIUM_MIN_DAYS) || 20; }
   function renderPremium(id, p) {
     var h = '<h4>' + esc(id) + '</h4>';
     if (!p) return h + '<p class="muted">沒有資料。</p>';
     h += '<p>狀態：<b>' + esc(p.status) + '</b>' + (p.reason ? '　' + esc(p.reason) : '') + '　資料標籤：' + esc(p.label || '') + '</p>';
     if (p.latest) {
-      h += table(['日期', '收盤／成交', '淨值', '折溢價', '標籤'], (p.latest || []).map(function (r) {
-        return [dateCell(r.d), td(num(r.price, 2)), td(num(r.nav, 4)), td(pctText(r.premiumPct)), td(r.tag)];
+      h += tableRaw(['日期', '收盤／成交', term('淨值'), term('折溢價'), '標籤'], (p.latest || []).map(function (r) {
+        return [dateCell(r.d), td(num(r.price, 2)), td(num(r.nav, 4)),
+                tdRaw(esc(pctText(r.premiumPct)) + plain('premium', { pct: r.premiumPct })), td(r.tag)];
       }));
     }
     ['estimated', 'official', 'short'].forEach(function (k) {
@@ -310,9 +352,10 @@
       var title = k === 'estimated' ? '預估口徑' : k === 'official' ? '確定口徑' : s.title || '短期';
       if (typeof s.medianPct === 'number') {
         h += '<p>' + esc(title) + '：' + s.n + ' 個交易日（' + dateSpan(s.from) + '～' + dateSpan(s.through) + '），中位數 ' + pctText(s.medianPct) +
-          '、最小 ' + pctText(s.minPct) + '、最大 ' + pctText(s.maxPct) + '</p>';
+          '、最小 ' + pctText(s.minPct) + '、最大 ' + pctText(s.maxPct) + '</p>' + plain('premium', { pct: s.medianPct, lead: '一般的情況（中位數）' });
       } else {
-        h += '<p class="muted">' + esc(title) + '：' + esc(s.reason || '資料不足') + (typeof s.n === 'number' ? '（目前 ' + s.n + ' 個交易日）' : '') + '</p>';
+        h += '<p class="muted">' + esc(title) + '：' + esc(s.reason || '資料不足') + (typeof s.n === 'number' ? '（目前 ' + s.n + ' 個交易日）' : '') + '</p>' +
+          (typeof s.n === 'number' ? plain('accumulating', { n: s.n, min: premiumMinDays() }) : '');
       }
     });
     return h + notesList(p.notes);
@@ -324,7 +367,7 @@
     } else {
       h += '<p class="muted">產生時間 ' + dateSpan(cost.generatedAt) + '。' + esc((cost.notes || []).join(' ')) + '</p>';
       var tdiff = cost.trackingDifference;
-      h += '<h3>00646 追蹤差（00646 報酬 − 基準換算台幣的報酬）</h3>';
+      h += '<h3>00646 ' + term('追蹤差') + '（00646 報酬 − 基準換算台幣的報酬）</h3>';
       if (!tdiff) {
         h += '<p class="warn">沒有追蹤差。</p>';
       } else {
@@ -333,13 +376,12 @@
           if (!o) return;
           h += '<h4>' + esc(pair[1]) + '：基準 ' + esc(o.benchmark) + '　資料標籤：' + esc(o.label || '') + '</h4>';
           if (!o.available) { h += '<p class="muted">' + esc(o.reason || '資料不足') + '</p>'; return; }
-          h += table(['視窗', '追蹤差'], [['1y', '3y'].map(function (k) { return td(k === '1y' ? '1 年（52 週）' : '3 年（156 週）'); }).map(function (cell, i) {
-            return [cell, tdWindow((o.windows || {})[i === 0 ? '1y' : '3y'])];
-          })[0], [td('3 年（156 週）'), tdWindow((o.windows || {})['3y'])]]);
+          h += table(['視窗', '追蹤差'], [[td('1 年（52 週）'), tdWindow((o.windows || {})['1y'], 1)],
+                                          [td('3 年（156 週）'), tdWindow((o.windows || {})['3y'], 3)]]);
           h += notesList(o.notes);
         });
       }
-      h += '<h3>折溢價</h3>';
+      h += '<h3>' + term('折溢價') + '</h3>';
       var pm = cost.premium || {};
       Object.keys(pm).sort().forEach(function (id) { h += renderPremium(id, pm[id]); });
       if (!Object.keys(pm).length) h += '<p class="muted">沒有折溢價資料。</p>';
@@ -349,10 +391,11 @@
         h += '<p class="muted">' + esc((gs && gs.reason) || '沒有資料') + '</p>';
       } else {
         h += '<p>最新 ' + dateSpan(gs.latest.d) + '：本行買入 ' + num(gs.latest.buy, 0) + '、本行賣出 ' + num(gs.latest.sell, 0) + '，價差 ' + pctText(gs.latest.spreadPct) +
-          '　資料標籤：' + esc(gs.label) + '</p>';
+          '　資料標籤：' + esc(gs.label) + '</p>' + plain('spread', { pct: gs.latest.spreadPct, kind: 'gold', unit: '元' });
         if (gs.summary && gs.summary.n) {
           h += '<p>' + gs.summary.n + ' 天（' + dateSpan(gs.summary.from) + '～' + dateSpan(gs.summary.through) + '）：中位數 ' + pctText(gs.summary.medianPct) +
-            '、最小 ' + pctText(gs.summary.minPct) + '、最大 ' + pctText(gs.summary.maxPct) + '</p>';
+            '、最小 ' + pctText(gs.summary.minPct) + '、最大 ' + pctText(gs.summary.maxPct) + '</p>' +
+            plain('spreadCompare', { current: gs.latest.spreadPct, median: gs.summary.medianPct });
         }
       }
       // A1-6：人民幣計價的黃金存摺，算法跟台幣那張一樣
@@ -362,10 +405,11 @@
         h += '<p class="muted">' + esc((gc && gc.reason) || '沒有資料') + '</p>';
       } else {
         h += '<p>最新 ' + dateSpan(gc.latest.d) + '：本行買入 ' + num(gc.latest.buy, 2) + '、本行賣出 ' + num(gc.latest.sell, 2) + '，價差 ' + pctText(gc.latest.spreadPct) +
-          '　資料標籤：' + esc(gc.label) + '</p>';
+          '　資料標籤：' + esc(gc.label) + '</p>' + plain('spread', { pct: gc.latest.spreadPct, kind: 'gold', unit: '人民幣' });
         if (gc.summary && gc.summary.n) {
           h += '<p>' + gc.summary.n + ' 天（' + dateSpan(gc.summary.from) + '～' + dateSpan(gc.summary.through) + '）：中位數 ' + pctText(gc.summary.medianPct) +
-            '、最小 ' + pctText(gc.summary.minPct) + '、最大 ' + pctText(gc.summary.maxPct) + '</p>';
+            '、最小 ' + pctText(gc.summary.minPct) + '、最大 ' + pctText(gc.summary.maxPct) + '</p>' +
+            plain('spreadCompare', { current: gc.latest.spreadPct, median: gc.summary.medianPct });
         }
       }
       var bp = cost.barPremium;
@@ -374,8 +418,9 @@
         h += '<p class="muted">' + esc((bp && bp.reason) || '沒有資料') + '</p>';
       } else {
         h += '<p>最新 ' + dateSpan(bp.latest.d) + '（存摺本行賣出 ' + num(bp.latest.goldSell, 0) + '）　共 ' + esc(bp.n) + ' 天，自 ' + dateSpan(bp.from) + '　資料標籤：' + esc(bp.label) + '</p>';
-        h += table(['規格', '公克', '整條價', '每公克', '溢價'], (bp.latest.rows || []).map(function (r) {
-          return [td(r.spec), td(num(r.grams, 1)), td(num(r.price, 0)), td(num(r.perGram, 1)), td(pctText(r.premiumPct))];
+        h += tableRaw(['規格', '公克', '整條價', '每公克', term('條塊溢價', '溢價')], (bp.latest.rows || []).map(function (r) {
+          return [td(r.spec), td(num(r.grams, 1)), td(num(r.price, 0)), td(num(r.perGram, 1)),
+                  tdRaw(esc(pctText(r.premiumPct)) + plain('barPremium', { pct: r.premiumPct, spec: r.spec }))];
         }));
         h += notesList(bp.notes);
       }
@@ -386,7 +431,11 @@
     } else {
       h += '<p class="muted">' + esc(sc.note || '') + '</p>';
       h += table(['標的', '項目', '數值', '標籤', '出處', '查核日期', '備註'], (sc.entries || []).map(function (e) {
-        return [td(e.asset), td(e.item), td(e.value === null || e.value === undefined ? 'null（' + (e.nullReason || '沒有查到') + '）' : e.value + (e.unit ? ' ' + e.unit : '')),
+        // 數值是單一個百分比才寫白話；分級的費率是一段文字，不是一個數字
+        var single = e.value !== null && e.value !== undefined && /^\s*\d+(\.\d+)?\s*$/.test(String(e.value)) && /^%/.test(String(e.unit || ''));
+        return [td(e.asset), td(e.item),
+          tdRaw(esc(e.value === null || e.value === undefined ? 'null（' + (e.nullReason || '沒有查到') + '）' : e.value + (e.unit ? ' ' + e.unit : '')) +
+                (single ? plain('fee', { pct: parseFloat(e.value), kind: /稅/.test(String(e.item || '')) ? 'tax' : 'fee' }) : '')),
           td(e.label), tdRaw(e.source ? '<a href="' + esc(e.source) + '" rel="noopener">' + esc(e.sourceTitle || e.source) + '</a>' : '—'), dateCell(e.checkedOn), td(e.note || '')];
       }));
     }
@@ -403,11 +452,13 @@
     }
     var a = f.aligned;
     var h = '<p class="muted">設定檔月份 ' + dateSpan(f.month || '—') + '；八類合計 ' + num(f.sum, 1) + '%。這三個數字只在你的瀏覽器裡算，不上傳、不寫進任何公開檔。</p>';
+    var twoLabels = f.topTwo.classes.map(function (c) { return c.label; });
     h += table(['事實', '數值', '說明'], [
-      [td('最大單一類別'), td(pctText(f.maxClass.pct)), td(f.maxClass.label)],
-      [td('前二類合計'), td(pctText(f.topTwo.pct)), td(f.topTwo.classes.map(function (c) { return c.label; }).join('＋'))],
+      [td('最大單一類別'), td(pctText(f.maxClass.pct)), tdRaw(esc(f.maxClass.label) + plain('concMax', { pct: f.maxClass.pct, label: f.maxClass.label }))],
+      [td('前二類合計'), td(pctText(f.topTwo.pct)), tdRaw(esc(twoLabels.join('＋')) + plain('concTopTwo', { pct: f.topTwo.pct, labels: twoLabels }))],
       [td('與收入來源代理同向的合計'), td(a.available ? pctText(a.pct) : '資料不足'),
-        td(a.available ? '代理標的 ' + a.proxy + '；3 年週報酬相關係數 > ' + a.threshold + ' 視為同向（下表列出每個係數本身）' : '沒有可用的代理標的')]
+        tdRaw(esc(a.available ? '代理標的 ' + a.proxy + '；3 年週報酬相關係數 > ' + a.threshold + ' 視為同向（下表列出每個係數本身）' : '沒有可用的代理標的') +
+              (a.available ? plain('concAligned', { pct: a.pct, proxy: a.proxy }) : ''))]
     ]);
     if (a.available) {
       h += table(['類別', '權重', '類別代理', '與收入來源代理的相關係數', '同向？'], a.rows.map(function (r) {
@@ -493,15 +544,19 @@
          '　<span class="muted">標籤：' + esc(er.label || '') + '</span></p>';
     var risk = r.risk || {}, vol = risk.volatility || {}, v1 = vol['1y'] || {}, v5 = vol['5y'] || {};
     var mdd = risk.maxDrawdown || {}, cdd = risk.currentDrawdown || {};
-    function volRow(name, v) {
-      return [td(name), td(typeof v.pct === 'number' ? pctText(v.pct) : '資料不足（' + (v.reason || '') + '）'),
+    function volRow(name, v, years) {
+      var ok = typeof v.pct === 'number';
+      return [tdRaw(term('年化波動', name)), tdRaw(esc(ok ? pctText(v.pct) : '資料不足（' + (v.reason || '') + '）') + (ok ? plain('volatility', { pct: v.pct, window: years }) : '')),
               td(v.from ? v.from + '～' + v.through : '—'), td(v.label || '')];
     }
+    h += adhocGlance(r);
     h += table(['項目', '數值', '區間', '資料標籤'], [
-      volRow('年化波動 1 年', v1), volRow('年化波動 5 年', v5),
-      [td('最大回檔'), td(typeof mdd.pct === 'number' ? pctText(mdd.pct) : '資料不足'),
+      volRow('年化波動 1 年', v1, '1 年'), volRow('年化波動 5 年', v5, '5 年'),
+      [tdRaw(term('回檔', '最大回檔')), tdRaw(esc(typeof mdd.pct === 'number' ? pctText(mdd.pct) : '資料不足') +
+         (typeof mdd.pct === 'number' ? plain('drawdown', { pct: mdd.pct, recoveredDate: mdd.recoveredDate }) : '')),
        td(mdd.peakDate ? '高點 ' + mdd.peakDate + ' → 低點 ' + mdd.troughDate + (mdd.recoveredDate ? '，' + mdd.recoveredDate + ' 回到高點' : '，尚未回到高點') : '—'), td(mdd.label || '')],
-      [td('目前距高點'), td(typeof cdd.pct === 'number' ? pctText(cdd.pct) : '資料不足'),
+      [tdRaw(term('目前距高點')), tdRaw(esc(typeof cdd.pct === 'number' ? pctText(cdd.pct) : '資料不足') +
+         (typeof cdd.pct === 'number' ? plain('currentDrawdown', { pct: cdd.pct, highDate: cdd.highDate }) : '')),
        td(cdd.highDate ? '高點 ' + cdd.highDate + '，資料到 ' + cdd.dataThrough : '—'), td(cdd.label || '')]
     ]);
     var c = r.correlation || {};
@@ -511,9 +566,9 @@
     } else {
       var top = c.top || [];
       h += '<p class="muted">相關最高的前三名（顯示係數本身；各自幣別、不含匯率換算）：</p>';
-      h += table(['標的', '類別', '相關係數', '重疊週數', '區間'], top.map(function (x) {
+      h += tableRaw(['標的', '類別', term('相關係數'), '重疊週數', '區間'], top.map(function (x) {
         return [td(x.id + (x.name ? '　' + x.name : '')), td(x.assetClass || ''), td(rText(x.r)), td(x.n), td(x.from ? x.from + '～' + x.through : '—')];
-      }));
+      })) + plain('similar', { top: top });
       if ((c.all || []).length > top.length) {
         h += '<details><summary class="muted">全部 ' + (c.all || []).length + ' 個標的</summary>' +
              table(['標的', '相關係數', '重疊週數'], (c.all || []).map(function (x) { return [td(x.id), td(rText(x.r)), td(x.n)]; })) + '</details>';
@@ -527,6 +582,22 @@
          '；趨勢：' + esc((r.trend || {}).reason || '—') + '</p>';
     h += notesList(r.notes);
     return h;
+  }
+
+  /* 試算結果的圖示列（A1-7）：風險（跟卡片同一條規則）＋跟現有標的最像的三檔。
+     試算沒有日線，所以沒有位置；也沒有成本的歷史可以比。兩格各看各的。 */
+  function adhocGlance(r) {
+    var P = window.Plain;
+    if (!P) return '';
+    var vol = ((r.risk || {}).volatility) || {}, v1 = vol['1y'] || {}, v5 = vol['5y'] || {};
+    var top = ((r.correlation || {}).top || []).slice(0, 3);
+    return '<div class="glance-row" id="adhoc-glance">' +
+      P.badge(P.riskState(v1.pct, v5.pct, (typeof v1.pct !== 'number' ? v1.reason : v5.reason) || ''), '風險') +
+      '<div class="glance" data-aspect="similar"><div class="glance-title">跟現有標的最像的三檔</div>' +
+        '<div class="glance-main"><span class="glance-word">' + esc(top.length ? top.map(function (x) { return x.id; }).join('、') : P.NA) + '</span></div>' +
+        '<div class="glance-because">' + esc(P.sentence('similar', { top: top })) + '</div>' +
+        '<div class="glance-rule">規則：3 年週報酬的相關係數由高到低取前三名，只列係數本身</div></div>' +
+      '</div><p class="muted">兩格各看各的，這裡不把它們加起來。</p>';
   }
 
   function renderAdhoc(state) {
@@ -547,8 +618,10 @@
       h += '<p class="muted">來自 adhoc/index.json（更新 ' + dateSpan(s.index.updatedAt) + '）；' + syms.length + ' 個代號。點「看詳細」才讀那一檔。</p>';
       h += table(['代號', '類別', '幣別', '資料截止', '1 年波動', '最大回檔', '距高點', '相關最高', ''], syms.map(function (sym) {
         var e = s.index.symbols[sym] || {};
-        return [td(sym), td(e.assetClass || ''), td(e.currency || ''), dateOrDash(e.dataThrough), td(pctText(e.vol1yPct)),
-                td(pctText(e.maxDrawdownPct)), td(pctText(e.currentDrawdownPct)),
+        return [td(sym), td(e.assetClass || ''), td(e.currency || ''), dateOrDash(e.dataThrough),
+                tdRaw(esc(pctText(e.vol1yPct)) + (typeof e.vol1yPct === 'number' ? plain('volatility', { pct: e.vol1yPct, window: '1 年' }) : '')),
+                tdRaw(esc(pctText(e.maxDrawdownPct)) + (typeof e.maxDrawdownPct === 'number' ? plain('drawdown', { pct: e.maxDrawdownPct, unknownRecovery: true }) : '')),
+                tdRaw(esc(pctText(e.currentDrawdownPct)) + (typeof e.currentDrawdownPct === 'number' ? plain('currentDrawdown', { pct: e.currentDrawdownPct }) : '')),
                 td(e.top1 ? e.top1.id + ' ' + rText(e.top1.r) : '—'),
                 tdRaw('<button type="button" class="adhoc-open" data-path="' + esc(e.latest) + '">看詳細</button>')];
       }));
@@ -578,8 +651,8 @@
   var FX_ORDER = ['CNY', 'USD'];
   var FX_METHOD_WORD = { A: '固定分批', B: '依位置調整' };
 
-  function term(name, label) { return window.Glossary.term(name, label); }
-  function plain(kind, data) { return window.Plain.line(kind, data); }
+  function term(name, label) { return window.Glossary ? window.Glossary.term(name, label) : esc(label || name); }
+  function plain(kind, data) { return window.Plain ? window.Plain.line(kind, data) : ''; }
   function rate3(x) { return num(x, 3); }
   function money(x) { return num(x, 0); }
   function pct1(x) { return typeof x === 'number' ? num(x, 1) + '%' : '—'; }
@@ -609,7 +682,7 @@
     var p5 = (c.percentiles || {})['5y'] || {};
     var sp = c.spreads || {};
     var h = '<div class="glance-row" id="fx-glance">';
-    h += P.badge(P.positionState(p5.pct), '人民幣現在');
+    h += P.badge(P.fxPositionState(p5.pct), '人民幣現在');
     h += P.badge(P.costState((sp.spot || {}).spreadPct, (sp.spotSpread1y || {}).medianPct), '換匯成本');
     var rule = c.rule || {};
     var bt = (fx && fx.backtest) || {};
@@ -705,7 +778,7 @@
          esc(rule.label || rules.label || '') + '</span></p>' + plain('quota', { pct: rule.percentile5y, ratioPct: rule.ratioPct, bucket: rule.bucket });
     h += '<p class="muted">' + fxPoolNote() + '</p>';
     h += '<p class="muted">1 年百分位 ' + (typeof p1.pct === 'number' ? pct1(p1.pct) : '資料不足') + '：並列參考，不進規則（1 年太短）。' +
-         '有設定期限時另有保底：池子 ÷ 剩餘月數；同時有設目標總額時，再跟「還差的人民幣 × 現在的即期賣出 ÷ 剩餘月數」比，取較大者。' +
+         '有設定期限時另有' + term('保底') + '：池子 ÷ 剩餘月數；同時有設目標總額時，再跟「還差的人民幣 × 現在的即期賣出 ÷ 剩餘月數」比，取較大者。' +
          '本月額度取規則額度與保底的較大者，但不超過池子；三個數字都印出來。</p>';
     return h;
   }
@@ -731,6 +804,7 @@
           td(signed(mn.worstImprovePct, 3) + '／' + signed(mn.bestImprovePct, 3)), td(pct1(mn.finishedSharePct)),
           td(num(mn.medianRateA, 5) + '／' + num(mn.medianRateB, 5))]], 'fx-wide');
       var pu = mn.pure || {};
+      h += '<p class="muted">這些期間每次只往後移一個月，彼此' + term('視窗重疊', '大量重疊') + '；「換得比較便宜的視窗」那個比例要打折看。</p>';
       h += '<p class="muted">' + fxPoolNote() + '</p>';
       h += '<p class="muted">A＝' + esc(m.A || '') + '。B＝' + esc(m.B || '') + '。改善為正表示 B 換到的人民幣比較便宜。</p>';
       var bw = mn.bigWins;
@@ -877,16 +951,163 @@
     return h;
   }
 
+  /* ------------------------------------------------------------ 總覽表（A1-7）
+   *
+   * 每個標的一列、每個面向一格（圖示＋狀態詞）。狀態跟儀表板卡片上的圖示列是同一份（js/card-analysis.js 的 aspects），
+   * 位置用同一個燈號函式（js/indicators.js），所以要多讀 latest.json 與每個標的的日線。
+   * 預設順序＝儀表板的分組與順序；點面向的欄位名稱照那一欄排序（同狀態照名稱；沒有狀態的永遠排最後），「回到預設順序」恢復。
+   * 點一列展開那個標的每個面向的數字、規則、白話。這張表不顯示任何計數或加總——各格各看各的。
+   */
+  var OV_GROUPS = ['貴金屬', '台股', '海外', '匯率'];       // 跟儀表板同一個順序
+  var OV_RANK = { low: 0, mid: 1, high: 2 };                // 三態的名次；其餘沒有名次，永遠排最後
+  var OV_BLANK = { na: 0, error: 1, none: 2 };              // 沒有名次的彼此之間：資料不足、暫時讀不到、不適用
+
+  /* 最上面那一行：分析上次是幾時跑的、有沒有錯。分析壞了要一眼看得出來，不能讓人以為下面的狀態是新的。 */
+  function statusBanner(st) {
+    if (!st) return '<p class="warn">讀不到分析狀態（data/analysis/status.json）：下面的數字不知道是幾時算的。</p>';
+    return '<p class="' + (st.ok ? 'ok' : 'warn') + '">分析上次執行：<b class="date">' + esc(st.lastRun || st.generatedAt) + '</b>　' +
+      (st.ok ? '這一輪沒有錯誤' : '這一輪有錯，下面的數字可能是舊的或不完整（錯誤列在「分析狀態」那一段）') + '</p>';
+  }
+
+  function overviewRows(data) {
+    var m = data.market || {}, latest = m.latest, CA = window.CardAnalysis;
+    if (!latest || !latest.assets || !CA || !CA.aspects) return [];
+    var ids = Object.keys(latest.assets);
+    function groupOf(id) { return latest.assets[id].group || '其他'; }
+    var groups = OV_GROUPS.filter(function (g) { return ids.some(function (id) { return groupOf(id) === g; }); });
+    ids.forEach(function (id) { if (groups.indexOf(groupOf(id)) < 0) groups.push(groupOf(id)); });
+    var rows = [];
+    groups.forEach(function (g) {
+      ids.forEach(function (id) {
+        if (groupOf(id) !== g) return;
+        var hist = (m.histories || {})[id];
+        rows.push({ asset: latest.assets[id], order: rows.length,
+                    aspects: CA.aspects(latest.assets[id], { points: (hist && hist.points) || [], historyFailed: !hist,
+                                                             risk: data.risk, cost: data.cost, fx: data.fx }) });
+      });
+    });
+    return rows;
+  }
+
+  function priceCell(a) {
+    if (a.status !== 'ok') return '<td>—<div class="muted">更新失敗</div></td>';
+    var fr = window.Freshness ? window.Freshness.classify(a, new Date()) : null;
+    if (fr && fr.hidePrice) return '<td>—<div class="muted">無法判斷新舊</div></td>';
+    var cur = ' <span class="muted">' + esc(a.currency || '') + '</span>';
+    if (a.type === 'bot_gold_bar') {
+      var top = (a.bars || [])[0];
+      return '<td>' + (top ? num(top.sell, 0) : '—') + cur + '<div class="muted">1 公斤掛牌</div></td>';
+    }
+    return '<td>' + num(a.price, a.decimals) + cur + '</td>';
+  }
+
+  function renderOverview(data) {
+    var h = '<div id="ov-status">' + statusBanner(data.status) + '</div><h2>總覽</h2>';
+    var CA = window.CardAnalysis;
+    if (!CA || !CA.aspects || !window.Indicators || !window.Plain) {
+      return h + '<p class="warn">這一頁沒有載到 js/indicators.js／js/card-analysis.js／js/plain.js，總覽表畫不出來。</p>';
+    }
+    if (!data.market || !data.market.latest) return h + '<p class="warn">讀不到 data/latest.json，總覽表畫不出來。</p>';
+    var rows = overviewRows(data);
+    var names = CA.ASPECT_ORDER.map(function (k) { return window.Plain.ASPECTS[k].name; });
+    h += '<p class="muted">每個標的一列，每個' + term('面向') + '一格；圖示旁邊的字是' + term('狀態詞') + '。各格各看各的，這張表不把它們加起來。' +
+         '點一列看數字、規則與白話；點「' + esc(names.join('」「')) + '」可以照那一欄排序。</p>';
+    h += '<p><button type="button" id="ov-reset">回到預設順序</button>　<span class="muted" id="ov-order">現在的順序：預設（跟儀表板一樣）</span></p>';
+    h += '<div class="ov-wrap"><table class="ov-table" id="ov-table"><thead><tr><th class="ov-name">標的</th><th>現價</th><th>位置的資料日期</th>' +
+         CA.ASPECT_ORDER.map(function (k, i) {
+           return '<th class="ov-sort" data-aspect="' + esc(k) + '" aria-sort="none"><button type="button" class="ov-sortbtn">' + esc(names[i]) + '</button></th>';
+         }).join('') + '</tr></thead>';
+    rows.forEach(function (r) {
+      var a = r.asset;
+      h += '<tbody class="ov-item" data-id="' + esc(a.id) + '" data-order="' + r.order + '" data-name="' + esc(a.name) + '"' +
+           r.aspects.map(function (x) { return ' data-s-' + esc(x.aspect) + '="' + esc(x.state.key) + '"'; }).join('') + '>' +
+           '<tr class="ov-row">' +
+             '<td class="ov-name"><button type="button" class="ov-toggle" aria-expanded="false">' + esc(a.name) + '</button>' +
+               '<div class="muted">' + esc(a.group || '') + '</div></td>' +
+             priceCell(a) + dateCell(a.date) +
+             r.aspects.map(function (x) { return '<td class="ov-asp" data-aspect="' + esc(x.aspect) + '">' + CA.cell(x) + '</td>'; }).join('') +
+           '</tr>' +
+           '<tr class="ov-detail" hidden><td colspan="' + (3 + r.aspects.length) + '"><div class="ov-detail-grid">' +
+             r.aspects.map(function (x) { return '<div class="asp-detail" data-aspect="' + esc(x.aspect) + '">' + CA.detail(x) + '</div>'; }).join('') +
+           '</div></td></tr></tbody>';
+    });
+    h += '</table></div>';
+    h += '<p class="muted">位置就是卡片上的燈號（日線，日期在第三欄）；風險用週線、成本各有各的日期，都寫在展開的細節裡。' +
+         '「資料不足」是之後會有、現在還不夠；「不適用」是這一類標的沒有這個面向。</p>';
+    return h;
+  }
+
+  /* aspect 是 null＝回到預設順序；dir 是 asc（低的那一態在前）或 desc */
+  function sortOverview(table, aspect, dir) {
+    var items = Array.prototype.slice.call(table.querySelectorAll('tbody.ov-item'));
+    items.sort(function (x, y) {
+      if (!aspect) return parseInt(x.getAttribute('data-order'), 10) - parseInt(y.getAttribute('data-order'), 10);
+      var kx = x.getAttribute('data-s-' + aspect), ky = y.getAttribute('data-s-' + aspect);
+      var a = OV_RANK[kx], b = OV_RANK[ky];
+      var an = a === undefined, bn = b === undefined;
+      if (an !== bn) return an ? 1 : -1;                                   // 沒有狀態的永遠排最後，升冪降冪都一樣
+      if (an && kx !== ky) return (OV_BLANK[kx] === undefined ? 9 : OV_BLANK[kx]) - (OV_BLANK[ky] === undefined ? 9 : OV_BLANK[ky]);
+      if (!an && a !== b) return dir === 'desc' ? b - a : a - b;
+      return String(x.getAttribute('data-name')).localeCompare(String(y.getAttribute('data-name')), 'zh-Hant');   // 同狀態照名稱
+    });
+    items.forEach(function (it) { table.appendChild(it); });
+    Array.prototype.forEach.call(table.querySelectorAll('th.ov-sort'), function (th) {
+      var on = aspect && th.getAttribute('data-aspect') === aspect;
+      th.classList.remove('asc', 'desc');
+      if (on) th.classList.add(dir === 'desc' ? 'desc' : 'asc');
+      th.setAttribute('aria-sort', on ? (dir === 'desc' ? 'descending' : 'ascending') : 'none');
+    });
+  }
+
+  function wireOverview(root) {
+    var table = root && root.querySelector('#ov-table');
+    if (!table) return;
+    var note = root.querySelector('#ov-order');
+    function say(aspect, dir) {
+      if (!note) return;
+      if (!aspect) { note.textContent = '現在的順序：預設（跟儀表板一樣）'; return; }
+      var a = window.Plain.ASPECTS[aspect], w = a.words;
+      var seq = dir === 'desc' ? [w.high, w.mid, w.low] : [w.low, w.mid, w.high];
+      note.textContent = '現在的順序：照「' + a.name + '」排（' + seq.join(' → ') + '；同一個狀態照名稱；資料不足與不適用排最後）';
+    }
+    // 欄名與列名都是真的按鈕（鍵盤按 Enter／空白鍵就是點它）；點擊掛在整格／整列上，滑鼠點旁邊也有效
+    Array.prototype.forEach.call(table.querySelectorAll('th.ov-sort'), function (th) {
+      th.addEventListener('click', function () {
+        var dir = th.classList.contains('asc') ? 'desc' : 'asc';
+        sortOverview(table, th.getAttribute('data-aspect'), dir);
+        say(th.getAttribute('data-aspect'), dir);
+      });
+    });
+    var reset = root.querySelector('#ov-reset');
+    if (reset) reset.addEventListener('click', function () { sortOverview(table, null); say(null); });
+    Array.prototype.forEach.call(table.querySelectorAll('tr.ov-row'), function (row) {
+      row.addEventListener('click', function () {
+        var det = row.nextElementSibling, btn = row.querySelector('button.ov-toggle');
+        if (!det) return;
+        det.hidden = !det.hidden;
+        row.classList.toggle('is-open', !det.hidden);
+        if (btn) btn.setAttribute('aria-expanded', det.hidden ? 'false' : 'true');
+        // 手機上整張表可以橫向捲動，細節要貼著看得到的那一段，不要跟著表格一起變寬
+        var grid = det.querySelector('.ov-detail-grid'), wrap = table.parentNode;
+        if (grid && wrap && wrap.clientWidth) grid.style.width = Math.max(240, wrap.clientWidth - 24) + 'px';
+      });
+    });
+  }
+
   /* ------------------------------------------------------------ 組合 */
+  function wireTerms(box) { if (box && window.Glossary) window.Glossary.wire(box); }
+
   function render(data, targets) {
     targets = targets || {};
     var pick = function (key) { return targets[key] || document.getElementById(key); };
     var s = pick('status'), r = pick('risk'), d = pick('decompose'), c = pick('cost'), k = pick('concentration');
-    var fxBox = pick('fx');
-    if (fxBox && data.fx !== undefined) {
-      fxBox.innerHTML = renderFx(data.fx, data.fxPlan);
-      if (window.Glossary) window.Glossary.wire(fxBox);
+    var o = pick('overview');
+    if (o && data.market !== undefined) {
+      o.innerHTML = renderOverview(data);
+      wireOverview(o);
     }
+    var fxBox = pick('fx');
+    if (fxBox && data.fx !== undefined) fxBox.innerHTML = renderFx(data.fx, data.fxPlan);
     if (s) s.innerHTML = renderStatus(data.status);
     if (r) r.innerHTML = renderRisk(data.risk);
     if (d) d.innerHTML = renderDecompose(data.decompose);
@@ -894,6 +1115,7 @@
     if (k) k.innerHTML = renderConcentration(data.concentration);
     var x = pick('adhoc');
     if (x && data.adhoc) x.innerHTML = renderAdhoc(data.adhoc);
+    [o, fxBox, r, d, c, k, x].forEach(wireTerms);             // 名詞按鈕：畫完之後掛上點擊
   }
 
   function fetchJSON(url) {
@@ -908,7 +1130,7 @@
     var section = document.getElementById('concentration');
     if (!section) return;
     var c = C();
-    function setState(state) { section.innerHTML = renderConcentration(state); wire(); }
+    function setState(state) { section.innerHTML = renderConcentration(state); wire(); wireTerms(section); }
     function corr() { return risk && risk.correlation; }
     function canEdit() { return !!(window.Storage && window.Storage.getMode() === 'github' && window.Storage.hasPat()); }
     function loadProfile() {
@@ -956,7 +1178,7 @@
     var section = document.getElementById('adhoc');
     if (!section) return;
     var current = { status: 'idle' };
-    function setState(state) { current = state; section.innerHTML = renderAdhoc(state); wire(); }
+    function setState(state) { current = state; section.innerHTML = renderAdhoc(state); wire(); wireTerms(section); }
     function fail(e) { setState({ status: 'error', reason: e && e.message }); }
     function latestOf(entries) {
       var files = (entries || []).filter(function (e) { return e.type === 'file' && /[.]json$/.test(e.name); })
@@ -1010,7 +1232,7 @@
     if (!box || !window.FxPlan) return;
     var F = window.FxPlan;
     function result(plan) { return F.compute(plan, ((fx && fx.currencies) || {}).CNY, currentMonth(), fxDecision(fx)); }
-    function setState(state) { box.innerHTML = renderFxPlan(state); wire(); }
+    function setState(state) { box.innerHTML = renderFxPlan(state); wire(); wireTerms(box); }
     function canEdit() { return !!(window.Storage && window.Storage.getMode() === 'github' && window.Storage.hasPat()); }
     function loadPlan() {
       setState({ status: 'loading' });
@@ -1051,12 +1273,26 @@
     wire();
   }
 
+  /* 總覽表要的行情與日線：latest.json ＋ 每個標的一檔日線（位置的燈號跟儀表板用同一份資料、同一個函式算） */
+  function loadMarket() {
+    return fetchJSON('data/latest.json').then(function (latest) {
+      if (!latest || !latest.assets) return { latest: null, histories: {} };
+      var ids = Object.keys(latest.assets);
+      return Promise.all(ids.map(function (id) { return fetchJSON('data/history/' + id + '.json'); })).then(function (hs) {
+        var histories = {};
+        ids.forEach(function (id, i) { histories[id] = hs[i]; });
+        return { latest: latest, histories: histories };
+      });
+    });
+  }
+
   function boot() {
     Promise.all([fetchJSON('data/analysis/status.json'), fetchJSON('data/analysis/risk.json'), fetchJSON('data/analysis/decompose.json'),
-                 fetchJSON('data/analysis/cost.json'), fetchJSON('data/analysis/static-costs.json'), fetchJSON('data/analysis/fx.json')])
+                 fetchJSON('data/analysis/cost.json'), fetchJSON('data/analysis/static-costs.json'), fetchJSON('data/analysis/fx.json'),
+                 loadMarket()])
       .then(function (all) {
         render({ status: all[0], risk: all[1], decompose: all[2], cost: all[3], staticCosts: all[4], concentration: { status: 'unset' },
-                 adhoc: { status: 'idle' }, fx: all[5], fxPlan: { status: 'unset' } });
+                 adhoc: { status: 'idle' }, fx: all[5], fxPlan: { status: 'unset' }, market: all[6] });
         wireConcentration(all[1]);
         wireAdhoc();
         wireFx(all[5]);
@@ -1074,5 +1310,8 @@
                            renderAdhocDetail: renderAdhocDetail, esc: esc, num: num,
                            sortTable: sortTable, wireSorting: wireSorting, corrColor: corrColor,
                            renderFx: renderFx, renderFxPlan: renderFxPlan, renderFxForm: renderFxForm, readFxForm: readFxForm,
-                           fxGlance: fxGlance, fxDecision: fxDecision, currentMonth: currentMonth };
+                           fxGlance: fxGlance, fxDecision: fxDecision, currentMonth: currentMonth,
+                           // A1-7：總覽表與狀態橫幅
+                           renderOverview: renderOverview, overviewRows: overviewRows, sortOverview: sortOverview, wireOverview: wireOverview,
+                           statusBanner: statusBanner, adhocGlance: adhocGlance, corrSentences: corrSentences };
 })();

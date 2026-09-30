@@ -7,6 +7,7 @@
 <body>
   <!-- 這一頁不連網、不讀資料檔：把假的 status／risk／decompose 塞進 js/analysis.js（分析分頁）的 render()，
        再逐題檢查畫出來的東西，結果以 JSON 放在下面那個 id 叫 result 的區塊，給 test_analysis_debug_js.py 讀。 -->
+  <section id="overview"></section>
   <section id="status"></section>
   <section id="fx"></section>
   <section id="risk"></section>
@@ -17,9 +18,12 @@
   <pre id="result"></pre>
   <script src="../js/storage.js"></script>
   <script src="../js/concentration.js"></script>
+  <script src="../js/indicators.js"></script>
+  <script src="../js/freshness.js"></script>
   <script src="../js/plain.js"></script>
   <script src="../js/glossary.js"></script>
   <script src="../js/fxplan.js"></script>
+  <script src="../js/card-analysis.js"></script>
   <script src="../js/analysis.js"></script>
   <script>
     (function () {
@@ -151,6 +155,33 @@
                     decision: { default: 'A', word: '固定分批', thresholds: { winSharePct: 55, medianImprovePct: 0.5 },
                                 reason: 'B 贏的視窗比例 89.5%、中位數改善 0.089%：沒有同時過兩個門檻（≥ 55% 且 ≥ 0.5%）' },
                     notes: ['這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折'] } };
+      // 總覽表（A1-7）的假行情與假日線：價格 100 上下的合成序列，不是任何真實資料。
+      // latest 裡的順序故意把匯率放最前面：總覽表要自己排成儀表板的分組順序（貴金屬 → 台股 → 海外 → 匯率）。
+      function ovSeries(kind, n) {
+        var pts = [], v = 100, d0 = Date.UTC(2025, 8, 1);
+        for (var i = 0; i < n; i++) {
+          if (kind === 'up') v = v * 1.004;
+          else if (kind === 'down') v = v * 0.996;
+          else v = 100 + 15 * Math.sin(i / 9) + ((i * 13) % 5) * 0.2;
+          pts.push({ d: new Date(d0 + i * 86400000).toISOString().slice(0, 10), c: Math.round(v * 1000) / 1000 });
+        }
+        return pts;
+      }
+      function ovAsset(id, name, group, type, extra) {
+        var a = { id: id, name: name, group: group, type: type, status: 'ok', decimals: 2, currency: 'TWD', date: '2026-09-24' };
+        Object.keys(extra || {}).forEach(function (k) { a[k] = extra[k]; });
+        return a;
+      }
+      var OV_UP = ovSeries('up', 260), OV_DOWN = ovSeries('down', 260), OV_WAVE = ovSeries('wave', 260);
+      FIX.market = { latest: { updatedAt: '2026-09-24T15:30:00+08:00', assets: {
+          fx_cny: ovAsset('fx_cny', '人民幣 / 台幣', '匯率', 'finmind_fx', { price: OV_UP[259].c, decimals: 3 }),
+          gspc: ovAsset('gspc', 'S&P 500 指數', '海外', 'yahoo', { price: OV_UP[259].c, currency: 'USD', date: '2026-09-23' }),
+          broken: ovAsset('broken', '壞掉的標的', '海外', 'yahoo', { status: 'error', currency: 'USD', date: '2026-09-20' }),
+          gold_twd: ovAsset('gold_twd', '黃金存摺（台幣）', '貴金屬', 'bot_gold', { price: OV_WAVE[259].c, decimals: 0 }),
+          gold_bar: ovAsset('gold_bar', '台銀實體黃金條塊', '貴金屬', 'bot_gold_bar', { decimals: 0, bars: [ { spec: '1 公斤', sell: 4441200 } ] }),
+          tw00679b: ovAsset('tw00679b', '元大美債20年 00679B', '台股', 'twse_stock', { price: OV_DOWN[259].c }) } },
+        histories: { fx_cny: { points: OV_UP }, gspc: { points: OV_UP }, broken: null, gold_twd: { points: OV_WAVE },
+                     gold_bar: { points: ovSeries('wave', 12) }, tw00679b: { points: OV_DOWN } } };
       // 假的換匯設定：11111、22222 這種一看就是假的數字；一樣用 fromForm 組（設定檔的鍵名只准在 fxplan.js 裡出現）
       var FAKE_FX_VALUES = { start: '2026-07', budget: '11111', target: '22222', deadline: '2027-02',
                              records: [ { month: '2026-08', twd: '3333', rate: '4.4444' }, { month: '2026-09', twd: '1111', rate: '5' } ] };
@@ -160,8 +191,9 @@
         try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
         results.push({ name: name, ok: problems.length === 0, problems: problems });
       }
+      function same(p, what, got, want) { if (got !== want) p.push(what + '：應為「' + want + '」，得到「' + got + '」'); }
       var loaded = !!(window.AnalysisDebug && window.AnalysisDebug.render && window.Concentration && window.Storage &&
-                      window.Plain && window.Glossary && window.FxPlan);
+                      window.Plain && window.Glossary && window.FxPlan && window.CardAnalysis && window.Indicators && window.Freshness);
       if (loaded) {
         var facts = Concentration.facts(FAKE_PROFILE, FIX.risk.correlation);
         FIX.concentration = { status: 'set', facts: facts, formValues: Concentration.toFormValues(FAKE_PROFILE), canEdit: true };
@@ -563,6 +595,273 @@
           if (ro.querySelector('#fxp-save')) p.push('不能編輯時不該有儲存按鈕');
           if (!ro.querySelector('#fxp_budget').disabled) p.push('不能編輯時欄位要鎖住');
           if (AnalysisDebug.currentMonth('2026-09-30T23:30:00+08:00') !== '2026-09' || AnalysisDebug.currentMonth('2026-09-30T17:00:00Z') !== '2026-10') p.push('現在是幾月要用台北時間算');
+        });
+        // ------------------------------------------------------------ 總覽表與全頁的白話（A1-7）
+        var CA = window.CardAnalysis, P = window.Plain, I = window.Indicators;
+        var OV_ORDER = ['gold_twd', 'gold_bar', 'tw00679b', 'gspc', 'broken', 'fx_cny'];     // 儀表板的分組順序：貴金屬 → 台股 → 海外 → 匯率
+        var STATE_WORDS = '相對低檔區|中性|相對高檔區|平靜|正常|劇烈|便宜|偏貴|資料不足|不適用|暫時讀不到';
+        // 「數一數」的樣子：N 個（標的）在某個狀態、或某個狀態 N 個
+        var TALLY = [new RegExp('[0-9０-９一二兩三四五六七八九十]+\\s*(個|項|檔|列)\\s*(標的|面向|指標|燈號|圖示)?\\s*(在|是|為|都|屬於)?\\s*(' + STATE_WORDS + ')'),
+                     new RegExp('(' + STATE_WORDS + ')\\s*[:：×x]?\\s*[0-9０-９]+\\s*(個|項|檔|列)')];
+        function ovIds() { return $$('#ov-table tbody.ov-item').map(function (x) { return x.getAttribute('data-id'); }); }
+        function ovItem(id) { return $('#ov-table tbody.ov-item[data-id="' + id + '"]'); }
+        function aspectsOf(id) {
+          var h = FIX.market.histories[id];
+          return CA.aspects(FIX.market.latest.assets[id], { points: (h && h.points) || [], historyFailed: !h, risk: FIX.risk, cost: FIX.cost, fx: FIX.fx });
+        }
+        check('overview_status_line_is_on_top_and_loud_when_broken', function (p) {
+          /* 分析壞了要一眼看得出來：總覽表的最上面就是上次執行時間與有沒有錯。 */
+          var o = $('#overview');
+          if (!o || o.firstElementChild.id !== 'ov-status') { p.push('總覽區的第一個東西應該是分析狀態那一行'); return; }
+          var line = $('#ov-status');
+          if (line.innerText.indexOf('2026-09-24T15:35:10+08:00') < 0) p.push('沒有顯示上次執行時間');
+          if (!line.querySelector('.warn') || line.innerText.indexOf('有錯') < 0) p.push('這一輪有錯時要紅字寫出來');
+          var all = Array.prototype.slice.call(document.querySelectorAll('section'));
+          if (all.indexOf(o) !== 0 || all.indexOf($('#status')) !== 1) p.push('總覽在最上面、完整的分析狀態緊接在後');
+          var ok = document.createElement('div');
+          ok.innerHTML = AnalysisDebug.statusBanner({ ok: true, lastRun: '2026-09-30T15:30:59+08:00' });
+          if (!ok.querySelector('.ok') || ok.innerText.indexOf('沒有錯誤') < 0 || ok.querySelector('.warn')) p.push('沒有錯時不該紅字');
+          var none = document.createElement('div');
+          none.innerHTML = AnalysisDebug.statusBanner(null);
+          if (!none.querySelector('.warn') || none.innerText.indexOf('讀不到') < 0) p.push('沒有 status 時要紅字說讀不到');
+        });
+        check('overview_has_one_row_per_asset_in_dashboard_order', function (p) {
+          /* 對照組：預設順序不照儀表板的分組 → 這一條會紅。 */
+          same(p, '列數與順序', ovIds().join('、'), OV_ORDER.join('、'));
+          var heads = $$('#ov-table thead th').map(function (x) { return x.innerText.replace(/\s*[↕↑↓]\s*/g, '').trim(); });
+          same(p, '表頭', heads.join('｜'), '標的｜現價｜位置的資料日期｜位置｜風險｜成本');
+          OV_ORDER.forEach(function (id) {
+            var a = FIX.market.latest.assets[id], row = ovItem(id).querySelector('tr.ov-row');
+            if (row.cells.length !== 6) p.push(id + '：應該有 6 格，得到 ' + row.cells.length);
+            if (row.cells[0].innerText.indexOf(a.name) < 0 || row.cells[0].innerText.indexOf(a.group) < 0) p.push(id + '：第一格要有名稱與分組');
+            same(p, id + ' 的資料日期（日線）', row.cells[2].innerText.trim(), a.date);
+            if (!row.cells[2].classList.contains('date')) p.push(id + '：日期那一格沒有標成日期欄');
+          });
+          if (ovItem('gold_twd').querySelector('tr.ov-row').cells[1].innerText.replace(/\s+/g, ' ').trim() !== Math.round(OV_WAVE[259].c).toLocaleString('zh-TW') + ' TWD') p.push('現價沒有照小數位數印');
+          if (ovItem('gold_bar').querySelector('tr.ov-row').cells[1].innerText.indexOf('4,441,200') < 0 || ovItem('gold_bar').innerText.indexOf('1 公斤掛牌') < 0) p.push('條塊要印 1 公斤的掛牌價');
+          if (ovItem('broken').querySelector('tr.ov-row').cells[1].innerText.indexOf('更新失敗') < 0) p.push('更新失敗的標的不可以印價格');
+          same(p, '預設的順序說明', $('#ov-order').innerText, '現在的順序：預設（跟儀表板一樣）');
+          var none = document.createElement('div');
+          none.innerHTML = AnalysisDebug.renderOverview({ status: FIX.status, market: { latest: null, histories: {} } });
+          if (!none.querySelector('.warn') || none.innerText.indexOf('讀不到 data/latest.json') < 0 || none.querySelector('#ov-table')) p.push('讀不到行情時要紅字說讀不到，不畫表');
+          if (!none.querySelector('#ov-status')) p.push('讀不到行情時，分析狀態那一行還是要在');
+        });
+        check('overview_cells_are_the_same_aspects_as_the_cards', function (p) {
+          /* 對照組：位置面向的字眼被改成偏貴、或不適用被寫成資料不足 → 這一條會紅。 */
+          OV_ORDER.forEach(function (id) {
+            var want = aspectsOf(id), row = ovItem(id).querySelector('tr.ov-row');
+            want.forEach(function (a, i) {
+              var cell = row.cells[3 + i], word = cell.querySelector('.asp-word');
+              same(p, id + '/' + a.aspect + ' 的狀態詞', word && word.innerText.trim(), a.state.word);
+              same(p, id + '/' + a.aspect + ' 的欄位', cell.getAttribute('data-aspect'), a.aspect);
+              same(p, id + '/' + a.aspect + ' 記在列上的狀態', ovItem(id).getAttribute('data-s-' + a.aspect), a.state.key);
+              if (a.state.key === 'none') { if (cell.querySelector('svg')) p.push(id + '/' + a.aspect + '：不適用不該有圖示'); }
+              else if (!cell.querySelector('.asp-icon svg') || !cell.querySelector('.asp-icon').getAttribute('aria-label')) p.push(id + '/' + a.aspect + '：沒有圖示或沒有文字替代');
+            });
+          });
+          function word(id, i) { return ovItem(id).querySelector('tr.ov-row').cells[3 + i].querySelector('.asp-word').innerText.trim(); }
+          same(p, '一路漲的位置', word('gspc', 0), '相對高檔區');
+          same(p, '一路跌的位置', word('tw00679b', 0), '相對低檔區');
+          same(p, '位置就是燈號', word('gold_twd', 0), I.computeAll(OV_WAVE, FIX.market.latest.assets.gold_twd.price).signal.label);
+          $$('#ov-table td.ov-asp[data-aspect="position"] .asp-word').forEach(function (w) {
+            if (['相對低檔區', '中性', '相對高檔區', '資料不足'].indexOf(w.innerText.trim()) < 0) p.push('位置那一欄出現不是燈號的字：' + w.innerText);
+          });
+          same(p, '條塊的位置', word('gold_bar', 0), '資料不足');
+          same(p, '更新失敗的位置', word('broken', 0), '資料不足');
+          same(p, '指數的風險', word('gspc', 1), '平靜');
+          same(p, '5 年不夠的風險', word('tw00679b', 1), '資料不足');
+          same(p, '指數的成本', word('gspc', 2), '不適用');
+          same(p, '存摺的成本', word('gold_twd', 2), '正常');
+          same(p, '條塊的成本', word('gold_bar', 2), '資料不足');
+          same(p, '條塊的成本旁邊的附註', ovItem('gold_bar').querySelector('tr.ov-row').cells[5].querySelector('.asp-note').innerText.trim(), '累積中 12/20');
+          same(p, '匯率的成本', word('fx_cny', 2), '正常');
+        });
+        check('overview_sorts_by_aspect_keeps_blanks_last_and_resets', function (p) {
+          /* 對照組：排序時把「資料不足」排到前面、或同狀態不照名稱 → 這一條會紅。 */
+          var table = $('#ov-table');
+          function byName(ids) { return ids.slice().sort(function (x, y) { return FIX.market.latest.assets[x].name.localeCompare(FIX.market.latest.assets[y].name, 'zh-Hant'); }); }
+          function expect(aspect, dir) {
+            var rank = { low: 0, mid: 1, high: 2 }, blank = { na: 0, error: 1, none: 2 }, groups = {};
+            OV_ORDER.forEach(function (id) { var k = ovItem(id).getAttribute('data-s-' + aspect); (groups[k] = groups[k] || []).push(id); });
+            var keys = ['low', 'mid', 'high'];
+            if (dir === 'desc') keys.reverse();
+            var out = [];
+            keys.concat(['na', 'error', 'none']).forEach(function (k) { out = out.concat(byName(groups[k] || [])); });
+            return out.join('、');
+          }
+          var th = $('#ov-table th.ov-sort[data-aspect="position"]');
+          if (!th.querySelector('button.ov-sortbtn') || th.querySelector('button.ov-sortbtn').getAttribute('type') !== 'button') p.push('欄名要是一個真的按鈕（鍵盤才按得到）');
+          th.querySelector('button.ov-sortbtn').click();
+          same(p, '照位置（低的在前）', ovIds().join('、'), expect('position', 'asc'));
+          if (!th.classList.contains('asc') || th.getAttribute('aria-sort') !== 'ascending') p.push('排序方向沒有標在表頭');
+          same(p, '順序說明', $('#ov-order').innerText, '現在的順序：照「位置」排（相對低檔區 → 中性 → 相對高檔區；同一個狀態照名稱；資料不足與不適用排最後）');
+          var ids = ovIds();
+          if (ids[0] !== 'tw00679b') p.push('相對低檔區應該排第一，得到 ' + ids[0]);
+          if (ids.slice(-2).sort().join('、') !== 'broken、gold_bar') p.push('資料不足的兩列要排最後，得到 ' + ids.slice(-2).join('、'));
+          // 相對高檔區有兩列：預設順序是 S&P 500 在前（海外排在匯率前面），照名稱是「人民幣 / 台幣」在前（中文字排在英文字母前面）——同狀態要照名稱
+          same(p, '同狀態照名稱（不是照原本的順序）', ids.filter(function (id) { return ovItem(id).getAttribute('data-s-position') === 'high'; }).join('、'), 'fx_cny、gspc');
+          th.click();
+          same(p, '再點一次（高的在前）', ovIds().join('、'), expect('position', 'desc'));
+          if (ovIds().slice(-2).sort().join('、') !== 'broken、gold_bar') p.push('倒過來排時，資料不足還是要排最後');
+          if (!th.classList.contains('desc')) p.push('再點一次要變成降冪');
+          AnalysisDebug.sortOverview(table, 'cost', 'asc');
+          same(p, '照成本', ovIds().join('、'), expect('cost', 'asc'));
+          same(p, '不適用排在資料不足後面', ovIds()[ovIds().length - 1], 'gspc');
+          if ($('#ov-table th.ov-sort[data-aspect="position"]').classList.contains('desc')) p.push('換一欄排序時，上一欄的箭頭要清掉');
+          // 每一列的細節跟著那一列走
+          $$('#ov-table tbody.ov-item').forEach(function (it) {
+            if (it.rows.length !== 2 || !it.rows[1].classList.contains('ov-detail')) p.push(it.getAttribute('data-id') + '：排序之後細節沒有跟著');
+          });
+          $('#ov-reset').click();
+          same(p, '回到預設', ovIds().join('、'), OV_ORDER.join('、'));
+          same(p, '回到預設的說明', $('#ov-order').innerText, '現在的順序：預設（跟儀表板一樣）');
+          if ($$('#ov-table th.ov-sort.asc, #ov-table th.ov-sort.desc').length) p.push('回到預設之後表頭不該還有箭頭');
+        });
+        check('overview_row_expands_into_rule_numbers_and_plain_lines', function (p) {
+          /* 對照組：圖示沒有規則、或某一行白話是空的 → 這一條會紅。 */
+          var item = ovItem('gspc'), row = item.querySelector('tr.ov-row'), det = item.querySelector('tr.ov-detail');
+          var toggle = row.querySelector('button.ov-toggle');
+          if (!toggle || toggle.getAttribute('type') !== 'button' || toggle.innerText.trim() !== 'S&P 500 指數') { p.push('列名要是一個真的按鈕（鍵盤才按得到）'); return; }
+          if (!det.hidden) p.push('細節預設要收合');
+          same(p, '收合時', toggle.getAttribute('aria-expanded'), 'false');
+          toggle.click();                                          // 按鈕被按（滑鼠、Enter、空白鍵都是這個事件）
+          if (det.hidden || toggle.getAttribute('aria-expanded') !== 'true' || !row.classList.contains('is-open')) p.push('按列名沒有展開細節');
+          row.cells[3].click();                                    // 點同一列的別格也算點這一列：收起來
+          if (!det.hidden || toggle.getAttribute('aria-expanded') !== 'false') p.push('點同一列的其他地方要能收起來');
+          row.click();
+          if (det.hidden) p.push('點一列沒有展開細節');
+          var boxes = det.querySelectorAll('.asp-detail');
+          same(p, '三個面向各一塊', Array.prototype.map.call(boxes, function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk、cost');
+          Array.prototype.forEach.call(boxes, function (b) {
+            var asp = b.getAttribute('data-aspect');
+            if (!b.querySelector('.asp-because') || !b.querySelector('.asp-because').innerText.trim()) p.push(asp + '：沒有寫這次是哪個數字');
+            if (asp === 'cost') { if (b.querySelector('.asp-rule')) p.push('不適用的面向沒有規則可印'); }
+            else if (!b.querySelector('.asp-rule') || b.querySelector('.asp-rule').innerText.indexOf('規則：') !== 0) p.push(asp + '：沒有印規則');
+            Array.prototype.forEach.call(b.querySelectorAll('.asp-fact'), function (f) {
+              if (!f.querySelector('.plain-line') || !f.querySelector('.plain-line').innerText.trim()) p.push(asp + '：有一個數字下面沒有白話');
+            });
+          });
+          var t = det.innerText;
+          if (t.indexOf('1 年波動 12.3%，5 年波動 17.8% → 平靜') < 0) p.push('風險的細節沒有印這次的數字');
+          if (t.indexOf('風險的資料日期：2026-09-14（最後一根完成的週棒）') < 0) p.push('風險的週線日期要寫在細節裡');
+          if (t.indexOf('位置的資料日期：2026-09-23（日線）') < 0) p.push('位置的日線日期要寫在細節裡');
+          if (t.indexOf('指數只是一個數字') < 0) p.push('不適用要寫原因');
+          if (det.cells[0].colSpan !== 6) p.push('細節要橫跨整列');
+          row.click();
+          if (!det.hidden) p.push('再點一次要收起來');
+          var fx = ovItem('fx_cny');
+          if (fx.querySelector('.asp-detail[data-aspect="position"] .asp-extra').innerText !== '5 年位置：偏貴（見換匯助手）') p.push('匯率列的位置細節要有 5 年位置那一行');
+          if (!fx.querySelector('.asp-detail[data-aspect="position"] .asp-extra a[href="analysis.html#fx"]')) p.push('5 年位置沒有連到換匯助手');
+        });
+        check('overview_never_counts_or_totals', function (p) {
+          /* 對照組：總覽表顯示計數（例如「3 個標的在相對高檔區」）→ 這一條會紅。 */
+          var t = $('#overview').innerText;
+          TALLY.concat([COUNTING]).forEach(function (re) { if (re.test(t)) p.push('總覽區出現計數：' + re.exec(t)[0]); });
+          if (!TALLY[0].test('3 個標的在相對高檔區') || !TALLY[0].test('兩檔偏貴') || !TALLY[1].test('相對高檔區：4 個') || !TALLY[1].test('偏貴 2 檔')) p.push('計數的檢查式自己壞了');
+          if (/合計|總計|共\s*[0-9]+\s*(個|檔|項)|平均/.test(t)) p.push('總覽區出現加總的字眼');
+          if ($('#overview tfoot')) p.push('總覽表不該有合計列');
+          if (t.indexOf('這張表不把它們加起來') < 0) p.push('沒有寫明這張表不加總');
+          ['count', 'total', 'tally', 'summary', 'score'].forEach(function (k) {
+            if (typeof AnalysisDebug[k] !== 'undefined') p.push('analysis.js 不該有加總用的函式：' + k);
+          });
+          if ($$('#overview button.term').length < 2) p.push('「面向」「狀態詞」要可以點');
+        });
+        check('every_section_explains_its_numbers_in_plain_words', function (p) {
+          /* 對照組：白話模板輸出空字串 → 這一條會紅。 */
+          $$('.plain-line').forEach(function (l) { if (!l.innerText.trim()) p.push('有一行白話是空的（在 #' + (l.closest('section') || {}).id + '）'); });
+          function lines(sel) { return $$(sel + ' .plain-line').map(function (l) { return l.innerText.trim(); }); }
+          var risk = lines('#risk table.sortable');
+          if (risk.indexOf('照最近 1 年的起伏，一年裡漲跌 12% 左右算平常。') < 0) p.push('風險表的 1 年波動下面沒有白話');
+          if (risk.indexOf('照最近 5 年的起伏，一年裡漲跌 18% 左右算平常。') < 0) p.push('風險表的 5 年波動下面沒有白話');
+          if (risk.indexOf('歷史上最慘的一次曾經跌掉大約一半，2013-03-25 才漲回原來的高點。') < 0) p.push('最大回檔下面沒有白話');
+          if (risk.indexOf('歷史上最慘的一次曾經跌掉大約一半，到現在還沒漲回原來的高點。') < 0) p.push('還沒漲回的最大回檔沒有照實寫');
+          if (risk.indexOf('比 2026-08-31 的高點低 1.2%。') < 0) p.push('目前距高點下面沒有白話');
+          if (risk.length !== 7) p.push('風險表的白話應該是 7 行（資料不足的那一格不寫），得到 ' + risk.length);
+          var cost = lines('#cost');
+          ['過去 1 年的報酬比它追蹤的指數少 1.50 個百分點。', '過去 3 年，平均每年的報酬比它追蹤的指數少 1.00 個百分點。', '成交價比淨值便宜 0.37%（折價）。',
+           '一般的情況（中位數）：成交價比淨值便宜 0.44%（折價）。', '銀行掛的兩個價格差 1.19%：今天存進 100 元的黃金、馬上再換回現金，大約會少 1.19 元。',
+           '跟自己平常的水準（中位數 1.19%）差不多。', '同樣重量的黃金，1 公斤條塊比黃金存摺貴 1.35%（鑄造與加工的費用）。',
+           '同樣重量的黃金，100 公克條塊比黃金存摺貴 2.01%（鑄造與加工的費用）。', '每放 10,000 元，一年大約有 30 元是這一項費用；已經算在淨值裡，不會另外扣。'].forEach(function (s) {
+            if (cost.indexOf(s) < 0) p.push('成本區少了這一行白話：' + s);
+          });
+          var dec = lines('#decompose');
+          ['台銀的牌價比「國際金價 × 匯率」算出來的高 3.03%；這個差來自銀行的價差、期貨與現貨的價差，以及兩邊報價的時間不一樣。',
+           '一般的情況（中位數）：台銀的牌價比「國際金價 × 匯率」算出來的高 2.90%；這個差來自銀行的價差、期貨與現貨的價差，以及兩邊報價的時間不一樣。',
+           '平均每個月：00646 的報酬比「指數 × 匯率」合起來算的多 0.09 個百分點；差在費用、股息與換匯的時間點。'].forEach(function (s) {
+            if (dec.indexOf(s) < 0) p.push('拆解區少了這一行白話：' + s);
+          });
+          // 逐日、逐月的明細只列數字：表格裡不寫白話，表頭旁邊寫明白話在摘要
+          $$('#decompose h4').forEach(function (h) {
+            if (h.innerText.indexOf('明細只列數字，白話寫在上面的摘要') < 0) p.push('明細表的標題要寫明白話在摘要：' + h.innerText);
+            var tb = h.nextElementSibling;
+            if (tb && tb.tagName === 'TABLE' && tb.querySelector('.plain-line')) p.push('明細表裡不該一格一句白話');
+          });
+          var conc = lines('#concentration');
+          ['放最多的一類是「債券 ETF」，佔全部的 30%。', '跟收入來源的代理標的（tw2330）常常同方向走的類別，合起來佔全部的 30%。'].forEach(function (s) {
+            if (conc.indexOf(s) < 0) p.push('集中度少了這一行白話：' + s);
+          });
+          if (!conc.some(function (s) { return s.indexOf('最大的兩類（') === 0 && s.indexOf('合起來佔全部的 50%。') > 0; })) p.push('集中度的前二類沒有白話');
+        });
+        check('table_headers_have_clickable_terms_without_breaking_sorting', function (p) {
+          /* 對照組：點表頭裡的名詞也會觸發排序 → 這一條會紅。 */
+          function termsIn(sel) { return $$(sel + ' button.term').map(function (b) { return b.getAttribute('data-term'); }); }
+          same(p, '風險表表頭的名詞', termsIn('#risk table.sortable thead').join('、'), '年化波動、年化波動、回檔、目前距高點、資料標籤');
+          if (termsIn('#risk h3').indexOf('相關係數') < 0) p.push('相關矩陣的標題要有名詞');
+          ['追蹤差', '折溢價', '淨值', '條塊溢價'].forEach(function (x) { if (termsIn('#cost').indexOf(x) < 0) p.push('成本區的「' + x + '」要可以點'); });
+          if (termsIn('#decompose').indexOf('殘差') < 0) p.push('拆解區的「殘差」要可以點');
+          ['保底', '視窗重疊', '預算池', '歷史模擬', '百分位'].forEach(function (x) { if (termsIn('#fx').indexOf(x) < 0) p.push('換匯助手的「' + x + '」要可以點'); });
+          var ths = $$('#risk table.sortable th.sortable');
+          same(p, '表頭的字不變', ths.map(function (x) { return x.innerText.trim(); }).join('｜'), '標的｜類別｜幣別｜最後完成週棒｜週數｜年化波動 1 年｜年化波動 5 年｜最大回檔｜目前距高點｜10 年視窗｜資料標籤');
+          AnalysisDebug.wireSorting($('#risk'));
+          var table = $('#risk table.sortable'), before = $$('#risk table.sortable tbody tr').map(function (r) { return r.cells[0].innerText; }).join('｜');
+          var btn = ths[7].querySelector('button.term');
+          btn.click();
+          if (!ths[7].querySelector('.term-def')) p.push('點表頭的名詞沒有展開解釋');
+          if (ths[7].classList.contains('asc') || ths[7].classList.contains('desc')) p.push('點名詞不可以觸發排序');
+          same(p, '點名詞之後列的順序不變', $$('#risk table.sortable tbody tr').map(function (r) { return r.cells[0].innerText; }).join('｜'), before);
+          ths[7].querySelector('.term-def').click();
+          if (ths[7].classList.contains('asc') || ths[7].classList.contains('desc')) p.push('點展開的解釋也不可以觸發排序');
+          btn.click();
+          ths[5].click();
+          if (!ths[5].classList.contains('desc')) p.push('點表頭的其他地方要照常排序');
+          AnalysisDebug.sortTable(table, 0, 'asc');
+        });
+        check('correlation_has_one_sentence_per_asset_not_per_cell', function (p) {
+          var ids = FIX.risk.correlation.ids, items = $$('#corr-plain li');
+          same(p, '一個標的一句', items.length, ids.length);
+          if ($$('#risk .matrix-wrap .plain-line').length) p.push('矩陣的格子裡不寫白話');
+          var first = items[0].innerText;
+          if (first.indexOf('gspc') !== 0 || first.indexOf('S&P 500') < 0) p.push('那一句前面要有代號與名稱：' + first);
+          same(p, '只有兩個標的有成對資料時', items[0].querySelector('.plain-line').innerText, '最常跟它同方向走的是 00679B（-0.12）；走勢最沒有關係的是 00679B（-0.12）；沒有哪一檔常常跟它反方向。');
+          var tsmc = items[ids.indexOf('tw2330')].querySelector('.plain-line').innerText;
+          same(p, '有反向的那一檔', tsmc, '最常跟它同方向走的是 tw00646（0.51）；走勢最沒有關係的是 00679B（0.03）；常常跟它反方向的是 fx_usd（-0.32）。');
+          items.forEach(function (li) { if (!li.querySelector('.plain-line').innerText.trim()) p.push('有一句是空的'); });
+        });
+        check('adhoc_detail_gets_a_glance_row_and_plain_lines', function (p) {
+          var d = document.createElement('div');
+          d.innerHTML = AnalysisDebug.renderAdhoc({ status: 'index', index: FIX.adhocIndex, detail: FIX.adhocDetail });
+          var cells = d.querySelectorAll('#adhoc-glance .glance');
+          if (cells.length !== 2) { p.push('試算結果的圖示列應有兩格（風險、最像的三檔），得到 ' + cells.length); return; }
+          same(p, '風險那一格', cells[0].querySelector('.glance-title').innerText + '／' + cells[0].querySelector('.glance-word').innerText, '風險／資料不足');
+          same(p, '風險資料不足的原因', cells[0].querySelector('.glance-because').innerText, '資料不足：只有 200 週（至少要 234 週）');
+          if (cells[0].querySelector('.glance-rule').innerText.indexOf('規則：1 年波動比 5 年波動') !== 0) p.push('風險那一格沒有印規則');
+          same(p, '最像的三檔', cells[1].querySelector('.glance-word').innerText, 'gspc、tw00646、nvda');
+          same(p, '最像的三檔的白話', cells[1].querySelector('.glance-because').innerText, '現有的標的裡，走勢跟它最像的是 S&P 500（0.91）、00646（0.88）、NVIDIA（0.61）。');
+          if (cells[1].querySelector('.glance-rule').innerText.indexOf('規則：') !== 0) p.push('最像的三檔沒有印規則');
+          if (d.innerText.indexOf('兩格各看各的') < 0) p.push('沒有寫明兩格不加總');
+          var lines = Array.prototype.map.call(d.querySelectorAll('.plain-line'), function (l) { return l.innerText.trim(); });
+          ['照最近 1 年的起伏，一年裡漲跌 12% 左右算平常。', '歷史上最慘的一次曾經跌掉大約三分之一，2021-01-04 才漲回原來的高點。', '比 2026-08-31 的高點低 4.4%。',
+           '歷史上最慘的一次曾經跌掉大約三分之一。'].forEach(function (s) { if (lines.indexOf(s) < 0) p.push('試算少了這一行白話：' + s); });
+          lines.forEach(function (s) { if (!s) p.push('試算有一行白話是空的'); });
+          var full = JSON.parse(JSON.stringify(FIX.adhocDetail));
+          full.risk.volatility['5y'] = { pct: 10, weeks: 260, window: '260 週', from: '2021-09-20', through: '2026-09-14', label: '單一來源' };
+          var f = document.createElement('div');
+          f.innerHTML = AnalysisDebug.renderAdhocDetail(full);
+          same(p, '有 5 年波動時', f.querySelector('#adhoc-glance .glance-word').innerText, '劇烈');
+          var bare = JSON.parse(JSON.stringify(FIX.adhocDetail)); bare.correlation = { reason: '資料不足：週線太短' };
+          var b = document.createElement('div');
+          b.innerHTML = AnalysisDebug.renderAdhocDetail(bare);
+          same(p, '沒有相關資料時', b.querySelectorAll('#adhoc-glance .glance')[1].querySelector('.glance-word').innerText, '資料不足');
         });
         check('missing_status_is_loud', function (p) {
           var box = document.createElement('div');

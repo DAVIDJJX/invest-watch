@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>儀表板實際載入的量測頁（由 scripts/test_dashboard_requests_js.py 開）</title>
+  <style>html, body { margin: 0; } iframe { border: 0; width: 1200px; height: 2400px; display: block; }</style>
+</head>
+<body>
+  <!-- 這一頁要經由本機的測試伺服器開（scripts/test_dashboard_requests_js.py 會自己起一個），不能用 file:// 開：
+       它把真正的儀表板（../index.html）放進 iframe，等圖示列補完，再把瀏覽器自己記的每一個請求（路徑與發出的時間）、
+       「首屏畫完」那個時間標記、每張卡的燈號與圖示列、點開之後的樣子，整理成 JSON 放在 id 叫 result 的區塊。
+       這一頁只量、只讀，不改儀表板的任何東西；倉庫裡的資料是什麼它就量什麼。 -->
+  <iframe id="f" title="儀表板"></iframe>
+  <pre id="result"></pre>
+  <script>
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var out = { loaded: false, timedOut: false, problems: [] };
+      var f = document.getElementById('f');
+      function finish() { document.getElementById('result').textContent = JSON.stringify(out); }
+      function text(el) { return el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : null; }
+      function list(root, sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
+      function collect(win, doc) {
+        var perf = win.performance;
+        var mark = perf.getEntriesByName('iw-first-screen')[0];
+        var origin = location.origin + '/';
+        out.mark = mark ? mark.startTime : null;
+        out.resources = perf.getEntriesByType('resource').map(function (e) {
+          return { path: e.name.replace(origin, '').split('?')[0], start: e.startTime, kind: e.initiatorType };
+        });
+        out.staticTags = list(doc, 'link[rel="stylesheet"], script[src]').map(function (n) { return (n.getAttribute('href') || n.getAttribute('src')).split('?')[0]; });
+        out.dashboardDone = doc.getElementById('dashboard').getAttribute('data-glance');
+        out.cards = list(doc, '.card').map(function (card) {
+          var glance = card.querySelector('.card-glance');
+          var lamp = card.querySelector('.card-name .signal');
+          return {
+            id: card.getAttribute('data-id'),
+            lamp: lamp ? text(lamp) : null,
+            hasStrip: !!glance,
+            stripBetweenHeadAndBody: !!glance && glance.previousElementSibling === card.querySelector('.card-head') &&
+                                     (!card.querySelector('.card-body') || glance.nextElementSibling === card.querySelector('.card-body')),
+            stripInsideHead: !!card.querySelector('.card-head .card-glance, .card-head button.asp'),
+            waiting: !!(glance && glance.querySelector('.asp-wait')),
+            missing: glance && glance.querySelector('.asp-missing') ? text(glance.querySelector('.asp-missing')) : null,
+            chips: glance ? list(glance, 'button.asp').map(function (b) {
+              var icon = b.querySelector('.asp-icon');
+              return { aspect: b.getAttribute('data-aspect'), state: b.getAttribute('data-state'), name: text(b.querySelector('.asp-name')),
+                       word: text(b.querySelector('.asp-word')), note: text(b.querySelector('.asp-note')), label: b.getAttribute('aria-label'),
+                       icon: !!(icon && icon.querySelector('svg')), iconLabel: icon ? icon.getAttribute('aria-label') : null,
+                       expanded: b.getAttribute('aria-expanded'), controls: b.getAttribute('aria-controls') };
+            }) : [],
+            details: glance ? list(glance, '.asp-detail').map(function (d) {
+              return { id: d.id, aspect: d.getAttribute('data-aspect'), hidden: d.hidden, because: text(d.querySelector('.asp-because')), rule: text(d.querySelector('.asp-rule')),
+                       facts: d.querySelectorAll('.asp-fact').length, emptyPlain: list(d, '.plain-line').filter(function (l) { return !text(l); }).length,
+                       extra: list(d, '.asp-extra').map(text), links: list(d, '.asp-extra a').map(function (a) { return a.getAttribute('href'); }) };
+            }) : []
+          };
+        });
+        var spoken = [];
+        list(doc, '.card-glance').forEach(function (g) {
+          spoken.push(g.textContent);
+          list(g, '[aria-label]').forEach(function (n) { spoken.push(n.getAttribute('aria-label')); });
+        });
+        out.glanceText = spoken.join('\n');
+        interact(win, doc);
+      }
+
+      /* 點一點：圖示展開細節（一次只開一個）、打開一張卡看指標格的名詞、展開「分析」摺疊區 */
+      function interact(win, doc) {
+        var id = q.get('open') || 'tw00646';
+        var card = doc.querySelector('.card[data-id="' + id + '"]');
+        if (!card) { out.problems.push('找不到卡片 ' + id); return finish(); }
+        var chips = list(card, '.card-glance button.asp');
+        var click = { before: chips.map(function (b) { return b.getAttribute('aria-expanded'); }).join(',') };
+        if (chips.length >= 2) {
+          chips[0].click();
+          click.afterFirst = chips.map(function (b) { return b.getAttribute('aria-expanded'); }).join(',') + '|' +
+                             list(card, '.asp-detail').map(function (d) { return d.hidden ? 'h' : 'v'; }).join(',');
+          chips[1].click();
+          click.afterSecond = chips.map(function (b) { return b.getAttribute('aria-expanded'); }).join(',') + '|' +
+                              list(card, '.asp-detail').map(function (d) { return d.hidden ? 'h' : 'v'; }).join(',');
+          chips[1].click();
+          click.afterClose = chips.map(function (b) { return b.getAttribute('aria-expanded'); }).join(',') + '|' +
+                             list(card, '.asp-detail').map(function (d) { return d.hidden ? 'h' : 'v'; }).join(',');
+          click.cardOpenedByChip = card.classList.contains('is-open');
+        }
+        out.click = click;
+        card.querySelector('.card-head').click();
+        var tries = 0;
+        var timer = setInterval(function () {
+          tries++;
+          var body = card.querySelector('.card-body .metrics');
+          if (!body && tries < 60) return;
+          clearInterval(timer);
+          var metrics = { opened: !!body };
+          if (body) {
+            metrics.titles = list(card, '.metric .k').map(text);
+            metrics.notes = list(card, '.metric .n').map(text);
+            metrics.terms = list(card, '.metric .k button.term').map(function (b) { return b.getAttribute('data-term'); });
+            metrics.pending = card.querySelectorAll('[data-term-pending]').length;
+            var range = card.querySelector('.range-bar button.term');
+            metrics.rangeTerm = range ? range.getAttribute('data-term') + '｜' + text(range) : null;
+            var first = card.querySelector('.metric .k button.term');
+            if (first) {
+              first.click();
+              metrics.definition = text(card.querySelector('.metric .k .term-def'));
+              metrics.cardStillOpen = card.classList.contains('is-open');
+              first.click();
+              metrics.definitionClosed = !card.querySelector('.metric .k .term-def');
+            }
+          }
+          out.metrics = metrics;
+          var fold = card.querySelector('details.ana');
+          if (!fold) { out.fold = null; out.loaded = true; return finish(); }
+          fold.open = true;
+          var tries2 = 0;
+          var timer2 = setInterval(function () {
+            tries2++;
+            var ready = fold.querySelector('.ana-body') && !fold.querySelector('.ana-body .loading');
+            if (!ready && tries2 < 60) return;
+            clearInterval(timer2);
+            out.fold = { hint: text(fold.querySelector('.ana-hint')), rows: fold.querySelectorAll('.ana-row').length,
+                         plainLines: fold.querySelectorAll('.plain-line').length, text: text(fold.querySelector('.ana-body')),
+                         emptyPlain: list(fold, '.plain-line').filter(function (l) { return !text(l); }).length };
+            out.resourcesAfterInteraction = win.performance.getEntriesByType('resource').length;
+            out.loaded = true;
+            finish();
+          }, 100);
+        }, 100);
+      }
+
+      f.addEventListener('load', function () {
+        var win = f.contentWindow, doc = f.contentDocument, tries = 0;
+        var timer = setInterval(function () {
+          tries++;
+          var root = doc.getElementById('dashboard');
+          var done = root && root.getAttribute('data-glance') === 'done';
+          if (!done && tries < 150) return;
+          clearInterval(timer);
+          out.timedOut = !done;
+          try { collect(win, doc); } catch (e) { out.problems.push('例外：' + (e && e.message)); finish(); }
+        }, 100);
+      });
+      f.src = '../index.html?now=' + encodeURIComponent(q.get('now') || '2026-09-30T16:30:00+08:00');
+    })();
+  </script>
+</body>
+</html>

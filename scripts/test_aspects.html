@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>面向（位置、風險、成本）離線測試頁</title>
+</head>
+<body>
+  <!-- 這一頁不連網、不讀資料檔：把假的行情、日線、risk／cost／fx 餵給 js/card-analysis.js 的 aspects()，逐題檢查每個面向的狀態、
+       圖示列與點開後的細節。結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_aspects_js.py 讀。假資料的數字一看就是假的。 -->
+  <div id="mount"></div>
+  <pre id="result"></pre>
+  <script src="../js/indicators.js"></script>
+  <script src="../js/plain.js"></script>
+  <script src="../js/glossary.js"></script>
+  <script src="../js/card-analysis.js"></script>
+  <script>
+    (function () {
+      var results = [];
+      function check(name, fn) {
+        var problems = [];
+        try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
+        results.push({ name: name, ok: problems.length === 0, problems: problems });
+      }
+      function box(html) { var d = document.createElement('div'); d.innerHTML = html; document.getElementById('mount').appendChild(d); return d; }
+      function same(p, what, got, want) { if (got !== want) p.push(what + '：應為「' + want + '」，得到「' + got + '」'); }
+      function clone(x) { return JSON.parse(JSON.stringify(x)); }
+      // 不該出現的字（拆開拼，免得守門掃到這一頁自己）；台銀牌價的欄位名稱是價格的名字，先拿掉再查
+      var BANNED = ['偏' + '買', '偏' + '賣', '主' + '力', '建' + '議', '買' + '進', '賣' + '出', '總' + '分', '分' + '數'];
+      var PRICE_NAMES = ['本行賣' + '出', '本行買入', '即期賣' + '出', '即期買入'];
+      var COUNTING = /[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)/;
+      var VOCAB = { position: ['相對低檔區', '中性', '相對高檔區', '資料不足', '暫時讀不到'],
+                    risk: ['平靜', '正常', '劇烈', '資料不足', '暫時讀不到'],
+                    cost: ['便宜', '正常', '偏貴', '資料不足', '不適用', '暫時讀不到'] };
+
+      /* 合成的日線（跟 scripts/test_indicators.html 同一個產生法，不是任何真實資料） */
+      function series(kind, n) {
+        var pts = [], v = 100, d0 = Date.UTC(2025, 8, 1);
+        for (var i = 0; i < n; i++) {
+          if (kind === 'up') v = v * 1.004;
+          else if (kind === 'down') v = v * 0.996;
+          else if (kind === 'flat') v = 100 + ((i * 7) % 3) * 0.1;
+          else if (kind === 'wave') v = 100 + 15 * Math.sin(i / 9) + ((i * 13) % 5) * 0.2;
+          else if (kind === 'crash') v = i < n - 12 ? 100 + i * 0.3 : 100 + (n - 12) * 0.3 - (i - (n - 12)) * 4;
+          var day = new Date(d0 + i * 86400000);
+          pts.push({ d: day.toISOString().slice(0, 10), c: Math.round(v * 1000) / 1000 });
+        }
+        return pts;
+      }
+      function asset(id, type, extra) {
+        var a = { id: id, name: '測試 ' + id, type: type, status: 'ok', price: 100, decimals: 2, date: '2026-09-30', group: '測試', currency: 'TWD' };
+        Object.keys(extra || {}).forEach(function (k) { a[k] = extra[k]; });
+        return a;
+      }
+      function vol(y1, y5) {
+        return { '1y': typeof y1 === 'number' ? { pct: y1, from: '2025-09-29', through: '2026-09-21', label: '單一來源' } : { pct: null, reason: y1 },
+                 '5y': typeof y5 === 'number' ? { pct: y5, from: '2021-10-04', through: '2026-09-21', label: '單一來源' } : { pct: null, reason: y5 } };
+      }
+      function riskAsset(cls, y1, y5) {
+        return { name: '測試', assetClass: cls, currency: 'TWD', bars: 500, lastBar: '2026-09-21', dataLabel: '單一來源', volatility: vol(y1, y5),
+                 maxDrawdown: { pct: -40, peakDate: '2020-02-17', troughDate: '2020-03-16', recoveredDate: '2020-08-24', label: '單一來源' },
+                 currentDrawdown: { pct: -10, highDate: '2026-08-10', dataThrough: '2026-09-21', label: '單一來源' } };
+      }
+      var RISK = { assets: {
+        tw00646: riskAsset('index_etf', 7.9, 10), tw00679b: riskAsset('bond_etf', 10, '資料不足：只有 40 週（至少要 234 週）'),
+        tw2330: riskAsset('stock', 12.1, 10), twii: riskAsset('index', 10, 10), btc: riskAsset('crypto', 8, 10), wti: riskAsset('commodity', 12, 10),
+        gold_intl: riskAsset('commodity', 12.5, 10), fx_usd: riskAsset('fx', 4, 5), fx_cny: riskAsset('fx', 3, 5), newthing: riskAsset('reit', 10, 10) },
+        correlation: { window: '3 年（156 週）', label: '單一來源', matrix: {
+          tw00646: { tw00646: { r: 1, n: 156 }, twii: { r: 0.9, n: 156, through: '2026-09-08' }, tw00679b: { r: 0.05, n: 156, through: '2026-09-08' }, fx_usd: { r: -0.35, n: 154, through: '2026-09-08' } } } } };
+      function daily(n, value, last) {
+        var out = [];
+        for (var i = 0; i < n; i++) out.push({ d: '2026-08-' + ('0' + (i % 28 + 1)).slice(-2), g1000Pct: i === n - 1 && last !== undefined ? last : value + (i % 3 - 1) * 0.1 });
+        return out;
+      }
+      var COST = {
+        trackingDifference: { primary: { benchmark: '^SP500TR', available: true, label: '估算', windows: { '3y': { diffPct: -3, annualizedDiffPct: -1, from: '2023-09-18', through: '2026-09-21' } } } },
+        premium: { tw00646: { status: '接了（每個交易日存一筆）', latest: [ { d: '2026-09-30', price: 77, nav: 70, premiumPct: 10, tag: '預估' }, { d: '2026-09-29', price: 76, nav: 76.38, premiumPct: 0.5, tag: '確定' } ],
+                              estimated: { n: 3, reason: '累積不到 20 個交易日（目前 3）', label: '估算' }, official: { n: 3, reason: '累積不到 20 個交易日（目前 3）', label: '單一來源' } },
+                   tw00679b: { status: '接了（每個交易日存一筆）', latest: [ { d: '2026-09-30', price: 25, nav: 25.1, premiumPct: -0.4, tag: '預估' }, { d: '2026-09-29', price: 25, nav: 25.09, premiumPct: -0.35, tag: '確定' } ],
+                               estimated: { n: 30, medianPct: -0.2, label: '估算' },
+                               official: { n: 30, from: '2026-08-18', through: '2026-09-29', medianPct: -0.2, minPct: -0.5, maxPct: 0.1, p25Pct: -0.3, p75Pct: -0.1, label: '單一來源' } } },
+        goldSpread: { label: '單一來源', latest: { d: '2026-09-30', buy: 99.5, sell: 100.5, spreadPct: 1.0 }, summary: { n: 264, from: '2025-09-01', through: '2026-09-30', medianPct: 1.0 } },
+        goldSpreadCny: { label: '單一來源', latest: { d: '2026-09-30', buy: 99.4, sell: 100.6, spreadPct: 1.2 }, summary: { n: 264, from: '2025-09-01', through: '2026-09-30', medianPct: 1.0 } },
+        barPremium: { label: '單一來源', n: 14, from: '2026-08-31', through: '2026-09-30', daily: daily(14, 1.0),
+                      latest: { d: '2026-09-30', goldSell: 100, rows: [ { spec: '1 公斤', grams: 1000, price: 100800, perGram: 100.8, premiumPct: 0.8 }, { spec: '100 公克', grams: 100, price: 10150, perGram: 101.5, premiumPct: 1.5 } ] } } };
+      var FX = { currencies: {
+        CNY: { assetId: 'fx_cny', label: '有對照', percentiles: { '5y': { pct: 72 } },
+               spreads: { label: '有對照', spot: { d: '2026-09-29', buy: 4.95, sell: 5, spreadPct: 1.0 }, spotSpread1y: { n: 252, from: '2025-09-17', through: '2026-09-29', medianPct: 1.0 } } },
+        USD: { assetId: 'fx_usd', label: '有對照', percentiles: { '5y': { pct: 33 } },
+               spreads: { label: '有對照', spot: { d: '2026-09-29', buy: 29.9, sell: 30, spreadPct: 0.334 }, spotSpread1y: { n: 145, reason: '資料不足：只有 145 點（至少要 227 點）' } } } } };
+      var UP = series('up', 260), DOWN = series('down', 260), WAVE = series('wave', 260);
+      var ASSETS = {
+        gold_twd: asset('gold_twd', 'bot_gold', { decimals: 0 }), gold_cny: asset('gold_cny', 'bot_gold', { currency: 'CNY' }),
+        gold_bar: asset('gold_bar', 'bot_gold_bar', { bars: [ { spec: '1 公斤', sell: 100800 } ] }),
+        gold_intl: asset('gold_intl', 'yahoo', { currency: 'USD' }), twii: asset('twii', 'twse_index'), tw2330: asset('tw2330', 'twse_stock'),
+        tw00646: asset('tw00646', 'twse_stock'), tw00679b: asset('tw00679b', 'twse_stock'), btc: asset('btc', 'yahoo', { currency: 'USD' }), wti: asset('wti', 'yahoo', { currency: 'USD' }),
+        fx_usd: asset('fx_usd', 'finmind_fx', { decimals: 3, date: '2026-09-29' }), fx_cny: asset('fx_cny', 'finmind_fx', { decimals: 3, date: '2026-09-29' }) };
+      function ctx(points, over) {
+        var c = { points: points || WAVE, historyFailed: false, risk: RISK, cost: COST, fx: FX };
+        Object.keys(over || {}).forEach(function (k) { c[k] = over[k]; });
+        return c;
+      }
+      function of(list, name) { return list.filter(function (a) { return a.aspect === name; })[0]; }
+
+      var loaded = !!(window.CardAnalysis && window.CardAnalysis.aspects && window.Plain && window.Glossary && window.Indicators);
+      if (loaded) {
+        var CA = window.CardAnalysis, P = window.Plain, I = window.Indicators;
+        var ALL = {};
+        Object.keys(ASSETS).forEach(function (id) { ALL[id] = CA.aspects(ASSETS[id], ctx()); });
+
+        check('aspects_come_in_a_fixed_order_each_with_word_number_and_rule', function (p) {
+          same(p, '面向的順序', CA.ASPECT_ORDER.join('、'), 'position、risk、cost');
+          Object.keys(ALL).forEach(function (id) {
+            var list = ALL[id];
+            if (!list || list.length !== 3) { p.push(id + '：應該有三個面向'); return; }
+            same(p, id + ' 的順序', list.map(function (a) { return a.aspect; }).join('、'), 'position、risk、cost');
+            list.forEach(function (a) {
+              var s = a.state, tag = id + '/' + a.aspect;
+              if (!s) { p.push(tag + '：沒有狀態'); return; }
+              if (VOCAB[a.aspect].indexOf(s.word) < 0) p.push(tag + '：狀態詞「' + s.word + '」不在這個面向的詞表裡');
+              if (!s.because) p.push(tag + '：沒有寫這次是哪個數字（或為什麼沒有狀態）');
+              if (!s.rule || s.rule.indexOf('規則：') !== 0) p.push(tag + '：沒有規則句');
+              if (['low', 'mid', 'high', 'na', 'none', 'error'].indexOf(s.key) < 0) p.push(tag + '：不認得的狀態 ' + s.key);
+              if (s.key !== 'none' && !P.ICONS[s.icon]) p.push(tag + '：沒有圖示');
+              same(p, tag + ' 的名稱', a.name, P.ASPECTS[a.aspect].name);
+            });
+          });
+          if (CA.aspects(null, ctx()) !== null) p.push('沒有標的要回 null');
+        });
+
+        check('position_is_the_same_lamp_as_the_card_word_for_word', function (p) {
+          /* 對照組：位置面向的字眼被改成偏貴（拿區間百分位去套匯率位置那一套）→ 這一條會紅。
+             跟 scripts/test_indicators.html 同樣的 30 組輸入：面向的狀態詞必須等於燈號函式的輸出。 */
+          var seen = {}, count = 0;
+          ['up', 'down', 'flat', 'wave', 'crash'].forEach(function (kind) {
+            [260, 40].forEach(function (n) {
+              var pts = series(kind, n), last = pts[pts.length - 1].c;
+              [last, last * 1.05, last * 0.93].forEach(function (price) {
+                price = Math.round(price * 1000) / 1000;
+                var ind = I.computeAll(pts, price);
+                var a = of(CA.aspects(asset('x', 'yahoo', { price: price }), ctx(pts)), 'position');
+                count++;
+                seen[ind.signal.level] = true;
+                var tag = kind + '/' + n + '/' + price;
+                same(p, tag + ' 狀態詞', a.state.word, ind.signal.label);
+                same(p, tag + ' 狀態', a.state.key, ind.signal.level);
+                same(p, tag + ' 這次的數字', a.state.because, I.signalRule(ind.range, I.windowStart(pts, ind.range.days)) + ' → ' + ind.signal.label);
+                same(p, tag + ' 圖示', a.state.icon, 'dot');
+                if (['偏便宜', '中間', '偏貴', '便宜', '正常'].indexOf(a.state.word) >= 0) p.push(tag + '：位置的狀態詞不可以是「' + a.state.word + '」');
+                if (a.facts.length !== 1 || a.facts[0].v !== '第 ' + ind.range.percentile.toFixed(0) + ' 百分位') p.push(tag + '：細節要列區間百分位');
+                if (a.facts[0].k !== I.windowName(ind.range) + '區間位置') p.push(tag + '：視窗名稱要照實際天數寫，得到 ' + a.facts[0].k);
+                if (n === 40 && a.facts[0].note.indexOf('資料自 ') < 0) p.push(tag + '：不滿一年要寫資料自哪一天');
+              });
+            });
+          });
+          same(p, '組數', count, 30);
+          same(p, '三種燈號都測到', Object.keys(seen).sort().join('、'), 'high、low、mid');
+          var top = of(CA.aspects(asset('x', 'yahoo', { price: UP[UP.length - 1].c }), ctx(UP)), 'position');
+          same(p, '一路漲到最高', top.state.word + '／' + top.state.key, '相對高檔區／high');
+          same(p, '白話', top.facts[0].plain, '把 52 週的最低價當 0、最高價當 100，現在在 100 的位置。');
+          same(p, '資料日期', top.dates, '位置的資料日期：2026-09-30（日線）。');
+          var bottom = of(CA.aspects(asset('x', 'yahoo', { price: DOWN[DOWN.length - 1].c }), ctx(DOWN)), 'position');
+          same(p, '一路跌到最低', bottom.state.word + '／' + bottom.state.key, '相對低檔區／low');
+        });
+
+        check('position_without_data_says_why', function (p) {
+          var bar = of(CA.aspects(ASSETS.gold_bar, ctx(series('flat', 14))), 'position');
+          same(p, '條塊不掛燈號', bar.state.key + '／' + bar.state.word, 'na／資料不足');
+          same(p, '條塊的原因', bar.state.because, '台銀不公布條塊的歷史牌價；本站自己累積的只有 14 個交易日，不夠算區間位置');
+          var failed = of(CA.aspects(asset('x', 'yahoo', { status: 'error' }), ctx()), 'position');
+          same(p, '更新失敗', failed.state.key + '／' + failed.state.because, 'na／這一項資料更新失敗，沒有現價可以算位置');
+          var nohist = of(CA.aspects(asset('x', 'yahoo'), ctx([], { historyFailed: true })), 'position');
+          same(p, '日線讀不到', nohist.state.key + '／' + nohist.state.because, 'na／歷史資料讀取失敗，無法計算區間位置');
+          var empty = of(CA.aspects(asset('x', 'yahoo', { price: null }), ctx([])), 'position');
+          same(p, '一點資料都沒有', empty.state.key + '／' + empty.state.because, 'na／歷史資料還不夠算出區間位置');
+          [bar, failed, nohist, empty].forEach(function (a) { if (a.facts.length) p.push('沒有狀態就不該列數字'); });
+        });
+
+        check('risk_compares_one_year_to_five_years', function (p) {
+          /* 對照組：風險的門檻改壞（兩成改成五成）→ 這一條會紅。 */
+          function word(id) { var s = of(ALL[id], 'risk').state; return s.key + '／' + s.word; }
+          same(p, '0.79 倍', word('tw00646'), 'low／平靜');
+          same(p, '1.0 倍', word('twii'), 'mid／正常');
+          same(p, '0.8 倍（剛好不算平靜）', word('btc'), 'mid／正常');
+          same(p, '1.2 倍（剛好不算劇烈）', word('wti'), 'mid／正常');
+          same(p, '1.21 倍', word('tw2330'), 'high／劇烈');
+          same(p, '1.25 倍', word('gold_intl'), 'high／劇烈');
+          var r646 = of(ALL.tw00646, 'risk');
+          same(p, '這次的數字', r646.state.because, '1 年波動 7.9%，5 年波動 10.0% → 平靜');
+          same(p, '規則', r646.state.rule, '規則：1 年波動比 5 年波動低兩成以上算平靜、高兩成以上算劇烈，其餘算正常');
+          same(p, '列的數字', r646.facts.map(function (f) { return f.k; }).join('、'), '年化波動 1 年、年化波動 5 年、1 年相對 5 年、最大回檔、目前距高點');
+          same(p, '倍數', r646.facts[2].v, '0.79 倍');
+          same(p, '資料日期', r646.dates, '風險的資料日期：2026-09-21（最後一根完成的週棒）；跟上面日線報價的日期不是同一天。');
+          var r679 = of(ALL.tw00679b, 'risk');
+          same(p, '5 年不夠', r679.state.key + '／' + r679.state.word + '／' + r679.state.because, 'na／資料不足／資料不足：只有 40 週（至少要 234 週）');
+          same(p, '5 年不夠時那一格照實寫', r679.facts[1].v + '／' + r679.facts[1].plain, '資料不足／資料不足');
+          ['gold_twd', 'gold_cny', 'gold_bar'].forEach(function (id) {
+            var s = of(ALL[id], 'risk').state;
+            same(p, id + ' 沒有週線長歷史', s.key + '／' + s.because, 'na／沒有週線長歷史，算不出 1 年與 5 年的波動');
+          });
+          var gone = of(CA.aspects(ASSETS.tw00646, ctx(null, { risk: null })), 'risk').state;
+          same(p, 'risk.json 讀不到', gone.key + '／' + gone.word + '／' + gone.because, 'error／暫時讀不到／分析資料暫時讀不到');
+        });
+
+        check('cost_compares_spreads_to_their_own_median', function (p) {
+          /* 對照組：人民幣那一本拿到台幣那一本的價差、或一成的門檻改壞 → 這一條會紅。 */
+          var twd = of(ALL.gold_twd, 'cost'), cny = of(ALL.gold_cny, 'cost');
+          same(p, '台幣存摺 1.0 對 1.0', twd.state.key + '／' + twd.state.word, 'mid／正常');
+          same(p, '台幣存摺這次的數字', twd.state.because, '存摺價差 1.00%，自己 264 天的中位數 1.00% → 正常');
+          same(p, '台幣存摺的規則', twd.state.rule, '規則：比自己的中位數（264 天）低一成以上算便宜、高一成以上算偏貴，其餘算正常');
+          same(p, '人民幣存摺 1.2 對 1.0', cny.state.key + '／' + cny.state.word, 'high／偏貴');
+          same(p, '人民幣存摺的白話用人民幣', cny.facts[0].plain, '銀行掛的兩個價格差 1.20%：今天存進 100 人民幣的黃金、馬上再換回現金，大約會少 1.20 人民幣。');
+          same(p, '台幣存摺的白話用元', twd.facts[0].plain, '銀行掛的兩個價格差 1.00%：今天存進 100 元的黃金、馬上再換回現金，大約會少 1.00 元。');
+          same(p, '跟平常比', cny.facts[1].plain, '比自己平常的水準（中位數 1.00%）高 20%。');
+          var cheap = clone(COST); cheap.goldSpread.latest.spreadPct = 0.89;
+          same(p, '0.89 倍', of(CA.aspects(ASSETS.gold_twd, ctx(null, { cost: cheap })), 'cost').state.word, '便宜');
+          var nocny = clone(COST); delete nocny.goldSpreadCny;
+          var miss = of(CA.aspects(ASSETS.gold_cny, ctx(null, { cost: nocny })), 'cost').state;
+          same(p, '沒有人民幣存摺的價差', miss.key + '／' + miss.because, 'na／沒有這一本存摺的價差資料');
+          // 換匯價差來自 fx.json
+          var cnyFx = of(ALL.fx_cny, 'cost'), usdFx = of(ALL.fx_usd, 'cost');
+          same(p, '人民幣匯率', cnyFx.state.key + '／' + cnyFx.state.because, 'mid／即期價差 1.00%，自己一年的中位數 1.00% → 正常');
+          same(p, '人民幣匯率的規則', cnyFx.state.rule, P.ASPECTS.cost.rule);
+          same(p, '美元的中位數資料不足', usdFx.state.key + '／' + usdFx.state.because, 'na／資料不足：只有 145 點（至少要 227 點）');
+          same(p, '美元仍然列今天的價差', usdFx.facts[0].v + '／' + usdFx.facts[1].v, '0.33%／資料不足');
+          var nofx = of(CA.aspects(ASSETS.fx_cny, ctx(null, { fx: null })), 'cost').state;
+          same(p, 'fx.json 讀不到', nofx.key + '／' + nofx.word, 'error／暫時讀不到');
+          var nocost = of(CA.aspects(ASSETS.gold_twd, ctx(null, { cost: null })), 'cost').state;
+          same(p, 'cost.json 讀不到', nocost.key + '／' + nocost.because, 'error／分析資料暫時讀不到');
+          same(p, '匯率的成本不靠 cost.json', of(CA.aspects(ASSETS.fx_cny, ctx(null, { cost: null })), 'cost').state.key, 'mid');
+        });
+
+        check('bar_cost_uses_the_one_kilo_row_and_waits_for_twenty_days', function (p) {
+          var bar = of(ALL.gold_bar, 'cost');
+          same(p, '14 天', bar.state.key + '／' + bar.state.word + '／' + bar.state.note, 'na／資料不足／累積中 14/20');
+          same(p, '14 天的原因', bar.state.because, '條塊溢價是本站自己每天記的，滿 20 個交易日才跟自己比');
+          same(p, '14 天的規則', bar.state.rule, '規則：比自己的中位數（滿 20 個交易日才比）低一成以上算便宜、高一成以上算偏貴，其餘算正常');
+          same(p, '列的是 1 公斤那一列', bar.facts[0].k + '／' + bar.facts[0].v, '條塊溢價（1 公斤）／0.80%');
+          same(p, '累積中的白話', bar.facts[1].plain, '還在累積：14/20 個交易日；滿 20 個交易日才有自己的歷史可以比。');
+          var full = clone(COST); full.barPremium.n = 20; full.barPremium.daily = daily(20, 1.0);
+          var b20 = of(CA.aspects(ASSETS.gold_bar, ctx(null, { cost: full })), 'cost');
+          same(p, '滿 20 天：0.8 對中位數 1.0', b20.state.key + '／' + b20.state.word, 'low／便宜');
+          same(p, '滿 20 天這次的數字', b20.state.because, '1 公斤條塊溢價 0.80%，自己 20 天的中位數 1.00% → 便宜');
+          same(p, '滿 20 天的規則', b20.state.rule, '規則：比自己的中位數（20 天）低一成以上算便宜、高一成以上算偏貴，其餘算正常');
+          if (b20.state.note) p.push('滿 20 天不該再標累積中');
+          full.barPremium.latest.rows[0].premiumPct = 1.2;
+          same(p, '滿 20 天：1.2 對 1.0', of(CA.aspects(ASSETS.gold_bar, ctx(null, { cost: full })), 'cost').state.word, '偏貴');
+          full.barPremium.latest.rows = [full.barPremium.latest.rows[1]];
+          same(p, '沒有 1 公斤那一列', of(CA.aspects(ASSETS.gold_bar, ctx(null, { cost: full })), 'cost').state.because, '沒有 1 公斤條塊的溢價資料');
+        });
+
+        check('premium_uses_own_quartiles_and_the_official_row', function (p) {
+          /* 對照組：折溢價用錯規則（拿去跟中位數比一成）、或看成預估那一列 → 這一條會紅。 */
+          var acc = of(ALL.tw00646, 'cost');
+          same(p, '不滿 20 天', acc.state.key + '／' + acc.state.word + '／' + acc.state.note, 'na／資料不足／累積中 3/20');
+          same(p, '不滿 20 天的規則', acc.state.rule, '規則：跟自己的歷史比——低於第 25 百分位＝便宜、25–75＝正常、高於第 75＝偏貴');
+          same(p, '兩個口徑都列', acc.facts.slice(0, 2).map(function (f) { return f.k + ' ' + f.v + ' ' + f.label; }).join('｜'), '折溢價（預估） 10.00% 估算｜折溢價（確定） 0.50% 單一來源');
+          same(p, '累積中的白話', acc.facts[2].plain, '還在累積：3/20 個交易日；滿 20 個交易日才有自己的歷史可以比。');
+          same(p, '00646 多一列追蹤差', acc.facts[3].k + '／' + acc.facts[3].plain, '追蹤差（3 年年化）／過去 3 年，平均每年的報酬比它追蹤的指數少 1.00 個百分點。');
+          // 00679B：確定 −0.35、自己的第 25／75 百分位 −0.3／−0.1 → 便宜；拿去跟中位數 −0.2 比「一成」是算不出來的（中位數是負的）
+          var b = of(ALL.tw00679b, 'cost');
+          same(p, '比第 25 百分位還低', b.state.key + '／' + b.state.word, 'low／便宜');
+          same(p, '這次的數字', b.state.because, '折溢價（確定） -0.35%，自己歷史的第 25 百分位 -0.30%、第 75 百分位 -0.10% → 便宜');
+          same(p, '排名的白話', b.facts[2].plain, '比自己過去 30 個交易日裡四分之三的日子都低。');
+          if (b.facts.length !== 3) p.push('00679B 沒有追蹤差那一列，得到 ' + b.facts.length + ' 列');
+          function withOfficial(pct, p25, p75, median) {
+            var c = clone(COST);
+            c.premium.tw00679b.latest[1].premiumPct = pct;
+            c.premium.tw00679b.official.p25Pct = p25; c.premium.tw00679b.official.p75Pct = p75; c.premium.tw00679b.official.medianPct = median;
+            return of(CA.aspects(ASSETS.tw00679b, ctx(null, { cost: c })), 'cost').state;
+          }
+          // 0.5 在第 25～75 百分位（0.1～0.9）之間 → 正常；但它比中位數 0.4 高了兩成五，用「一成」那條規則會說偏貴
+          same(p, '中間那一半', withOfficial(0.5, 0.1, 0.9, 0.4).word, '正常');
+          // 0.95 高於第 75 百分位 0.9 → 偏貴；但它只比中位數 0.9 高 5.6%，用「一成」那條規則會說正常
+          same(p, '高於第 75 百分位', withOfficial(0.95, 0.1, 0.9, 0.9).word, '偏貴');
+          // 狀態看「確定」那一列：預估那一列再離譜也不影響
+          var est = clone(COST); est.premium.tw00679b.latest[0].premiumPct = 9;
+          same(p, '看確定口徑，不看預估', of(CA.aspects(ASSETS.tw00679b, ctx(null, { cost: est })), 'cost').state.word, '便宜');
+          same(p, '口徑', CA.COST_PREMIUM_TAG + '／' + CA.COST_MIN_DAYS, '確定／20');
+          var old = clone(COST); delete old.premium.tw00679b.official.p25Pct; delete old.premium.tw00679b.official.p75Pct;
+          var o = of(CA.aspects(ASSETS.tw00679b, ctx(null, { cost: old })), 'cost').state;
+          same(p, '滿 20 天但檔裡沒有百分位', o.key + '／' + o.because, 'na／分析檔裡沒有第 25／75 百分位');
+          var off = clone(COST); off.premium.tw00646 = { status: '未接（來源在雲端被擋）', latest: [] };
+          same(p, '沒有接上', of(CA.aspects(ASSETS.tw00646, ctx(null, { cost: off })), 'cost').state.because, '折溢價這一輪沒有資料（未接（來源在雲端被擋））');
+          same(p, 'cost.json 讀不到', of(CA.aspects(ASSETS.tw00646, ctx(null, { cost: null })), 'cost').state.key, 'error');
+        });
+
+        check('not_applicable_is_not_the_same_as_insufficient', function (p) {
+          /* 對照組：不適用被寫成資料不足 → 這一條會紅。 */
+          [['twii', '指數只是一個數字，不是可以直接交易的東西，沒有成本可比'], ['tw2330', '股票的交易成本是固定費率，沒有「比平常貴或便宜」可比'],
+           ['btc', '這裡的報價只是參考價，沒有固定的交易管道可以算價差'], ['wti', '這裡的報價是期貨的參考價，不是可以直接交易的東西，沒有成本可比'],
+           ['gold_intl', '這裡的報價是期貨的參考價，不是可以直接交易的東西，沒有成本可比']].forEach(function (c) {
+            var a = of(ALL[c[0]], 'cost');
+            same(p, c[0] + ' 的成本', a.state.key + '／' + a.state.word, 'none／不適用');
+            same(p, c[0] + ' 的原因', a.state.because, c[1]);
+            if (a.facts.length) p.push(c[0] + '：不適用就沒有數字可列');
+            var strip = box(CA.strip(ASSETS[c[0]], ALL[c[0]]));
+            same(p, c[0] + ' 的卡片只畫兩個圖示', Array.prototype.map.call(strip.querySelectorAll('button.asp'), function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk');
+            if (strip.textContent.indexOf('不適用') >= 0) p.push(c[0] + '：卡片上不畫不適用的面向');
+            var cell = box(CA.cell(a));
+            same(p, c[0] + ' 的總覽表那一格', cell.textContent, '不適用');
+            if (cell.querySelector('svg')) p.push(c[0] + '：不適用那一格不該有圖示');
+            same(p, c[0] + ' 的那一格的狀態', cell.querySelector('.asp-cell').getAttribute('data-state'), 'none');
+          });
+          // 沒有成本資料、但也不是「沒有這個面向」的：資料不足，不是不適用
+          ['gold_twd', 'gold_cny', 'gold_bar', 'tw00646', 'tw00679b', 'fx_usd', 'fx_cny'].forEach(function (id) {
+            if (of(ALL[id], 'cost').state.key === 'none') p.push(id + ' 有成本這個面向，不可以是不適用');
+          });
+          var other = of(CA.aspects(asset('newthing', 'yahoo'), ctx()), 'cost').state;
+          same(p, '沒見過的類別用通用的說法', other.key + '／' + other.because, 'none／這一類標的沒有「比平常貴或便宜」可比的成本');
+          var unknown = of(CA.aspects(asset('brandnew', 'yahoo'), ctx()), 'cost').state;
+          same(p, '分析檔裡還沒有的標的', unknown.key + '／' + unknown.because, 'na／分析檔裡還沒有這個標的，不知道它是哪一類');
+          var blind = of(CA.aspects(ASSETS.tw2330, ctx(null, { risk: null })), 'cost').state;
+          same(p, '不知道類別又讀不到檔', blind.key, 'error');
+          same(p, '資料不足與不適用的字', P.NA + '／' + P.NOT_APPLICABLE, '資料不足／不適用');
+        });
+
+        check('fx_cards_keep_the_lamp_and_link_the_five_year_position_to_the_helper', function (p) {
+          /* 對照組：匯率卡的位置換成 5 年百分位那一套、或把連結拿掉 → 這一條會紅。 */
+          var price = WAVE[WAVE.length - 1].c;
+          var cny = of(CA.aspects(asset('fx_cny', 'finmind_fx', { price: price }), ctx()), 'position');
+          same(p, '人民幣的位置用燈號', cny.state.word, I.computeAll(WAVE, price).signal.label);
+          if (cny.extra.length !== 1) { p.push('匯率卡的位置細節要多一行 5 年位置'); return; }
+          same(p, '人民幣 5 年位置', cny.extra[0].text, '5 年位置：偏貴');
+          same(p, '連到換匯助手', cny.extra[0].link.href + '｜' + cny.extra[0].link.text, 'analysis.html#fx｜見換匯助手');
+          var usd = of(CA.aspects(asset('fx_usd', 'finmind_fx', { price: price }), ctx()), 'position');
+          same(p, '美元 5 年位置', usd.extra[0].text, '5 年位置：偏便宜');
+          same(p, 'fx.json 讀不到', of(CA.aspects(ASSETS.fx_cny, ctx(null, { fx: null })), 'position').extra[0].text, '5 年位置：暫時讀不到');
+          var thin = clone(FX); delete thin.currencies.CNY.percentiles['5y'];
+          same(p, '沒有 5 年百分位', of(CA.aspects(ASSETS.fx_cny, ctx(null, { fx: thin })), 'position').extra[0].text, '5 年位置：資料不足');
+          var d = box(CA.detail(cny));
+          var a = d.querySelector('.asp-extra a');
+          if (!a || a.getAttribute('href') !== 'analysis.html#fx' || a.textContent !== '見換匯助手') p.push('細節裡沒有連到換匯助手的連結');
+          same(p, '那一行的字', d.querySelector('.asp-extra').textContent, '5 年位置：偏貴（見換匯助手）');
+          ['tw00646', 'gold_twd', 'twii', 'btc'].forEach(function (id) {
+            if (of(ALL[id], 'position').extra.length) p.push(id + ' 不是匯率卡，不該有 5 年位置那一行');
+          });
+          same(p, '匯率卡的成本細節也連過去', of(ALL.fx_cny, 'cost').extra[0].link.href, 'analysis.html#fx');
+        });
+
+        check('every_chip_has_icon_name_and_word_and_controls_its_own_detail', function (p) {
+          /* 對照組：圖示沒有狀態詞 → 這一條會紅。 */
+          Object.keys(ALL).forEach(function (id) {
+            var d = box(CA.strip(ASSETS[id], ALL[id]));
+            var shown = ALL[id].filter(function (a) { return a.state.key !== 'none'; });
+            var chips = d.querySelectorAll('button.asp');
+            if (chips.length !== shown.length) p.push(id + '：圖示數目不對（' + chips.length + '／' + shown.length + '）');
+            if (!d.querySelector('.asp-row[role="group"]')) p.push(id + '：圖示列沒有群組');
+            Array.prototype.forEach.call(chips, function (c, i) {
+              var s = shown[i].state, tag = id + '/' + shown[i].aspect;
+              var icon = c.querySelector('.asp-icon'), name = c.querySelector('.asp-name'), word = c.querySelector('.asp-word');
+              if (!icon || !icon.querySelector('svg')) p.push(tag + '：沒有圖示');
+              if (!icon || !icon.getAttribute('aria-label') || icon.getAttribute('role') !== 'img') p.push(tag + '：圖示沒有文字替代');
+              if (!name || name.textContent !== s.name) p.push(tag + '：沒有面向名稱');
+              if (!word || !word.textContent.trim()) p.push(tag + '：圖示旁邊沒有狀態詞');
+              else if (word.textContent !== s.word) p.push(tag + '：狀態詞不對');
+              same(p, tag + ' 的 type', c.getAttribute('type'), 'button');
+              same(p, tag + ' 的 data-state', c.getAttribute('data-state'), s.key);
+              var label = c.getAttribute('aria-label') || '';
+              if (label.indexOf(s.name + '：' + s.word) !== 0) p.push(tag + '：aria-label 要有面向與狀態詞，得到「' + label + '」');
+              same(p, tag + ' 預設收合', c.getAttribute('aria-expanded'), 'false');
+              var target = d.querySelector('#' + c.getAttribute('aria-controls'));
+              if (!target) { p.push(tag + '：找不到它的細節'); return; }
+              if (!target.hidden) p.push(tag + '：細節預設要收合');
+              same(p, tag + ' 的細節是同一個面向', target.getAttribute('data-aspect'), shown[i].aspect);
+              if (s.note) {
+                var note = c.querySelector('.asp-note');
+                if (!note || note.textContent !== s.note) p.push(tag + '：「' + s.note + '」沒有印在圖示上');
+              }
+            });
+            var ids = Array.prototype.map.call(d.querySelectorAll('.asp-detail'), function (x) { return x.id; });
+            if (ids.length !== shown.length || ids.some(function (x, i) { return ids.indexOf(x) !== i; })) p.push(id + '：每個圖示要有自己的細節');
+          });
+          same(p, '細節的 id', CA.detailId('tw00646', 'risk'), 'asp-tw00646-risk');
+          same(p, '細節的 id 不帶奇怪的字元', CA.detailId('a"b<c', 'cost'), 'asp-abc-cost');
+          var note = box(CA.strip(ASSETS.gold_bar, ALL.gold_bar)).querySelector('button.asp[data-aspect="cost"]');
+          same(p, '條塊的成本圖示', note.textContent, '成本資料不足累積中 14/20');
+        });
+
+        check('every_detail_prints_the_number_the_rule_and_a_plain_line', function (p) {
+          /* 對照組：圖示沒有規則、或某一行白話是空的 → 這一條會紅。 */
+          var facts = 0;
+          Object.keys(ALL).forEach(function (id) {
+            ALL[id].forEach(function (a) {
+              var d = box(CA.detail(a)), tag = id + '/' + a.aspect;
+              var title = d.querySelector('.asp-title'), because = d.querySelector('.asp-because'), rule = d.querySelector('.asp-rule');
+              same(p, tag + ' 的標題', title && title.textContent, a.state.name + '：' + a.state.word);
+              if (!because || !because.textContent.trim()) p.push(tag + '：沒有寫這次是哪個數字');
+              if (a.state.key === 'none') {
+                if (rule) p.push(tag + '：不適用的面向沒有規則可印');
+                if (d.querySelector('svg')) p.push(tag + '：不適用的面向沒有圖示');
+              } else {
+                if (!rule || rule.textContent.indexOf('規則：') !== 0) p.push(tag + '：沒有印規則');
+                else if (rule.textContent !== a.state.rule) p.push(tag + '：印出來的規則跟狀態的規則不一樣');
+                if (!d.querySelector('.asp-head .asp-icon svg')) p.push(tag + '：細節沒有圖示');
+              }
+              Array.prototype.forEach.call(d.querySelectorAll('.asp-fact'), function (f) {
+                facts++;
+                var v = f.querySelector('.asp-v'), line = f.querySelector('.plain-line'), tg = f.querySelector('.ana-tag');
+                if (!v || !v.textContent.trim()) p.push(tag + '：有一列沒有數字');
+                if (!line || !line.textContent.trim()) p.push(tag + '：有一個數字下面沒有白話（' + (f.querySelector('.asp-k') || {}).textContent + '）');
+                if (!tg || !/(估算|單一來源|有對照|多來源一致|日線)/.test(tg.textContent)) p.push(tag + '：有一列沒有資料標籤（' + (tg && tg.textContent) + '）');
+              });
+              if (a.facts.length && !d.querySelector('.asp-dates')) p.push(tag + '：沒有資料日期');
+              if (a.facts.length && !/\d{4}-\d{2}-\d{2}/.test(d.querySelector('.asp-dates').textContent)) p.push(tag + '：資料日期不是日期');
+            });
+          });
+          if (facts < 40) p.push('列出來的數字太少：' + facts);
+          var d = box(CA.detail(of(ALL.tw00646, 'risk')));
+          var terms = d.querySelectorAll('button.term');
+          if (terms.length < 3) p.push('細節裡的名詞要可以點（年化波動、最大回檔、目前距高點），得到 ' + terms.length);
+          window.Glossary.wire(d);
+          terms[0].click();
+          if (!d.querySelector('.term-def')) p.push('細節裡的名詞點一下沒有展開解釋');
+        });
+
+        check('unreadable_files_say_analysis_is_temporarily_unavailable', function (p) {
+          var list = CA.aspects(ASSETS.tw00646, ctx(null, { risk: null, cost: null, fx: null }));
+          var d = box(CA.strip(ASSETS.tw00646, list));
+          same(p, '位置不靠分析檔', of(list, 'position').state.key === 'error', false);
+          same(p, '風險', of(list, 'risk').state.word, '暫時讀不到');
+          if (!d.querySelector('.asp-missing') || d.querySelector('.asp-missing').textContent !== '分析資料暫時讀不到') p.push('圖示列下面沒有寫「分析資料暫時讀不到」');
+          same(p, '讀不到的圖示', d.querySelector('button.asp[data-aspect="risk"]').getAttribute('data-state'), 'error');
+          var fine = box(CA.strip(ASSETS.tw00646, ALL.tw00646));
+          if (fine.querySelector('.asp-missing')) p.push('都讀得到時不該出現「分析資料暫時讀不到」');
+          var none = box(CA.strip(ASSETS.tw00646, null));
+          same(p, '白話層沒載到', none.textContent, '分析資料暫時讀不到');
+          if (none.querySelector('button.asp')) p.push('白話層沒載到時不該畫圖示');
+          var saved = window.Plain;
+          window.Plain = undefined;
+          var without = CA.aspects(ASSETS.tw00646, ctx());
+          window.Plain = saved;
+          if (without !== null) p.push('沒有白話層時 aspects() 要回 null');
+        });
+
+        check('overview_cells_show_icon_and_word_or_grey_text', function (p) {
+          Object.keys(ALL).forEach(function (id) {
+            ALL[id].forEach(function (a) {
+              var c = box(CA.cell(a)), s = a.state, tag = id + '/' + a.aspect;
+              var word = c.querySelector('.asp-word');
+              if (!word || word.textContent !== s.word) p.push(tag + '：那一格沒有狀態詞');
+              same(p, tag + ' 的 data-state', c.querySelector('.asp-cell').getAttribute('data-state'), s.key);
+              if (s.key !== 'none' && !c.querySelector('.asp-icon svg')) p.push(tag + '：那一格沒有圖示');
+              if (s.note && (!c.querySelector('.asp-note') || c.querySelector('.asp-note').textContent !== s.note)) p.push(tag + '：那一格沒有印「' + s.note + '」');
+            });
+          });
+        });
+
+        check('no_trading_words_no_counting_and_only_known_words', function (p) {
+          /* 對照組：出現禁用詞、或在圖示列印出「幾個面向怎樣」→ 這一條會紅。 */
+          var text = '';
+          var variants = [ctx(), ctx(UP), ctx(DOWN), ctx(null, { risk: null, cost: null, fx: null }), ctx(series('flat', 14))];
+          Object.keys(ASSETS).forEach(function (id) {
+            variants.forEach(function (c) {
+              var list = CA.aspects(ASSETS[id], c);
+              var d = box(CA.strip(ASSETS[id], list) + list.map(function (a) { return CA.cell(a) + CA.detail(a); }).join(''));
+              text += '\n' + d.textContent;
+              Array.prototype.forEach.call(d.querySelectorAll('[aria-label]'), function (n) { text += '\n' + n.getAttribute('aria-label'); });
+              list.forEach(function (a) { if (VOCAB[a.aspect].indexOf(a.state.word) < 0) p.push(id + '/' + a.aspect + '：不在詞表裡的狀態詞「' + a.state.word + '」'); });
+            });
+          });
+          Object.keys(CA.COST_NOT_APPLICABLE).forEach(function (k) { text += '\n' + CA.COST_NOT_APPLICABLE[k]; });
+          PRICE_NAMES.forEach(function (e) { text = text.split(e).join(''); });
+          BANNED.forEach(function (w) { if (text.indexOf(w) >= 0) p.push('出現「' + w + '」'); });
+          if (COUNTING.test(text)) p.push('出現面向計數：' + COUNTING.exec(text)[0]);
+          if (/\d+\s*分\b/.test(text)) p.push('出現「N 分」這種寫法');
+          if (!COUNTING.test('3 個面向偏貴') || !COUNTING.test('兩項指標正常')) p.push('計數的檢查式自己壞了');
+          ['count', 'total', 'summary', 'score', 'tally'].forEach(function (k) { if (typeof CA[k] !== 'undefined') p.push('card-analysis.js 不該有加總用的函式：' + k); });
+        });
+
+        check('fold_rows_get_a_plain_line_when_the_plain_layer_is_loaded', function (p) {
+          var f = CA.facts(ASSETS.tw00646, RISK, COST);
+          var d = box(CA.render(f));
+          var rows = d.querySelectorAll('.ana-row');
+          if (rows.length < 7) p.push('列數太少：' + rows.length);
+          var corrRows = 0;
+          Array.prototype.forEach.call(rows, function (r) {
+            var isCorr = /^(最同向|最不相關|反向最強)/.test(r.querySelector('.ana-k').textContent);
+            var line = r.querySelector('.plain-line');
+            if (isCorr) { corrRows++; if (line) p.push('相關的三列不要一列一句'); return; }
+            if (!line || !line.textContent.trim()) p.push('這一列下面沒有白話：' + r.querySelector('.ana-k').textContent);
+          });
+          same(p, '相關有三列', corrRows, 3);
+          var groups = d.querySelectorAll('.ana-group');
+          var corr = Array.prototype.filter.call(groups, function (g) { return g.querySelector('.ana-title').textContent.indexOf('相關') === 0; })[0];
+          var lines = corr ? corr.querySelectorAll(':scope > .plain-line') : [];
+          if (lines.length !== 1) p.push('相關那一組要剛好一句白話，得到 ' + lines.length);
+          else same(p, '相關的那一句', lines[0].textContent, '最常跟它同方向走的是 測試（0.90）；走勢最沒有關係的是 測試（0.05）；常常跟它反方向的是 測試（-0.35）。');
+          var gold = box(CA.render(CA.facts(ASSETS.gold_cny, RISK, COST)));
+          same(p, '人民幣存摺那一列的白話', gold.querySelector('.ana-row .plain-line').textContent,
+               '銀行掛的兩個價格差 1.20%：今天存進 100 人民幣的黃金、馬上再換回現金，大約會少 1.20 人民幣。');
+        });
+      }
+      document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });
+    })();
+  </script>
+</body>
+</html>

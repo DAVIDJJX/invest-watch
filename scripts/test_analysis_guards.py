@@ -44,7 +44,13 @@ CORE_FILES = [
     "js/plain.js", "js/glossary.js", "js/fxplan.js",
     "scripts/test_plain.html", "scripts/test_plain_js.py", "scripts/test_fxplan.html", "scripts/test_fxplan_js.py",
     "scripts/test_indicators_js.py", "scripts/backfill_fx_history.py", "scripts/test_backfill_fx.py",
+    # A1-7：小白呈現框架的新檔，以及這次多了圖示列與延後載入的儀表板程式
+    "scripts/test_aspects.html", "scripts/test_aspects_js.py", "scripts/test_dashboard_live.html", "scripts/test_dashboard_requests_js.py",
+    "js/app.js",
 ]
+# js/app.js 是分析系列之前就有的檔，A1-7 才納入掃描。它原本就有一個價格的名字「黃金存摺＋賣＋出價」（＝黃金存摺的本行賣＋出牌價，
+# 條塊卡上用來說明「比存摺貴」跟什麼比）：那是價格的名字，不是判斷；只在這一個檔豁免這一個詞，別的寫法照擋。
+LEGACY_PRICE_NAMES = {"js/app.js": ("黃金存摺" + "賣" + "出價",)}
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
 PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
 PROFILE_KEY_HOME = "js/concentration.js"
@@ -95,9 +101,9 @@ def read_text(rel):
 
 # ---------------------------------------------------------------- 掃描器本體（純函式，測試也拿假文字餵它）
 
-def judgement_hits(text):
+def judgement_hits(text, extra_exempt=()):
     t = text
-    for e in EXEMPT_PHRASES:
+    for e in list(EXEMPT_PHRASES) + list(extra_exempt):
         t = t.replace(e, "")
     return [w for w in JUDGEMENT_WORDS if w in t]
 
@@ -268,6 +274,13 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(judgement_hits("狀態詞可以用" + "偏" + "買、" + "偏" + "賣"))                 # 換一種寫法就不豁免
         self.assertEqual(judgement_hits("位置：偏便宜／中間／偏貴；成本：便宜／正常／偏貴；風險：平靜／正常／劇烈"), [])
 
+    def test_legacy_price_name_is_exempt_only_where_listed(self):
+        name = "黃金存摺" + "賣" + "出價"
+        self.assertEqual(judgement_hits("今日" + name + " 4,316 元"), ["賣" + "出"])                   # 沒有列在豁免裡：照擋
+        self.assertEqual(judgement_hits("今日" + name + " 4,316 元", LEGACY_PRICE_NAMES["js/app.js"]), [])
+        self.assertTrue(judgement_hits("這一檔可以" + "賣" + "出", LEGACY_PRICE_NAMES["js/app.js"]))   # 豁免的只有那一個詞
+        self.assertEqual(sorted(LEGACY_PRICE_NAMES), ["js/app.js"])                                   # 只有這一個檔有這種豁免
+
     def test_fake_exchange_plan_amounts_are_caught(self):
         self.assertTrue(privacy_hits("月預算 " + "12,000 元"))
         self.assertTrue(privacy_hits("已換：" + "3000"))
@@ -348,10 +361,20 @@ class TestPublicFilesAreClean(unittest.TestCase):
     def test_no_judgement_words_in_analysis_files(self):
         bad = {}
         for rel in self.files:
-            hits = judgement_hits(read_text(rel))
+            hits = judgement_hits(read_text(rel), LEGACY_PRICE_NAMES.get(rel, ()))
             if hits:
                 bad[rel] = hits
         self.assertEqual(bad, {}, "分析系列的檔案裡出現判斷用語：%s" % bad)
+
+    def test_the_dashboard_script_is_inside_the_scan(self):
+        """A1-7：圖示列與延後載入寫在 js/app.js，所以它也要被掃（判斷用語、個人資料樣式、兩份設定檔的鍵名、具名字串）。"""
+        self.assertIn("js/app.js", self.files)
+        for rel in ("scripts/test_aspects.html", "scripts/test_aspects_js.py", "scripts/test_dashboard_live.html", "scripts/test_dashboard_requests_js.py"):
+            self.assertIn(rel, self.files)
+        text = read_text("js/app.js")
+        self.assertEqual(privacy_hits(text), [])
+        self.assertEqual(profile_key_hits(text), [])
+        self.assertEqual(fxplan_key_hits(text), [])
 
     def test_no_private_words_or_holding_numbers(self):
         bad = {}

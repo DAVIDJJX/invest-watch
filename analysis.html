@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0e1420">
 <meta name="robots" content="noindex">
-<meta name="description" content="分析：換匯助手、風險總表、相關矩陣、成本、拆解，以及只在瀏覽器裡算的集中度與私人倉庫的試算清單。">
+<meta name="description" content="分析：總覽表、換匯助手、風險總表、相關矩陣、成本、拆解，以及只在瀏覽器裡算的集中度與私人倉庫的試算清單。">
 <title>分析 — InvestWatch</title>
-<link rel="stylesheet" href="css/style.css?v=20260930-1">
+<link rel="stylesheet" href="css/style.css?v=20260930-8">
 <style>
   /* 分析分頁自己的表格樣式（不動 css/style.css 既有的選擇器） */
   .ana-page h2 { margin-top: 28px; border-bottom: 1px solid var(--line); padding-bottom: 4px; font-size: 18px; }
@@ -46,6 +46,34 @@
   .ana-page tr.fx-here td { background: var(--bg-soft); font-weight: 600; }
   .ana-page .fx-fixed-notes { font-size: 12px; color: var(--text-dim); padding-left: 18px; margin-top: 14px; }
   .ana-page #fxp-form input[type=text], .ana-page #fxp-form input[type=number] { width: 130px; }
+  /* 總覽表（A1-7）：每個標的一列、每個面向一格。手機上整張橫向捲動、第一欄固定；點一列展開細節 */
+  .ana-page section#overview h2 { margin-top: 14px; }
+  .ana-page #ov-status p { margin: 6px 0 0; }
+  .ana-page .ov-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 10px; }
+  .ana-page table.ov-table { border-collapse: separate; border-spacing: 0; margin: 0; min-width: 660px; width: 100%; font-size: 13px; }
+  .ana-page table.ov-table th, .ana-page table.ov-table td { border: 0; border-bottom: 1px solid var(--line); padding: 7px 10px; vertical-align: middle; }
+  .ana-page table.ov-table th { white-space: nowrap; }
+  .ana-page table.ov-table th.ov-name, .ana-page table.ov-table td.ov-name { position: sticky; left: 0; z-index: 1; background: var(--bg); min-width: 128px; max-width: 170px; }
+  .ana-page table.ov-table th.ov-name { background: var(--bg-soft); }
+  .ana-page table.ov-table td.date { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .ana-page table.ov-table td.ov-asp { min-width: 112px; white-space: nowrap; }          /* 圖示與狀態詞不要被擠成兩行 */
+  .ana-page table.ov-table td.ov-asp .asp-note { flex-basis: 100%; }                      /* 「累積中 n/20」自己一行 */
+  .ana-page th.ov-sort { cursor: pointer; user-select: none; }
+  .ana-page th.ov-sort::after { content: ' ↕'; color: var(--text-faint); font-size: 10px; }
+  .ana-page th.ov-sort.asc::after { content: ' ↑'; color: var(--text); }
+  .ana-page th.ov-sort.desc::after { content: ' ↓'; color: var(--text); }
+  .ana-page tr.ov-row { cursor: pointer; }
+  .ana-page tr.ov-row:hover td { background: var(--card-hover); }
+  .ana-page tr.ov-row.is-open td { background: var(--card); }
+  /* 列名與欄名是真的按鈕（鍵盤可以按），長相跟原本的字一樣 */
+  .ana-page button.ov-toggle, .ana-page button.ov-sortbtn { font: inherit; font-weight: 700; color: inherit; background: none; border: 0; border-radius: 0; padding: 0; text-align: left; cursor: pointer; }
+  .ana-page button.ov-toggle:hover, .ana-page button.ov-sortbtn:hover { background: none; color: var(--accent); }
+  .ana-page tr.ov-detail > td { background: var(--bg); padding: 4px 12px 14px; }
+  .ana-page .ov-detail-grid { position: sticky; left: 12px; display: grid; grid-template-columns: 1fr; gap: 0 10px; }
+  @media (min-width: 900px) { .ana-page .ov-detail-grid { grid-template-columns: repeat(3, 1fr); align-items: start; } }
+  /* 相關矩陣下面「每個標的一句」 */
+  .ana-page ul.plain-list { list-style: none; padding-left: 0; margin: 6px 0 14px; font-size: 12.5px; }
+  .ana-page ul.plain-list li { padding: 5px 0; border-bottom: 1px dashed var(--line); }
 </style>
 </head>
 <body class="ana-page">
@@ -68,6 +96,7 @@
 
 <main class="wrap">
   <p class="muted">每一格數字旁邊都有資料日期與資料標籤（估算／單一來源／有對照／多來源一致）；方法與定義見 <a href="docs/ANALYSIS.md">docs/ANALYSIS.md</a>。這一頁只列事實，不做任何加總或判斷。</p>
+  <section id="overview"></section>
   <section id="status"></section>
   <section id="fx"></section>
   <section id="risk"></section>
@@ -85,13 +114,16 @@
   </footer>
 </main>
 
-<script src="js/lock.js?v=20260930-1"></script>
-<script src="js/storage.js?v=20260930-1"></script>
-<script src="js/concentration.js?v=20260930-1"></script>
-<script src="js/plain.js?v=20260930-1"></script>
-<script src="js/glossary.js?v=20260930-1"></script>
-<script src="js/fxplan.js?v=20260930-1"></script>
-<script src="js/analysis.js?v=20260930-1"></script>
+<script src="js/lock.js?v=20260930-8"></script>
+<script src="js/storage.js?v=20260930-8"></script>
+<script src="js/concentration.js?v=20260930-8"></script>
+<script src="js/indicators.js?v=20260930-8"></script>
+<script src="js/freshness.js?v=20260930-8"></script>
+<script src="js/plain.js?v=20260930-8"></script>
+<script src="js/glossary.js?v=20260930-8"></script>
+<script src="js/fxplan.js?v=20260930-8"></script>
+<script src="js/card-analysis.js?v=20260930-8"></script>
+<script src="js/analysis.js?v=20260930-8"></script>
 <script>AnalysisDebug.boot();</script>
 </body>
 </html>
