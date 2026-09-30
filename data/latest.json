@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-09-30T14:17:31+08:00",
- "updatedAtText": "2026-09-30 14:17",
+ "updatedAt": "2026-09-30T14:30:10+08:00",
+ "updatedAtText": "2026-09-30 14:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -11,7 +11,7 @@
   "error": 0,
   "errorIds": []
  },
- "requests": 10,
+ "requests": 8,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -72,7 +72,7 @@
     4275.0,
     4305.0
    ],
-   "fetchedAt": "2026-09-30T14:17:26+08:00",
+   "fetchedAt": "2026-09-30T14:30:08+08:00",
    "error": null,
    "buy": 4258.0,
    "sell": 4305.0,
@@ -80,11 +80,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-30T14:17:26+08:00",
-   "lastSuccessAt": "2026-09-30T14:17:26+08:00",
+   "lastAttemptAt": "2026-09-30T14:30:08+08:00",
+   "lastSuccessAt": "2026-09-30T14:30:08+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-09-30T14:00:00+08:00",
-   "nextDueAt": "2026-09-30T14:30:00+08:00"
+   "lastDueAt": "2026-09-30T14:30:00+08:00",
+   "nextDueAt": "2026-09-30T15:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -145,7 +145,7 @@
     898.3,
     905.8
    ],
-   "fetchedAt": "2026-09-30T14:17:29+08:00",
+   "fetchedAt": "2026-09-30T14:30:10+08:00",
    "error": null,
    "buy": 896.15,
    "sell": 905.8,
@@ -153,11 +153,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-09-30T14:17:29+08:00",
-   "lastSuccessAt": "2026-09-30T14:17:29+08:00",
+   "lastAttemptAt": "2026-09-30T14:30:10+08:00",
+   "lastSuccessAt": "2026-09-30T14:30:10+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-09-30T14:00:00+08:00",
-   "nextDueAt": "2026-09-30T14:30:00+08:00"
+   "lastDueAt": "2026-09-30T14:30:00+08:00",
+   "nextDueAt": "2026-09-30T15:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -243,6 +243,8 @@
    "source": "local",
    "lastAttemptAt": "2026-09-30T14:17:31+08:00",
    "lastSuccessAt": "2026-09-30T14:17:31+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-09-30T13:05:00+08:00",
    "nextDueAt": "2026-09-30T15:05:00+08:00"
@@ -1042,19 +1044,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 7,
+   "ageMinutes": 19,
    "nextDueAt": "2026-09-30T14:40:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-09-30T14:17:31+08:00",
+   "runAt": "2026-09-30T14:30:10+08:00",
    "slot": "light",
-   "mode": "full",
+   "mode": "light",
    "ok": 3,
    "error": 0,
-   "requests": 5,
+   "requests": 3,
    "ageMinutes": 0,
-   "nextDueAt": "2026-09-30T14:30:00+08:00",
+   "nextDueAt": "2026-09-30T15:00:00+08:00",
    "status": "ok"
   }
  }
