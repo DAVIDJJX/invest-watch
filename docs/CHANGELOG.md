@@ -785,6 +785,223 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-09-30 · 分析系列 A1-7 小白呈現框架（標籤 `stopA1-7`；等驗收後合併）
+
+把 A1-6 換匯助手的「圖示＋狀態詞＋規則＋白話＋名詞解釋」推到所有卡片與整個分析分頁，分析分頁最上面加一張總覽表。不多算新指標、不改排程、不加對外請求；原本畫面上的東西一項不減。
+
+**先講六件要請你過目的事**
+
+1. **有一處不是純前端。** 裁決要折溢價「跟自己歷史的第 25／75 百分位比」，但 `cost.json` 的折溢價摘要只有中位數、最小、最大。所以 `scripts/analyze.py` 的摘要多輸出 `p25Pct`／`p75Pct` 兩個欄位（線性內插；跟中位數一樣滿 20 個交易日才有）。現在兩檔 ETF 都只累積 3 天，這一輪的資料檔一個字都沒有變；不加請求、不動排程、不動 workflow。
+2. **折溢價的狀態先看「確定」口徑**（收盤對官方淨值，資料標籤「單一來源」；預估口徑是「估算」），預估並列在細節裡。現在兩個口徑都不滿 20 天，畫面上都是「資料不足　累積中 3/20」，看不出差別；等 A1-4 的口徑裁決。
+3. **摺疊區的小字改了一句。** 「分析」旁邊原本寫「風險、相關、成本；展開才讀取」，現在資料是首屏畫完就抓，那句話不再是真的，改成「風險、相關、成本的完整數字」。改前改後比對裡，畫面上消失的字只有這一句。
+4. **儀表板程式 `js/app.js` 這次納入守門掃描**（以前不在清單裡）。它原本就有一個價格的名字——條塊卡上說明「比存摺貴」是跟黃金存摺的哪個牌價比的那個詞——會被擋字串擋下。我沒有改那句既有的字，只在這一個檔豁免這一個詞（別的寫法照擋，有測試）。要不要改成把那句字換掉，請你決定。
+5. **這一輪自己定的幾條**（規格沒有給）：
+   - 成本「不適用」的是指數、股票、加密貨幣、商品，各有一句原因。不知道是哪一類的標的不說不適用：檔案讀不到寫「暫時讀不到」，檔案裡還沒有它寫「資料不足」。
+   - 條塊的成本看 1 公斤那一列，跟本站自己累積的天數的中位數比，滿 20 個交易日才比（現在 14 天，寫「累積中 14/20」）。存摺的中位數是手上有的天數（現在 264 天），規則句照實寫天數、不寫「一年」。
+   - 最大回檔那句白話原本只有「大約一半／三分之一／五分之一」三種說法（A1-6 只用在匯率）；推到全部標的之後補成八種（八成以上、四分之三、三分之二、一半、四成、三分之一、四分之一、五分之一），不然跌 88% 的會被說成「大約一半」。
+   - 總覽表同一個狀態照名稱排，用的是瀏覽器的繁體中文排序（中文字排在英文字母前面）。
+   - 換匯助手「人民幣現在」那一格的內部名稱從 `position` 改成 `fxPosition`（第 6 節的表拆成三列之後，位置、匯率位置、估值各有各的名字），畫面上的字沒有變。
+6. **相關的那一句裡，S&P 500 指數「最常同方向」的是它自己的總報酬版本（1.00）。** 這是 A1-5 就有的行為（卡片摺疊區的「最同向」也是它）——總報酬指數是追蹤差用的基準、也在相關矩陣裡。這一輪照原樣寫成白話，沒有改規則。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `js/plain.js` | 位置的狀態（`lampState`）：直接拿燈號函式輸出的那幾個字，不重算、不換字，圖示用色點；匯率位置改名 `fxPositionState`；折溢價的狀態 `premiumState`（跟自己歷史的第 25／75 百分位比，不滿 20 個交易日是資料不足＋「累積中 n/20」）；成本的狀態可以指定比的是什麼與規則句；三種沒有狀態分開：`insufficient`（資料不足）、`notApplicable`（不適用）、`unavailable`（暫時讀不到）。白話模板從 9 種加到 26 種（位置、跟平常比、1 年相對 5 年、目前距高點、相關、最像的幾檔、追蹤差、折溢價與它在自己歷史裡的排名、累積中、條塊溢價、拆解的殘差、人民幣變動的兩段、費用、集中度的三個事實）。純函式 |
+| `js/glossary.js` | 名詞加 14 個：面向、狀態詞、保底、視窗重疊，與 RSI、移動平均、近 10 日漲跌、年化波動、區間位置、目前距高點、殘差、淨值、資料標籤、條塊溢價；`upgrade()` 把先畫出來的字換成可以點的按鈕；點名詞不往外傳（放在可排序的表頭裡也不會觸發排序） |
+| `js/card-analysis.js` | 每張卡的面向 `aspects()`：位置（燈號）、風險（1 年波動相對 5 年）、成本（存摺價差、條塊溢價、換匯價差、折溢價；沒有這個面向的類別是不適用）；圖示列 `strip()`、點開的細節 `detail()`、總覽表的格子 `cell()`。匯率卡的位置細節多一行「5 年位置：…（見換匯助手）」。「分析」摺疊區每一列下面一行白話、相關那一組一句。仍然是純函式 |
+| `js/app.js` | 每張卡在標題列與展開區之間多一條圖示列（首屏先留一行「讀取中」）；白話層、名詞解釋與三個分析檔等首屏畫完（每張卡的日線都到了）才抓，圖示列與摺疊區共用；指標格與區間位置的標題變成可以點的名詞；分析檔讀不到時摺疊區照實寫；按「重新讀取」三個分析檔也重讀 |
+| `js/analysis.js`、`analysis.html` | 最上面一行分析狀態＋總覽表（每個標的一列、每個面向一格；預設順序跟儀表板一樣、可照某一欄排序、可回到預設；點一列展開細節；手機橫向捲動、第一欄固定；沒有任何計數）；開頁多讀 `data/latest.json` 與每個標的的日線；風險表、成本、拆解、集中度、試算的每個數字下面一行白話，表頭與小標的名詞可以點；相關矩陣下面每個標的一句；逐日／逐週／逐月明細的標題寫明「白話寫在上面的摘要」；試算結果多一條圖示列（風險、最像的三檔） |
+| `css/style.css` | 只新增圖示列與細節的樣式（`.card-glance`、`.asp*`、`.glance-note`），不改既有選擇器 |
+| `scripts/analyze.py`、`scripts/test_analyze.py` | 折溢價摘要多 `p25Pct`／`p75Pct`（`quantile()`，線性內插）；測試 2 條 |
+| `scripts/test_aspects.html`／`test_aspects_js.py`（新） | 面向 15 題＋接線 4 條：位置跟燈號一字不差（跟 A1-5 fixture 同樣的 30 組輸入）、風險與成本的門檻、折溢價的規則與口徑、不適用、匯率卡的連結、圖示與細節、讀不到、沒有禁用詞與計數、摺疊區的白話 |
+| `scripts/test_dashboard_live.html`／`test_dashboard_requests_js.py`（新） | 真的開瀏覽器量儀表板：測試自己起一個只聽 127.0.0.1 的小伺服器，17 條——首屏前後的請求數（瀏覽器與伺服器兩份紀錄對照）、每張卡的圖示列、位置等於燈號、指標格的名詞、分析檔或白話層抓不到時的樣子 |
+| `scripts/test_plain.html`／`_js.py`、`scripts/test_analysis_page.html`／`_js.py` | 白話層 8 → 12 題（每一種模板至少三組：正常、極端、資料不足，逐字比對）；分析分頁 28 → 38 題（總覽表 6 題、各區白話、表頭名詞、相關的每標的一句、試算圖示列）；接線測試改成「首屏畫完才抓」的結構 |
+| `scripts/test_analysis_guards.py` | 掃描清單加四個新測試檔與 `js/app.js`；`js/app.js` 既有的那一個價格名稱只在那個檔豁免 |
+| `docs/ANALYSIS.md`、`README.md` | 新增 5.11「小白呈現框架」；第 6 節的表拆成位置／匯率位置／估值三列，補「資料不足、不適用、暫時讀不到」的分別；第 7 節更新 |
+| 各 HTML | `bump_assets.py` 版本 20260930-8 |
+
+沒有動的：`.github/workflows/`、`data/schedule.json`、`scripts/fetch_data.py`、`scripts/report.py`、`js/indicators.js`（燈號的函式一個字沒改）、任何資料檔。
+
+**怎麼驗的**
+
+- 單元測試 **537 條全綠**（`python -m unittest discover -s scripts -p "test_*.py"`；頁面測試用 Chrome）。A1-5 的燈號 fixture 仍綠。
+- **首屏前後的請求數**（`python scripts/test_dashboard_requests_js.py --measure`，無頭瀏覽器實開、資料是倉庫裡的檔案）：
+
+  ```
+  儀表板請求數量測（無頭瀏覽器實開；資料是倉庫裡現在的檔案）
+    首屏畫完之前：23 個請求＝靜態檔 7 個＋資料檔 16 個（行情 1、報告 1、日線 14）
+      css/style.css
+      data/history/btc.json
+      data/history/fx_cny.json
+      data/history/fx_usd.json
+      data/history/gold_bar.json
+      data/history/gold_cny.json
+      data/history/gold_intl.json
+      data/history/gold_twd.json
+      data/history/gspc.json
+      data/history/nvda.json
+      data/history/tw00646.json
+      data/history/tw00679b.json
+      data/history/tw2330.json
+      data/history/twii.json
+      data/history/wti.json
+      data/latest.json
+      data/report-latest.json
+      js/app.js
+      js/card-analysis.js
+      js/charts.js
+      js/freshness.js
+      js/indicators.js
+      lib/chart.umd.min.js
+    首屏畫完之後：5 個請求（上限 5）
+      data/analysis/cost.json
+      data/analysis/fx.json
+      data/analysis/risk.json
+      js/glossary.js
+      js/plain.js
+    點開一張卡、展開「分析」之後：總數 28（沒有再多抓）
+    伺服器收到的順序：延後的第一個排第 24，首屏的最後一個排第 23（共 28 個）
+    對外連線：0（全部打 127.0.0.1）
+  ```
+
+- **改前改後比對**（同一份資料；改前＝分支起點 24c737e）。DOM 逐行比（一個標籤一行，隨機的漸層 id、版本號、快取參數先正規化）：
+
+  ```
+  #### dashboard.html：before 698 行 → after 2360 行；少了 1 行、多了 1663 行
+  #### card_tw00646.html：before 180 行 → after 360 行；少了 7 行、多了 187 行
+  #### card_gold_twd.html：before 131 行 → after 244 行；少了 7 行、多了 120 行
+  #### card_gold_cny.html：before 131 行 → after 244 行；少了 7 行、多了 120 行
+  #### card_gold_bar.html：before 150 行 → after 247 行；少了 1 行、多了 98 行
+  #### card_fx_cny.html：before 177 行 → after 343 行；少了 7 行、多了 173 行
+  #### card_fx_usd.html：before 177 行 → after 343 行；少了 7 行、多了 173 行
+  #### card_tw2330.html：before 165 行 → after 283 行；少了 7 行、多了 125 行
+  #### card_twii.html：before 165 行 → after 287 行；少了 7 行、多了 129 行
+  #### card_btc.html：before 159 行 → after 277 行；少了 7 行、多了 125 行
+  #### analysis.html：before 1937 行 → after 4119 行；少了 39 行、多了 2221 行
+  合計：少了 97 行、多了 5134 行
+  ```
+
+  「少了」的行都是同一段字換了包法——外面多包一個名詞按鈕、同一格裡多一行白話、元素多一個屬性——所以另外做了**文字層比對**（把標籤拿掉，改前的每一段字在改後出現的次數不可以變少）：
+
+  ```
+  dashboard.html         改前  218 段字（  2437 字）→ 改後  854 段（ 11917 字）；改後少了的：0 段
+  card_tw00646.html      改前   84 段字（   927 字）→ 改後  162 段（  2156 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_gold_twd.html     改前   53 段字（   510 字）→ 改後   88 段（  1048 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_gold_cny.html     改前   53 段字（   523 字）→ 改後   88 段（  1076 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_gold_bar.html     改前   71 段字（   762 字）→ 改後  104 段（  1392 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_fx_cny.html       改前   83 段字（  1010 字）→ 改後  153 段（  2059 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_fx_usd.html       改前   85 段字（  1027 字）→ 改後  155 段（  2086 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_tw2330.html       改前   75 段字（   831 字）→ 改後  123 段（  1633 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_twii.html         改前   75 段字（   856 字）→ 改後  123 段（  1668 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  card_btc.html          改前   71 段字（   772 字）→ 改後  119 段（  1549 字）；改後少了的：1 段
+      改前 1 次、改後 0 次：風險、相關、成本；展開才讀取
+  analysis.html          改前 1728 段字（ 17240 字）→ 改後 2560 段（ 31132 字）；改後少了的：0 段
+  合計：改前 2596 段字，改後少了 9 段
+  ```
+
+  改後少了的 9 段是同一句：每張展開的卡各一次的「風險、相關、成本；展開才讀取」（上面第 3 件事）。
+- **突變對照組 73 組全部符合預期**（1 組基準綠、其餘把程式改壞都紅；★ 是規格第 7 節的八組與驗收追加的三組，R 是這一輪新邏輯的補充）：
+
+  | 改壞的方式 | 結果 |
+  |---|---|
+  | （基準）什麼都不改：全套測試 | 綠（537 條全過） |
+  | ★1a 圖示沒有狀態詞（卡片的圖示只剩圖示與面向名稱）→ 面向的離線測試 | 1 條紅：test_every_chip_has_icon_name_and_word |
+  | ★1b 同上 → 真的開儀表板量的那一組 | 3 條紅：test_every_chip_has_icon_name_word_and_a_detail_with_a_rule、test_position_chip_is_the_lamp_word_for_word、test_chips_say_temporarily_unavailable |
+  | ★1c 圖示沒有狀態詞（「一眼看懂」那一格不印狀態詞） | 2 條紅：test_icon_always_has_its_word、test_icon_always_prints_its_rule |
+  | ★1d 圖示沒有狀態詞（總覽表的格子只有圖示） | 1 條紅：test_overview_cells_are_the_card_aspects |
+  | ★2a 圖示沒有規則（點開的細節不印規則）→ 面向的離線測試 | 1 條紅：test_every_detail_prints_rule_and_plain_lines |
+  | ★2b 同上 → 總覽表展開的那一列 | 1 條紅：test_overview_row_expands |
+  | ★2c 同上 → 真的開儀表板量的那一組 | 1 條紅：test_every_chip_has_icon_name_word_and_a_detail_with_a_rule |
+  | ★2d 圖示沒有規則（「一眼看懂」那一格不印規則） | 1 條紅：test_icon_always_prints_its_rule |
+  | ★3a 白話模板輸出空字串（資料不足時模板回空字串、保底的那一層也拿掉） | 2 條紅：test_every_template_has_three_kinds_of_cases、test_insufficient_data_is_said_out_loud |
+  | ★3b 白話模板輸出空字串（資料不足時那一行印成空的）→ 白話層的測試 | 2 條紅：test_every_template_has_three_kinds_of_cases、test_insufficient_data_is_said_out_loud |
+  | ★3c 同上 → 分析分頁每一區的白話 | 2 條紅：test_every_section_has_plain_lines、test_fx_position_and_cost_tables |
+  | ★3d 白話模板對正常的數字也輸出空字串（追蹤差那一句） | 1 條紅：test_every_template_has_three_kinds_of_cases |
+  | ★4a 出現禁用詞（成本的狀態詞換成帶方向的字）→ 白話層的測試 | 4 條紅：test_icon_always_has_its_word、test_no_trading_words_no_counting、test_premium_state_uses_own_quartiles、test_three_states_follow_the_rules |
+  | ★4b 同上 → 守門的擋字串 | 1 條紅：test_no_judgement_words_in_analysis_files |
+  | ★4c 出現禁用詞（圖示的文字替代裡）→ 面向的離線測試 | 1 條紅：test_no_trading_words_no_counting |
+  | ★4d 同上 → 真的開儀表板量的那一組 | 1 條紅：test_no_trading_words_and_no_counting_on_the_strips |
+  | ★4e 出現禁用詞（寫在儀表板程式 js/app.js 裡；這一輪才納入掃描） | 1 條紅：test_no_judgement_words_in_analysis_files |
+  | ★5a 總覽表顯示計數（表格下面多一句「N 個標的在相對高檔區」） | 1 條紅：test_overview_never_counts |
+  | ★5b 卡片的圖示列顯示計數（「N 個面向」）→ 面向的離線測試 | 2 條紅：test_no_trading_words_no_counting、test_unreadable_files_say_so |
+  | ★5c 同上 → 真的開儀表板量的那一組 | 2 條紅：test_every_card_has_a_strip_between_head_and_body、test_no_trading_words_and_no_counting_on_the_strips |
+  | ★6a 位置面向的字眼被改成偏貴（位置拿區間百分位去套匯率位置那一套）→ 面向的離線測試 | 5 條紅：test_aspects_order_word_number_rule、test_fx_cards_keep_the_lamp_and_link_to_the_helper、test_no_trading_words_no_counting、test_position_is_the_same_lamp_as_the_card、test_position_never_recomputes_the_lamp |
+  | ★6b 同上 → 總覽表 | 1 條紅：test_overview_cells_are_the_card_aspects |
+  | ★6c 同上 → 真的開儀表板量的那一組（位置的字要跟名稱旁邊的燈號一樣） | 3 條紅：test_every_chip_has_icon_name_word_and_a_detail_with_a_rule、test_position_chip_is_the_lamp_word_for_word、test_chips_say_temporarily_unavailable |
+  | ★6d 位置面向的字眼被改成偏貴（白話層不拿燈號的字，自己查「偏便宜／中間／偏貴」的表） | 1 條紅：test_position_state_is_the_pinned_lamp_word_for_word |
+  | ★6e 位置的圖例被改成偏貴（plain.js 抄的那一份三個詞） | 2 條紅：test_icon_always_has_its_word、test_position_state_is_the_pinned_lamp_word_for_word |
+  | ★7a 首屏請求數超過 23（把白話層掛回 index.html 的靜態標籤）→ 真的量請求數 | 3 條紅：test_first_screen_requests_are_exactly_the_static_files_and_one_file_per_asset、test_server_saw_the_same_requests_in_the_same_order、test_first_screen_is_untouched |
+  | ★7b 同上 → 只看原始碼的接線測試 | 1 條紅：test_dashboard_first_screen_loads_seven_static_files_and_defers_the_rest |
+  | ★7c 首屏請求數超過 23（一開頁就去抓三個分析檔）→ 真的量請求數 | 4 條紅：test_at_most_five_more_requests_after_the_first_screen、test_first_screen_requests_are_exactly_the_static_files_and_one_file_per_asset、test_server_saw_the_same_requests_in_the_same_order、test_first_screen_is_untouched |
+  | ★7d 同上 → 只看原始碼的接線測試 | 1 條紅：test_dashboard_first_screen_loads_seven_static_files_and_defers_the_rest |
+  | ★7e 不等日線到齊就去抓延後的五個檔（首屏還沒畫完就插隊）→ 真的量請求數 | 3 條紅：test_at_most_five_more_requests_after_the_first_screen、test_first_screen_requests_are_exactly_the_static_files_and_one_file_per_asset、test_chips_say_temporarily_unavailable |
+  | ★8a 燈號 fixture 改壞（fixture 裡一組的燈號被改掉） | 1 條紅：test_signals_and_indicators_match_the_fixture_made_from_main |
+  | ★8b 燈號的門檻被改（25 改成 30）→ 釘住的 fixture | 1 條紅：test_signals_and_indicators_match_the_fixture_made_from_main |
+  | ★8c 燈號自己的字被改成偏貴 → 釘住的 fixture | 1 條紅：test_signals_and_indicators_match_the_fixture_made_from_main |
+  | ★8d 同上 → 白話層（位置的三個詞要等於燈號的三個字） | 1 條紅：test_position_state_is_the_pinned_lamp_word_for_word |
+  | ★9a 折溢價用錯規則（拿去跟中位數比一成，不是跟第 25／75 百分位比） | 1 條紅：test_premium_uses_own_quartiles_and_the_official_row |
+  | ★9b 折溢價用錯規則（第 25／75 百分位對調） | 1 條紅：test_premium_state_uses_own_quartiles |
+  | ★9c 折溢價的狀態看成「預估」口徑 | 1 條紅：test_premium_uses_own_quartiles_and_the_official_row |
+  | ★9d 後端把第 25／75 百分位算反 | 1 條紅：test_premium_summary_has_quartiles_only_after_twenty_days |
+  | ★9e 「累積滿 20 個交易日」的門檻改成 2 | 3 條紅：test_bar_cost_waits_for_twenty_days、test_every_chip_has_icon_name_and_word、test_premium_uses_own_quartiles_and_the_official_row |
+  | ★10a 不適用被寫成資料不足（指數、股票的成本）→ 面向的離線測試 | 1 條紅：test_not_applicable_is_not_insufficient |
+  | ★10b 同上 → 總覽表 | 2 條紅：test_overview_cells_are_the_card_aspects、test_overview_row_expands |
+  | ★10c 不適用被寫成資料不足（白話層把兩種狀態做成同一種） | 1 條紅：test_insufficient_and_not_applicable_are_different |
+  | ★10d 卡片上把「不適用」也畫成一個圖示 → 面向的離線測試 | 2 條紅：test_every_chip_has_icon_name_and_word、test_not_applicable_is_not_insufficient |
+  | ★10e 同上 → 真的開儀表板量的那一組 | 2 條紅：test_every_chip_has_icon_name_word_and_a_detail_with_a_rule、test_not_applicable_is_never_drawn_on_a_card_and_fx_cards_link_to_the_helper |
+  | ★11a 首屏之後超過上限（多抓一個 decompose.json，變成 6 個）→ 真的量請求數 | 3 條紅：test_at_most_five_more_requests_after_the_first_screen、test_server_saw_the_same_requests_in_the_same_order、test_first_screen_is_untouched |
+  | ★11b 同上 → 只看原始碼的接線測試 | 1 條紅：test_dashboard_first_screen_loads_seven_static_files_and_defers_the_rest |
+  | ★11c 首屏之後超過上限（多載一支程式，變成 6 個）→ 真的量請求數 | 4 條紅：test_at_most_five_more_requests_after_the_first_screen、test_first_screen_requests_are_exactly_the_static_files_and_one_file_per_asset、test_server_saw_the_same_requests_in_the_same_order、test_first_screen_is_untouched |
+  | R1 風險的門檻改壞（兩成改成五成）→ 白話層 | 2 條紅：test_icon_always_has_its_word、test_three_states_follow_the_rules |
+  | R2 同上 → 面向的離線測試 | 1 條紅：test_risk_compares_one_year_to_five_years |
+  | R3 成本的門檻改壞（一成改成五成）→ 面向的離線測試 | 2 條紅：test_bar_cost_waits_for_twenty_days、test_cost_compares_spreads_to_their_own_median |
+  | R4 人民幣存摺拿到台幣那一本的價差 | 1 條紅：test_cost_compares_spreads_to_their_own_median |
+  | R5 條塊的成本看錯列（不是 1 公斤那一列） | 1 條紅：test_bar_cost_waits_for_twenty_days |
+  | R6 匯率卡的「5 年位置（見換匯助手）」那一行不見了 → 面向的離線測試 | 1 條紅：test_fx_cards_keep_the_lamp_and_link_to_the_helper |
+  | R7 同上 → 真的開儀表板量的那一組 | 1 條紅：test_not_applicable_is_never_drawn_on_a_card_and_fx_cards_link_to_the_helper |
+  | R8 分析檔讀不到被寫成資料不足 → 面向的離線測試 | 5 條紅：test_cost_compares_spreads_to_their_own_median、test_not_applicable_is_not_insufficient、test_premium_uses_own_quartiles_and_the_official_row、test_risk_compares_one_year_to_five_years、test_unreadable_files_say_so |
+  | R9 同上 → 真的開儀表板、把分析檔擋掉的那一組 | 1 條紅：test_chips_say_temporarily_unavailable |
+  | R10 分析檔讀不到時，「分析」摺疊區說成「沒有分析項目」 | 1 條紅：test_fold_says_so_too |
+  | R11 圖示放進標題列裡面（按鈕裡有按鈕） | 3 條紅：test_clicking_a_chip_opens_only_its_own_detail、test_every_card_has_a_strip_between_head_and_body、test_metric_titles_become_clickable_terms_with_the_same_words |
+  | R12 指標格標題的字被改掉 | 1 條紅：test_metric_titles_become_clickable_terms_with_the_same_words |
+  | R13 「累積中 n/20」不印了 | 3 條紅：test_bar_cost_waits_for_twenty_days、test_every_chip_has_icon_name_and_word、test_premium_uses_own_quartiles_and_the_official_row |
+  | R14 總覽表排序把「資料不足」排到最前面 | 1 條紅：test_overview_sorting |
+  | R15 總覽表同狀態不照名稱 | 1 條紅：test_overview_sorting |
+  | R16 總覽表的預設順序不照儀表板的分組 | 2 條紅：test_overview_rows_in_dashboard_order、test_overview_sorting |
+  | R17 「回到預設順序」按了沒有回去 | 1 條紅：test_overview_sorting |
+  | R18 點表頭裡的名詞會往外傳（名詞按鈕不擋） | 1 條紅：test_glossary_upgrades_placeholders |
+  | R19 點表頭展開的解釋會觸發排序 | 1 條紅：test_table_headers_have_terms |
+  | R20 名詞解釋少了規格點名的詞（視窗重疊） | 1 條紅：test_glossary |
+  | R21 白話把方向寫反（1 年的起伏比 5 年大／小） | 1 條紅：test_every_template_has_three_kinds_of_cases |
+  | R22 相關矩陣下面沒有「每個標的一句」 | 1 條紅：test_correlation_one_sentence_per_asset |
+  | R23 試算結果沒有圖示列 | 1 條紅：test_adhoc_glance_row |
+  | R24 新檔沒有被守門掃到（儀表板程式不在掃描清單裡） | 1 條紅：test_the_dashboard_script_is_inside_the_scan |
+  | R25 最上面那一行分析狀態在有錯時不紅 | 1 條紅：test_overview_status_line |
+
+- 截圖 22 張（桌機 1200、手機 390）：收合的儀表板、總覽表（預設、排序後展開一列、手機往右捲）、三種卡展開（有長歷史的 00646、黃金存摺台幣、黃金存摺人民幣）、名詞解釋展開（指標格、總覽表）、匯率卡的位置細節、條塊卡、分析分頁的風險表／成本區／相關。
+- 對外請求 0（測試與量測全部打 127.0.0.1）；台銀 0；排程與 workflow 一字未改；隱私掃描（通用樣式、禁用鍵名、兩份設定檔的鍵名、加鹽 HMAC 的具名字串）與擋字串綠。
+
+**怎麼退回**
+
+```bash
+git log --oneline stopA1-7 -1                     # 看標籤指到哪個 commit
+# 合併前：分支還沒進 main，不必退；不要了就不合併
+git revert -m 1 <A1-7 的合併 commit> && git push  # 合併後：退整個 A1-7（編號用 git log --oneline --merges -3 查）
+```
+
+退回後：卡片的圖示列、指標格的名詞、分析分頁的總覽表與各區的白話都消失，儀表板回到「展開分析才抓 risk／cost」；`cost.json` 的折溢價摘要少掉 `p25Pct`／`p75Pct`（目前本來就還沒有）。資料檔不受影響。
+
+---
+
 ## 2026-09-29 · 分析系列 A1-6 人民幣補齊＋「52 週」名符其實＋換匯助手＋「一眼看懂」（標籤 `stopA1-6`；2026-09-30 合併 c3c24ba）
 
 **合併紀錄（2026-09-30）**
