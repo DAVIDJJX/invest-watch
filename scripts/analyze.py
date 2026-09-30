@@ -203,6 +203,18 @@ def median(xs):
     return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2.0
 
 
+def quantile(xs, q):
+    """分位數（線性內插，跟試算表的 PERCENTILE.INC 同一種算法）：q 介於 0～1。沒有資料回 None。"""
+    xs = sorted(xs)
+    n = len(xs)
+    if not n:
+        return None
+    pos = (n - 1) * q
+    lo = int(math.floor(pos))
+    hi = min(lo + 1, n - 1)
+    return xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
+
+
 def mean(xs):
     return sum(xs) / len(xs) if xs else None
 
@@ -1114,8 +1126,10 @@ def premium_summary(rows, key):
     if n < NAV_MIN_DAYS:
         return {"n": n, "reason": "累積不到 %d 個交易日（目前 %d），先不顯示中位數" % (NAV_MIN_DAYS, n)}
     xs = [v for _d, v in vals]
+    # p25Pct／p75Pct（A1-7）：頁面拿最新一筆跟自己歷史的第 25／75 百分位比（折溢價會是負的，不能用「比中位數高一成」那種比法）
     return {"n": n, "from": vals[0][0], "through": vals[-1][0], "medianPct": round(median(xs), 3),
-            "meanPct": round(mean(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3)}
+            "meanPct": round(mean(xs), 3), "minPct": round(min(xs), 3), "maxPct": round(max(xs), 3),
+            "p25Pct": round(quantile(xs, 0.25), 3), "p75Pct": round(quantile(xs, 0.75), 3)}
 
 
 def latest_premium_rows(rows):
