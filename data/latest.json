@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-01T10:10:30+08:00",
- "updatedAtText": "2026-10-01 10:10",
+ "updatedAt": "2026-10-01T10:30:22+08:00",
+ "updatedAtText": "2026-10-01 10:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -11,7 +11,7 @@
   "error": 0,
   "errorIds": []
  },
- "requests": 10,
+ "requests": 8,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -24,10 +24,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4294.0,
+   "price": 4291.0,
    "prevClose": 4323.0,
-   "change": -29.0,
-   "changePct": -0.6708,
+   "change": -32.0,
+   "changePct": -0.7402,
    "date": "2026-10-01",
    "points": 265,
    "spark": [
@@ -70,21 +70,21 @@
     4407.0,
     4275.0,
     4323.0,
-    4294.0
+    4291.0
    ],
-   "fetchedAt": "2026-10-01T10:05:21+08:00",
+   "fetchedAt": "2026-10-01T10:30:19+08:00",
    "error": null,
-   "buy": 4247.0,
-   "sell": 4294.0,
-   "quoteTime": "2026/10/01 10:04",
+   "buy": 4244.0,
+   "sell": 4291.0,
+   "quoteTime": "2026/10/01 10:14",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-01T10:05:21+08:00",
-   "lastSuccessAt": "2026-10-01T10:05:21+08:00",
+   "lastAttemptAt": "2026-10-01T10:30:19+08:00",
+   "lastSuccessAt": "2026-10-01T10:30:19+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-01T10:05:00+08:00",
-   "nextDueAt": "2026-10-01T10:30:00+08:00"
+   "lastDueAt": "2026-10-01T10:30:00+08:00",
+   "nextDueAt": "2026-10-01T11:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -97,10 +97,10 @@
    "decimals": 2,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 903.35,
+   "price": 901.4,
    "prevClose": 908.85,
-   "change": -5.5,
-   "changePct": -0.6052,
+   "change": -7.45,
+   "changePct": -0.8197,
    "date": "2026-10-01",
    "points": 265,
    "spark": [
@@ -143,21 +143,21 @@
     930.35,
     898.3,
     908.85,
-    903.35
+    901.4
    ],
-   "fetchedAt": "2026-10-01T10:05:24+08:00",
+   "fetchedAt": "2026-10-01T10:30:22+08:00",
    "error": null,
-   "buy": 893.75,
-   "sell": 903.35,
-   "quoteTime": "2026/10/01 10:04",
+   "buy": 891.8,
+   "sell": 901.4,
+   "quoteTime": "2026/10/01 10:14",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-01T10:05:24+08:00",
-   "lastSuccessAt": "2026-10-01T10:05:24+08:00",
+   "lastAttemptAt": "2026-10-01T10:30:22+08:00",
+   "lastSuccessAt": "2026-10-01T10:30:22+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-01T10:05:00+08:00",
-   "nextDueAt": "2026-10-01T10:30:00+08:00"
+   "lastDueAt": "2026-10-01T10:30:00+08:00",
+   "nextDueAt": "2026-10-01T11:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -244,6 +244,8 @@
    "source": "local",
    "lastAttemptAt": "2026-10-01T10:05:26+08:00",
    "lastSuccessAt": "2026-10-01T10:05:26+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-10-01T10:05:00+08:00",
    "nextDueAt": "2026-10-01T13:05:00+08:00"
@@ -1043,19 +1045,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 19,
    "nextDueAt": "2026-10-01T10:40:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-01T10:05:26+08:00",
+   "runAt": "2026-10-01T10:30:22+08:00",
    "slot": "light",
-   "mode": "full",
+   "mode": "light",
    "ok": 3,
    "error": 0,
-   "requests": 5,
-   "ageMinutes": 5,
-   "nextDueAt": "2026-10-01T10:30:00+08:00",
+   "requests": 3,
+   "ageMinutes": 0,
+   "nextDueAt": "2026-10-01T11:00:00+08:00",
    "status": "ok"
   }
  }
