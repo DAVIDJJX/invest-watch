@@ -12,7 +12,14 @@
   'use strict';
 
   var GROUP_ORDER = ['貴金屬', '台股', '海外', '匯率'];
-  var state = { latest: null, history: {}, openId: null, analysis: null };
+  var state = { latest: null, history: {}, historyFailed: {}, openId: null, analysis: null };
+
+  // 這一支自己的版本號（index.html 的 script 標籤上那個 ?v=）：首屏之後才載入的程式用同一個，瀏覽器才不會拿到舊檔
+  var ASSET_VER = (function () {
+    var src = (document.currentScript && document.currentScript.src) || '';
+    var m = /[?&]v=([A-Za-z0-9.-]+)/.exec(src);
+    return m ? m[1] : '';
+  })();
 
   /* ---------------------------------------------------------- 小工具 */
 
@@ -68,6 +75,23 @@
       if (!r.ok) throw new Error(path + ' 讀取失敗（HTTP ' + r.status + '）');
       return r.json();
     });
+  }
+
+  function loadScript(path) {
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = path + (ASSET_VER ? '?v=' + ASSET_VER : '');
+      s.onload = function () { resolve(true); };
+      s.onerror = function () { reject(new Error(path + ' 載入失敗')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* 名詞：名詞解釋（js/glossary.js）是首屏之後才載入的。已經載入就直接給可以點的按鈕；
+     還沒載入就先印同樣的字、留一個記號，載入之後由 Glossary.upgrade() 換成按鈕。 */
+  function termHtml(name, label) {
+    if (window.Glossary) return window.Glossary.term(name, label);
+    return '<span data-term-pending="' + esc(name) + '">' + esc(label || name) + '</span>';
   }
 
   /* ---------------------------------------------------------- 頂部狀態列 */
@@ -165,7 +189,7 @@
 
     var notes = [];
     if (hasPremium && typeof a.goldSell === 'number') {
-      notes.push('「比存摺貴」是把每公克單價和今日黃金存摺賣出價 ' +
+      notes.push('「比存摺貴」是把每公克單價和今日黃金存摺本行賣出價 ' +
                  num(a.goldSell, 0) + ' 元相比，差額就是鑄造與加工費。');
     }
     if (rate) {
@@ -327,6 +351,11 @@
 
     card.appendChild(head);
 
+    /* --- 圖示列（A1-7）：位置、風險、成本；首屏先留位置，內容等首屏畫完才補上（見 afterFirstScreen） --- */
+    var glance = el('div', 'card-glance', '<div class="asp-wait">位置、風險、成本：讀取中…</div>');
+    glance.dataset.glance = a.id;
+    card.appendChild(glance);
+
     /* --- 展開區（先留空，點開才載入歷史） --- */
     if (hasHistory) {
       var body = el('div', 'card-body');
@@ -355,23 +384,23 @@
              (note ? '<div class="n">' + note + '</div>' : '') + '</div>';
     }
     var h = '<div class="metrics">';
-    h += box('RSI (14)',
+    h += box(termHtml('RSI', 'RSI (14)'),
              ind.rsi14 === null ? '—' : ind.rsi14.toFixed(1),
              '',
              ind.rsi14 === null ? '資料不足 15 點' : '0～100，越高代表近期漲多');
-    h += box('現價 vs MA20',
+    h += box('現價 vs ' + termHtml('移動平均', 'MA20'),
              ind.vsMa20 === null ? '—' : pct(ind.vsMa20),
              dirClass(ind.vsMa20),
              ind.ma20 === null ? '不足 20 個交易日' : 'MA20 = ' + num(ind.ma20, d));
-    h += box('現價 vs MA60',
+    h += box('現價 vs ' + termHtml('移動平均', 'MA60'),
              ind.vsMa60 === null ? '—' : pct(ind.vsMa60),
              dirClass(ind.vsMa60),
              ind.ma60 === null ? '不足 60 個交易日' : 'MA60 = ' + num(ind.ma60, d));
-    h += box('近 10 日漲跌',
+    h += box(termHtml('近 10 日漲跌'),
              ind.change10d === null ? '—' : pct(ind.change10d),
              dirClass(ind.change10d),
              '與 10 個交易日前收盤比');
-    h += box('年化波動 (30日)',
+    h += box(termHtml('年化波動', '年化波動 (30日)'),
              ind.volatility30 === null ? '—' : ind.volatility30.toFixed(1) + '%',
              '',
              '僅供了解價格起伏大小');
@@ -395,7 +424,7 @@
     var h = '<div class="range-bar">';
     h += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">' +
            '<span style="font-size:12px;color:var(--text-faint)">' +
-           esc(I.windowName(r)) + '區間位置' + (since ? '（' + esc(since) + '）' : '') + '</span>' +
+           termHtml('區間位置', I.windowName(r) + '區間位置') + (since ? '（' + esc(since) + '）' : '') + '</span>' +
            '<span class="signal ' + sig.level + '"><span class="dot"></span>' +
            esc(sig.label) + '</span>' +
          '</div>';
@@ -417,7 +446,7 @@
    * 實體條塊的展開內容。
    * 台銀不公布條塊的歷史牌價，所以：
    *   累積夠 5 天 → 畫條塊自己的「每公克單價」走勢
-   *   還不夠     → 先畫黃金存摺賣出價（同一塊金子的價格，條塊只是再加鑄造費）
+   *   還不夠     → 先畫黃金存摺本行賣出價（同一塊金子的價格，條塊只是再加鑄造費）
    * 兩種情況都會在圖下面寫清楚現在看的是哪一條線。
    */
   function renderBarBody(card, a) {
@@ -447,7 +476,7 @@
       : ('台銀不公布實體條塊的歷史牌價，本站' +
          (since ? '從 ' + esc(since) + ' 起' : '') + '自行累積（目前 ' +
          barPts.length + ' 天，滿 5 天後這裡會換成條塊自己的走勢）。' +
-         '下圖先用<b>黃金存摺賣出價</b>代表金價走勢——條塊價就是它再加上鑄造與加工費。');
+         '下圖先用<b>黃金存摺本行賣出價</b>代表金價走勢——條塊價就是它再加上鑄造與加工費。');
 
     body.innerHTML =
       '<div class="chart-box"><canvas id="' + canvasId + '"></canvas></div>' +
@@ -465,6 +494,7 @@
     window.Charts.drawHistory(document.getElementById(canvasId), points,
       { decimals: useBar ? 1 : 0, label: label });
     wireAnalysis(card, a);
+    if (window.Glossary) window.Glossary.wire(body);
   }
 
   function renderBody(card, a, hist) {
@@ -502,32 +532,104 @@
         '<div class="fatal">圖表函式庫沒有載入成功（lib/chart.umd.min.js）。</div>';
     }
     wireAnalysis(card, a);
+    if (window.Glossary) window.Glossary.wire(body);
+  }
+
+  /* ---------------------------------------------------------- 分析資料：首屏畫完之後才抓（A1-7）
+   *
+   * 白話層（js/plain.js）、名詞解釋（js/glossary.js）與 data/analysis 的三個檔（risk、cost、fx），
+   * 都要等首屏畫完（行情與各卡的日線都到了、燈號亮了）才去抓：開頁的請求數跟以前一樣，之後最多多這五個。
+   * 三個檔各抓一次、存在 state.analysis，卡片的圖示列與「分析」摺疊區共用；抓不到的那一檔是 null（畫面寫「分析資料暫時讀不到」）。
+   * decompose.json 與 data/history-long 完全不由這一頁載入。
+   */
+  var deferredScripts = null;
+
+  function loadDeferredScripts() {
+    if (!deferredScripts) {
+      // 兩支各自等到有結果（載到或確定載不到）：一支失敗不會讓另一支還沒載完就被當成結束
+      deferredScripts = Promise.all([
+        loadScript('js/plain.js').catch(function () { return false; }),
+        loadScript('js/glossary.js').catch(function () { return false; })
+      ]).then(function (r) { return r[0] && r[1]; });
+    }
+    return deferredScripts;
+  }
+
+  function loadAnalysis() {
+    if (!state.analysis) {
+      state.analysis = Promise.all([
+        fetchJSON('data/analysis/risk.json').catch(function () { return null; }),
+        fetchJSON('data/analysis/cost.json').catch(function () { return null; }),
+        fetchJSON('data/analysis/fx.json').catch(function () { return null; })
+      ]).then(function (r) { return { risk: r[0], cost: r[1], fx: r[2] }; });
+    }
+    return state.analysis;
+  }
+
+  function loadDeferred() {
+    return Promise.all([loadDeferredScripts(), loadAnalysis()]).then(function (r) { return r[1]; });
+  }
+
+  /* ---------------------------------------------------------- 圖示列（A1-7）
+   *
+   * 每張卡在標題列與展開區之間多一條：位置、風險、成本各一個圖示＋狀態詞，收合時就看得到；點圖示展開該面向的數字、規則、白話。
+   * 它自成一條、不放進 .card-head——標題列整塊是「看走勢」的按鈕，按鈕裡不能再放按鈕。
+   * 每個面向是哪個狀態由 js/card-analysis.js 決定（門檻在 js/plain.js、位置的燈號在 js/indicators.js），這裡只負責掛與點。
+   * 幾個圖示各看各的：這裡不數它們、也不把它們合成一個結論。
+   */
+  function renderGlance(a, data) {
+    var box = document.querySelector('.card-glance[data-glance="' + a.id + '"]');
+    if (!box) return;
+    var CA = window.CardAnalysis;
+    if (!CA || !CA.aspects || !window.Plain) {
+      box.innerHTML = '<div class="asp-missing">分析資料暫時讀不到</div>';
+      return;
+    }
+    var hist = state.history[a.id];
+    box.innerHTML = CA.strip(a, CA.aspects(a, {
+      points: (hist && hist.points) || [], historyFailed: !!state.historyFailed[a.id],
+      risk: data.risk, cost: data.cost, fx: data.fx
+    }));
+    var chips = box.querySelectorAll('button.asp');
+    Array.prototype.forEach.call(chips, function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.getAttribute('aria-controls'));
+        if (!target) return;
+        var opening = target.hidden;
+        // 一次只開一個面向的細節
+        Array.prototype.forEach.call(box.querySelectorAll('.asp-detail'), function (d) { d.hidden = true; });
+        Array.prototype.forEach.call(chips, function (b) { b.setAttribute('aria-expanded', 'false'); });
+        if (opening) {
+          target.hidden = false;
+          btn.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+    if (window.Glossary) window.Glossary.wire(box);
+  }
+
+  /* 首屏畫完（行情與各卡的日線都到了）之後才做的事：抓白話層、名詞解釋與三個分析檔，補上每張卡的圖示列 */
+  function afterFirstScreen(latest) {
+    if (window.performance && window.performance.mark) window.performance.mark('iw-first-screen');
+    return loadDeferred().then(function (data) {
+      if (state.latest !== latest) return;          // 這段期間又按了一次「重新讀取」：交給新的那一輪畫
+      Object.keys(latest.assets).forEach(function (id) { renderGlance(latest.assets[id], data); });
+      if (window.Glossary) window.Glossary.upgrade(document);
+      var root = $('#dashboard');
+      if (root) root.setAttribute('data-glance', 'done');
+    });
   }
 
   /* ---------------------------------------------------------- 分析（A1-5）：卡片裡的「分析」摺疊區
    *
-   * 預設收合。第一次展開才抓 data/analysis/risk.json（需要成本項的五張卡再抓 cost.json），抓過就存在 state.analysis 重複用；
-   * decompose.json 與 data/history-long 完全不由這一頁載入。開頁時什麼都不抓——首屏的請求數跟 A1-5 之前一樣。
-   * 畫什麼由 js/card-analysis.js 決定（純函式），這裡只負責抓與掛。
+   * 預設收合，展開才畫。資料跟圖示列共用（首屏畫完之後才抓，見上面）；使用者搶在那之前展開，也是用同一個請求，不會多抓。
+   * 畫什麼由 js/card-analysis.js 決定（純函式），這裡只負責掛。
    */
-  var COST_IDS = { tw00646: true, tw00679b: true, gold_twd: true, gold_cny: true, gold_bar: true };
-
   function analysisHtml(a) {
     return '<details class="ana" data-ana="' + esc(a.id) + '">' +
-             '<summary>分析<span class="ana-hint">風險、相關、成本；展開才讀取</span></summary>' +
+             '<summary>分析<span class="ana-hint">風險、相關、成本的完整數字</span></summary>' +
              '<div class="ana-body"><div class="loading">讀取分析資料中…</div></div>' +
            '</details>';
-  }
-
-  function ensureAnalysis(id) {
-    state.analysis = state.analysis || {};
-    if (!state.analysis.risk) {
-      state.analysis.risk = fetchJSON('data/analysis/risk.json').catch(function () { return null; });
-    }
-    if (COST_IDS[id] && !state.analysis.cost) {
-      state.analysis.cost = fetchJSON('data/analysis/cost.json').catch(function () { return null; });
-    }
-    return Promise.all([state.analysis.risk, COST_IDS[id] ? state.analysis.cost : Promise.resolve(null)]);
   }
 
   function wireAnalysis(card, a) {
@@ -541,8 +643,8 @@
         body.innerHTML = '<div class="fatal">分析程式沒有載入成功（js/card-analysis.js）。</div>';
         return;
       }
-      ensureAnalysis(a.id).then(function (r) {
-        body.innerHTML = window.CardAnalysis.render(window.CardAnalysis.facts(a, r[0], r[1]));
+      loadDeferred().then(function (d) {
+        body.innerHTML = window.CardAnalysis.render(window.CardAnalysis.facts(a, d.risk, d.cost), d.risk === null || d.cost === null);
       });
     });
   }
@@ -605,6 +707,7 @@
 
     var root = $('#dashboard');
     root.innerHTML = '';
+    root.removeAttribute('data-glance');       // 圖示列要等首屏畫完才補上；補完會標 done（見 afterFirstScreen）
 
     var byGroup = {};
     Object.keys(latest.assets).forEach(function (id) {
@@ -642,12 +745,13 @@
   }
 
   function loadHistories(latest) {
+    var jobs = [];
     Object.keys(latest.assets).forEach(function (id) {
       var a = latest.assets[id];
       var isBar = a.type === 'bot_gold_bar';
       if (a.status !== 'ok') return;
       if (!(a.points > 1) && !(isBar && a.points >= 1)) return;
-      fetchJSON('data/history/' + id + '.json')
+      jobs.push(fetchJSON('data/history/' + id + '.json')
         .then(function (h) {
           state.history[id] = h;
           updateSignal(a, h);
@@ -655,14 +759,16 @@
           if (card && card.classList.contains('is-open')) renderBody(card, a, h);
         })
         .catch(function () {
+          state.historyFailed[id] = true;
           var node = document.querySelector('[data-signal="' + id + '"]');
           if (node) {
             node.className = 'signal unknown';
             node.innerHTML = '<span class="dot"></span>燈號不可用';
             node.title = '歷史資料讀取失敗，無法計算區間位置';
           }
-        });
+        }));
     });
+    return Promise.all(jobs);           // 每一張卡的日線都到了（或確定讀不到）才算首屏畫完
   }
 
   /* 頂部那條「今天的報告」入口。沒有報告就整條不顯示。 */
@@ -721,12 +827,14 @@
     setRefreshMsg('重新讀取中…', 'dim', false);
 
     state.history = {};          // 歷史也一起重讀，不要用舊的算指標
+    state.historyFailed = {};
+    state.analysis = null;       // 分析的三個檔也重讀
     loadReportBanner();
 
     fetchJSON('data/latest.json')
       .then(function (latest) {
         render(latest);
-        loadHistories(latest);
+        loadHistories(latest).then(function () { afterFirstScreen(latest); });
         if (before && latest.updatedAt === before) {
           setRefreshMsg('資料沒有變新，最後更新仍是 ' + (latest.updatedAtText || '—') +
                         '。下一次自動更新後再按就會看到新的。', 'dim', true);
@@ -751,7 +859,7 @@
     fetchJSON('data/latest.json')
       .then(function (latest) {
         render(latest);
-        loadHistories(latest);
+        loadHistories(latest).then(function () { afterFirstScreen(latest); });
       })
       .catch(function (e) {
         $('#dashboard').innerHTML =

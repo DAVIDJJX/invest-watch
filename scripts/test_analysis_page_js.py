@@ -13,6 +13,12 @@ test_analysis_page_js.py — 分析系列 A1 的暫時檢視頁（analysis-debug
   3. 每一個日期欄都非空、長得像日期。
   4. 拆解的「現在這一刻」、摘要、逐月表都有畫出來，資料標籤「估算」有顯示。
   5. 頁面上沒有任何投資判斷用語（頁尾那句固定聲明是唯一例外）。
+  A1-7（小白呈現）：
+  6. 最上面是一行分析狀態，接著是總覽表：每個標的一列、順序跟儀表板一樣；每一格的狀態跟卡片的面向是同一份，位置就是燈號。
+  7. 總覽表可以照面向排序（同狀態照名稱、沒有狀態的永遠排最後）、可以回到預設；點一列展開數字、規則、白話。
+  8. 總覽表不顯示任何計數或加總。
+  9. 既有各區每個數字下面一行白話（不是空的）；相關矩陣每個標的一句；逐日／逐月明細只在摘要寫白話；表頭的名詞可以點、點了不會觸發排序。
+  10. 試算結果有圖示列（風險、最像的三檔）。
 """
 import html
 import json
@@ -67,7 +73,7 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 28)
+        self.assertEqual(self.report.get("total"), 39)
 
     # --- A1-6：換匯助手（一眼看懂、位置、成本、規則表、歷史模擬、私人設定） ---
     def test_fx_glance_row(self):
@@ -108,6 +114,48 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_status_on_top(self):
         self.case("status_shows_last_run_and_errors_on_top")
+
+    # --- A1-7：總覽表與全頁的白話 ---
+    def test_overview_status_line(self):
+        self.case("overview_status_line_is_on_top_and_loud_when_broken")
+
+    def test_overview_rows_in_dashboard_order(self):
+        """對照組：預設順序不照儀表板的分組 → 這一條會紅。"""
+        self.case("overview_has_one_row_per_asset_in_dashboard_order")
+
+    def test_overview_cells_are_the_card_aspects(self):
+        """對照組：位置面向的字眼被改成偏貴、或不適用被寫成資料不足 → 這一條會紅。"""
+        self.case("overview_cells_are_the_same_aspects_as_the_cards")
+
+    def test_overview_sorting(self):
+        """對照組：排序時把「資料不足」排到前面 → 這一條會紅。"""
+        self.case("overview_sorts_by_aspect_keeps_blanks_last_and_resets")
+
+    def test_overview_row_expands(self):
+        """對照組：圖示沒有規則 → 這一條會紅。"""
+        self.case("overview_row_expands_into_rule_numbers_and_plain_lines")
+
+    def test_overview_not_applicable_row_lists_fixed_costs(self):
+        """A1-7 驗收裁決。對照組：總覽表沒有把靜態費用表交給面向的判定 → 這一條會紅。"""
+        self.case("overview_not_applicable_row_lists_fixed_costs")
+
+    def test_overview_never_counts(self):
+        """對照組：總覽表顯示計數 → 這一條會紅。"""
+        self.case("overview_never_counts_or_totals")
+
+    def test_every_section_has_plain_lines(self):
+        """對照組：白話模板輸出空字串 → 這一條會紅。"""
+        self.case("every_section_explains_its_numbers_in_plain_words")
+
+    def test_table_headers_have_terms(self):
+        """對照組：點表頭裡的名詞也會觸發排序 → 這一條會紅。"""
+        self.case("table_headers_have_clickable_terms_without_breaking_sorting")
+
+    def test_correlation_one_sentence_per_asset(self):
+        self.case("correlation_has_one_sentence_per_asset_not_per_cell")
+
+    def test_adhoc_glance_row(self):
+        self.case("adhoc_detail_gets_a_glance_row_and_plain_lines")
 
     def test_matrix_cells_and_colors(self):
         """對照組：矩陣少畫一列 → 這一條會紅。"""
@@ -180,8 +228,10 @@ class TestPageWiring(unittest.TestCase):
         for dep in ("js/lock.js", "js/storage.js", "js/concentration.js"):
             self.assertIn(dep, src)
             self.assertLess(src.index(dep), src.index("js/analysis.js"))
-        for sec in ("status", "fx", "risk", "cost", "decompose", "concentration", "adhoc"):
+        for sec in ("overview", "status", "fx", "risk", "cost", "decompose", "concentration", "adhoc"):
             self.assertIn('id="%s"' % sec, src)
+        self.assertLess(src.index('id="overview"'), src.index('id="status"'))                   # 總覽（最上面一行就是分析狀態）在最上面
+        self.assertLess(src.index('id="status"'), src.index('id="fx"'))
         self.assertIn("以上為量化整理，未經回測驗證，不構成投資建議。", src)
         self.assertIn('<a href="analysis.html" class="active">分析</a>', src)
         self.assertNotIn("暫時", src)
@@ -198,8 +248,9 @@ class TestPageWiring(unittest.TestCase):
         self.assertIn("此頁已搬到分析分頁", src)
         self.assertNotIn("<script src=", src)                                                    # 不載任何程式，只跳轉
 
-    def test_dashboard_first_screen_loads_seven_static_files_and_stays_lazy(self):
-        """對照組：懶載入改成首屏載入（boot 就抓 risk.json）→ 這一條會紅。"""
+    def test_dashboard_first_screen_loads_seven_static_files_and_defers_the_rest(self):
+        """A1-7：分析的三個檔與兩支程式要等首屏畫完才抓。對照組：boot 就抓 risk.json、或把白話層掛回 index.html → 這一條會紅。
+        這裡只看原始碼的結構；真的開瀏覽器量請求數的是 test_dashboard_requests_js.py。"""
         src = self.read("index.html")
         tags = re.findall(r'<(?:link rel="stylesheet"|script src=)', src)
         self.assertEqual(len(tags), 7, "首屏靜態檔應為 7 個（css 1、Chart.js 1、js 5），得到 %d" % len(tags))
@@ -207,15 +258,35 @@ class TestPageWiring(unittest.TestCase):
         self.assertLess(src.index("js/card-analysis.js"), src.index("js/app.js"))
         app = self.read("js/app.js")
         boot = app[app.index("function boot()"):app.index("if (document.readyState === 'loading')")]
-        self.assertNotIn("analysis", boot.lower(), "boot() 不可以碰任何分析檔，也不可以叫 ensureAnalysis")
+        self.assertNotIn("analysis", boot.lower(), "boot() 不可以自己碰任何分析檔")
+        self.assertNotIn("loadDeferred", boot)
+        self.assertNotIn("loadScript", boot)
+        self.assertIn("loadHistories(latest).then(function () { afterFirstScreen(latest); });", boot)   # 日線都到了才算首屏畫完
         histories = app[app.index("function loadHistories("):app.index("/* 頂部那條")]
         self.assertNotIn("analysis", histories.lower())
-        self.assertEqual(app.count("fetchJSON('data/analysis/"), 2)                             # 只有 risk 與 cost，而且都在 ensureAnalysis 裡
-        ensure = app[app.index("function ensureAnalysis("):app.index("function wireAnalysis(")]
-        self.assertIn("fetchJSON('data/analysis/risk.json')", ensure)
-        self.assertIn("fetchJSON('data/analysis/cost.json')", ensure)
+        self.assertNotIn("loadDeferred", histories)
+        self.assertIn("return Promise.all(jobs);", histories)
+        self.assertEqual(app.count("fetchJSON('data/analysis/"), 3)                             # risk、cost、fx，而且都在 loadAnalysis 裡
+        loader = app[app.index("  function loadAnalysis()"):app.index("  function loadDeferred()")]
+        for name in ("risk", "cost", "fx"):
+            self.assertIn("fetchJSON('data/analysis/%s.json')" % name, loader)
         self.assertNotIn("fetchJSON('data/analysis/decompose", app)                             # 儀表板永遠不抓拆解與週線長歷史
         self.assertNotIn("fetchJSON('data/history-long", app)
+        # 會去抓那五個檔的只有 loadDeferred()；叫它的只有兩個地方：首屏畫完之後、以及使用者自己展開「分析」
+        self.assertEqual(app.count("loadDeferred()"), 3)                                        # 定義 1 ＋ 呼叫 2
+        after = app[app.index("  function afterFirstScreen("):app.index("  /* ---------------------------------------------------------- 分析（A1-5）")]
+        self.assertIn("return loadDeferred().then(", after)
+        wire = app[app.index("  function wireAnalysis("):app.index("  function toggleCard(")]
+        self.assertIn("loadDeferred().then(", wire)
+        self.assertEqual(app.count("afterFirstScreen(latest)"), 3)                              # 定義 1 ＋ 呼叫 2：開頁一次、按「重新讀取」一次，都接在 loadHistories 後面
+        self.assertEqual(app.count("loadHistories(latest).then(function () { afterFirstScreen(latest); });"), 2)
+
+    def test_analysis_page_has_the_overview_styles_for_phones(self):
+        """A1-7：總覽表在手機上整張橫向捲動、第一欄固定。"""
+        src = self.read("analysis.html")
+        self.assertIn(".ana-page .ov-wrap { overflow-x: auto;", src)
+        self.assertRegex(src, r"td\.ov-name \{ position: sticky; left: 0;")
+        self.assertIn(".ana-page .ov-detail-grid { position: sticky;", src)
 
     def test_analysis_page_reads_fx_json_and_saves_the_plan_without_numbers_in_the_message(self):
         """A1-6：分析分頁多讀一檔 fx.json；私人設定存檔的 commit 訊息是固定的幾個字，不帶任何數字。"""
@@ -223,6 +294,11 @@ class TestPageWiring(unittest.TestCase):
         boot = src[src.index("  function boot()"):src.index("  window.AnalysisDebug = ")]
         self.assertEqual(boot.count("fetchJSON('data/analysis/"), 6)
         self.assertIn("fetchJSON('data/analysis/fx.json')", boot)
+        self.assertIn("loadMarket()", boot)                                                     # A1-7：總覽表多讀行情與每個標的的日線
+        market = src[src.index("  function loadMarket()"):src.index("  function boot()")]
+        self.assertIn("fetchJSON('data/latest.json')", market)
+        self.assertIn("fetchJSON('data/history/' + id + '.json')", market)
+        self.assertNotIn("history-long", market)
         wire = src[src.index("  function wireFx("):src.index("  function boot()")]
         self.assertIn("window.Storage.testConnection()", wire)
         self.assertLess(wire.index("window.Storage.testConnection()"), wire.index("window.Storage.saveFile("))

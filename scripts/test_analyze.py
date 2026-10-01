@@ -768,6 +768,31 @@ class TestCost(unittest.TestCase):
         self.assertEqual(s["n"], 20)
         self.assertEqual(s["medianPct"], 0.5)
 
+    def test_premium_summary_has_quartiles_only_after_twenty_days(self):
+        """A1-7：頁面的折溢價狀態要跟自己歷史的第 25／75 百分位比。對照組：兩個百分位對調、或改成取最小最大 → 這一條會紅。"""
+        rows = [{"d": "2026-09-%02d" % (i + 1), "officialPremiumPct": round(0.1 * (i + 1), 3)} for i in range(19)]
+        short = A.premium_summary(rows, "officialPremiumPct")
+        self.assertNotIn("p25Pct", short)                                                     # 不滿 20 天：沒有百分位，頁面顯示「累積中 n/20」
+        self.assertNotIn("p75Pct", short)
+        rows.append({"d": "2026-09-20", "officialPremiumPct": 2.0})
+        s = A.premium_summary(rows, "officialPremiumPct")                                      # 0.1、0.2 … 2.0 共 20 筆
+        self.assertEqual(s["p25Pct"], 0.575)                                                   # 位置 19×0.25＝4.75 → 0.5＋0.75×0.1
+        self.assertEqual(s["p75Pct"], 1.525)                                                   # 位置 19×0.75＝14.25 → 1.5＋0.25×0.1
+        self.assertLess(s["minPct"], s["p25Pct"])
+        self.assertLess(s["p25Pct"], s["medianPct"])
+        self.assertLess(s["medianPct"], s["p75Pct"])
+        self.assertLess(s["p75Pct"], s["maxPct"])
+        neg = A.premium_summary([{"d": "2026-09-%02d" % (i + 1), "officialPremiumPct": -0.4 + 0.02 * i} for i in range(21)], "officialPremiumPct")
+        self.assertEqual((neg["p25Pct"], neg["medianPct"], neg["p75Pct"]), (-0.3, -0.2, -0.1))  # 折價（負的）一樣由小到大排
+
+    def test_quantile_interpolates_and_handles_edges(self):
+        self.assertIsNone(A.quantile([], 0.25))
+        self.assertEqual(A.quantile([7.0], 0.25), 7.0)
+        self.assertEqual(A.quantile([1.0, 2.0, 3.0, 4.0], 0.5), 2.5)
+        self.assertEqual(A.quantile([4.0, 1.0, 3.0, 2.0], 0.0), 1.0)                           # 先排序
+        self.assertEqual(A.quantile([4.0, 1.0, 3.0, 2.0], 1.0), 4.0)
+        self.assertAlmostEqual(A.quantile([1.0, 2.0, 3.0, 4.0], 0.25), 1.75)
+
     def test_gold_spread_math(self):
         out = A.gold_spread([{"d": "2026-09-24", "buy": 4330.0, "sell": 4382.0}])
         self.assertAlmostEqual(out["latest"]["spreadPct"], round(52.0 / 4356.0 * 100, 3), places=3)

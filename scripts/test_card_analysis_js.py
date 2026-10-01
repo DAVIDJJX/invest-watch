@@ -64,7 +64,7 @@ class TestCardAnalysisJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/card-analysis.js")
-        self.assertEqual(self.report.get("total"), 9)
+        self.assertEqual(self.report.get("total"), 10)
 
     def test_expanded_card_has_content(self):
         self.case("expanded_card_has_risk_correlation_and_cost")
@@ -93,6 +93,10 @@ class TestCardAnalysisJs(unittest.TestCase):
 
     def test_premium_median_rule(self):
         self.case("premium_median_shown_only_after_twenty_days")
+
+    def test_same_index_in_two_versions_is_not_its_own_most_aligned(self):
+        """A1-7 驗收裁決。對照組：把「同一個東西的兩個版本互相排除」拿掉 → 這一條會紅。"""
+        self.case("same_index_in_two_versions_is_not_its_own_most_aligned")
 
     def test_no_judgement_words(self):
         """對照組：把數字換成一個假的加總數字 → 這一條會紅。"""

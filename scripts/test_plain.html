@@ -9,6 +9,7 @@
        結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_plain_js.py 讀。數字都是隨手編的測試值。 -->
   <div id="mount"></div>
   <pre id="result"></pre>
+  <script src="../js/indicators.js"></script>
   <script src="../js/plain.js"></script>
   <script src="../js/glossary.js"></script>
   <script>
@@ -25,15 +26,128 @@
       var BANNED = ['偏' + '買', '偏' + '賣', '主' + '力', '建' + '議', '買' + '進', '賣' + '出', '總' + '分', '分' + '數'];
       // 「加總」的樣子：幾個面向／幾項指標怎麼樣
       var COUNTING = /[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)/;
-      var loaded = !!(window.Plain && window.Glossary);
+      var NA = '資料不足';
+      var loaded = !!(window.Plain && window.Glossary && window.Indicators);
+
+      /* 白話模板的測試表：每一種至少三組——正常、極端（正負號、0、很大）、資料不足。
+         歷史模擬的那一句（backtestStory）分支多，另外一題測。 */
+      var CASES = {
+        position: [[{ pct: 96.9, years: 5 }, '過去 5 年裡，有 97% 的時候比現在便宜或一樣。'],
+                   [{ pct: 0, years: 10 }, '過去 10 年裡，有 0% 的時候比現在便宜或一樣。'],
+                   [{ years: 5 }, NA]],
+        lamp: [[{ pct: 37.4, window: '52 週' }, '把 52 週的最低價當 0、最高價當 100，現在在 37 的位置。'],
+               [{ pct: 100, window: '近 14 個交易日' }, '把近 14 個交易日的最低價當 0、最高價當 100，現在在 100 的位置。'],
+               [{ pct: 0 }, '把這段期間的最低價當 0、最高價當 100，現在在 0 的位置。'],
+               [{ window: '52 週' }, NA]],
+        distance: [[{ fromLowPct: 11.9, fromHighPct: -1.55 }, '比一年內最低的時候高 11.9%，比一年內最高的時候低 1.6%。'],
+                   [{ fromLowPct: 0, fromHighPct: -48.2 }, '比一年內最低的時候高 0.0%，比一年內最高的時候低 48.2%。'],
+                   [{ fromLowPct: 3 }, NA]],
+        spread: [[{ pct: 1.056 }, '銀行掛的兩個價格差 1.06%：每換 100 元，來回一趟大約有 1.06 元是這個差。'],
+                 [{ pct: 1.1, kind: 'gold' }, '銀行掛的兩個價格差 1.10%：今天存進 100 元的黃金、馬上再換回現金，大約會少 1.10 元。'],
+                 [{ pct: 1.07, kind: 'gold', unit: '人民幣' }, '銀行掛的兩個價格差 1.07%：今天存進 100 人民幣的黃金、馬上再換回現金，大約會少 1.07 人民幣。'],
+                 [{ kind: 'gold' }, NA]],
+        spreadCompare: [[{ current: 1.2, median: 1 }, '比自己平常的水準（中位數 1.00%）高 20%。'],
+                        [{ current: 0.5, median: 1 }, '比自己平常的水準（中位數 1.00%）低 50%。'],
+                        [{ current: 1.004, median: 1 }, '跟自己平常的水準（中位數 1.00%）差不多。'],
+                        [{ current: 1, median: 0 }, NA], [{ current: 1 }, NA]],
+        cash: [[{ pct: 0.841 }, '拿實體鈔票換，比用帳戶裡的錢換貴 0.84%。'],
+               [{ pct: 12 }, '拿實體鈔票換，比用帳戶裡的錢換貴 12.00%。'],
+               [{}, NA]],
+        quota: [[{ pct: 65.9, ratioPct: 20, bucket: '60–80%' }, '5 年百分位 65.9% 落在「60–80%」那一檔，規則額度是預算池的 20%。'],
+                [{ pct: 96.9, ratioPct: 0, bucket: '> 80%' }, '5 年百分位 96.9% 落在「> 80%」那一檔，規則額度是預算池的 0%，規則表這一檔寫的是觀望。'],
+                [{ pct: 65.9 }, NA]],
+        backtest: [[{ n: 76, months: 36, winSharePct: 71.1, tieSharePct: 11.8, medianImprovePct: 0.104, worstImprovePct: -0.677 },
+                    '拿過去的資料重演 76 個 36 個月的期間：依位置調整換得比較便宜的有 71.1%，一般的情況（中位數）便宜 0.10%，最差的一次反而貴 0.68%。'],
+                   [{ n: 76, months: 36, winSharePct: 0, tieSharePct: 100, medianImprovePct: 0, worstImprovePct: 0 },
+                    '拿過去的資料重演 76 個 36 個月的期間：兩種做法每一次都換到一樣的匯率，沒有差別。'],
+                   [{ n: 0, winSharePct: 50, medianImprovePct: 0.1 }, NA]],
+        drawdown: [[{ pct: -52 }, '歷史上最慘的一次曾經跌掉大約一半，到現在還沒漲回原來的高點。'],
+                   [{ pct: -21.6, recoveredDate: '2020-08-24' }, '歷史上最慘的一次曾經跌掉大約五分之一，2020-08-24 才漲回原來的高點。'],
+                   [{ pct: -88.3, recoveredDate: '2006-11-13' }, '歷史上最慘的一次曾經跌掉八成以上，2006-11-13 才漲回原來的高點。'],
+                   [{ pct: -75 }, '歷史上最慘的一次曾經跌掉大約四分之三，到現在還沒漲回原來的高點。'],
+                   [{ pct: -67.9 }, '歷史上最慘的一次曾經跌掉大約三分之二，到現在還沒漲回原來的高點。'],
+                   [{ pct: -43.6 }, '歷史上最慘的一次曾經跌掉大約四成，到現在還沒漲回原來的高點。'],
+                   [{ pct: -33 }, '歷史上最慘的一次曾經跌掉大約三分之一，到現在還沒漲回原來的高點。'],
+                   [{ pct: -28 }, '歷史上最慘的一次曾經跌掉大約四分之一，到現在還沒漲回原來的高點。'],
+                   [{ pct: -5 }, '歷史上最慘的一次曾經跌了 5%，到現在還沒漲回原來的高點。'],
+                   [{ pct: -33.3, unknownRecovery: true }, '歷史上最慘的一次曾經跌掉大約三分之一。'],
+                   [{ recoveredDate: '2020-08-24' }, NA]],
+        currentDrawdown: [[{ pct: -1.84, highDate: '2026-08-10' }, '比 2026-08-10 的高點低 1.8%。'],
+                          [{ pct: 0, highDate: '2026-09-21' }, '現在就在這段資料的最高點（2026-09-21）。'],
+                          [{ pct: -51.6 }, '比先前的高點低 51.6%。'],
+                          [{ highDate: '2026-08-10' }, NA]],
+        volatility: [[{ pct: 12.3 }, '一年裡漲跌 12% 左右算平常；數字越大，價格越會大起大落。'],
+                     [{ pct: 11.07, window: '1 年' }, '照最近 1 年的起伏，一年裡漲跌 11% 左右算平常。'],
+                     [{ pct: 60.3, window: '5 年' }, '照最近 5 年的起伏，一年裡漲跌 60% 左右算平常。'],
+                     [{ window: '5 年' }, NA]],
+        volCompare: [[{ vol1y: 11.07, vol5y: 13.38 }, '最近 1 年的起伏比過去 5 年小 17%。'],
+                     [{ vol1y: 24.4, vol5y: 17.29 }, '最近 1 年的起伏比過去 5 年大 41%。'],
+                     [{ vol1y: 10, vol5y: 10.05 }, '最近 1 年的起伏跟過去 5 年差不多。'],
+                     [{ vol1y: 10 }, NA], [{ vol1y: 10, vol5y: 0 }, NA]],
+        correlation: [[{ most: { id: 'gspc', name: 'S&P 500 指數', r: 0.9 }, least: { id: 'tw00679b', r: 0.05 }, inverse: { id: 'fx_usd', name: '美元 / 台幣', r: -0.35 } },
+                       '最常跟它同方向走的是 S&P 500 指數（0.90）；走勢最沒有關係的是 tw00679b（0.05）；常常跟它反方向的是 美元 / 台幣（-0.35）。'],
+                      [{ most: { id: 'a', r: 1 }, least: { id: 'b', r: 0 }, inverse: null }, '最常跟它同方向走的是 a（1.00）；走勢最沒有關係的是 b（0.00）；沒有哪一檔常常跟它反方向。'],
+                      [{ most: { id: 'a', r: 0.5 }, least: { id: 'b', r: -0.004 }, inverse: null }, '最常跟它同方向走的是 a（0.50）；走勢最沒有關係的是 b（0.00）；沒有哪一檔常常跟它反方向。'],
+                      [{ most: { id: 'a', r: null }, least: { id: 'b', r: 0 } }, NA], [{}, NA]],
+        similar: [[{ top: [{ id: 'gspc', name: 'S&P 500', r: 0.912 }, { id: 'tw00646', r: 0.88 }] }, '現有的標的裡，走勢跟它最像的是 S&P 500（0.91）、tw00646（0.88）。'],
+                  [{ top: [{ id: 'a', r: -0.2 }] }, '現有的標的裡，走勢跟它最像的是 a（-0.20）。'],
+                  [{ top: [{ id: 'a', r: -0.001 }] }, '現有的標的裡，走勢跟它最像的是 a（0.00）。'],
+                  [{ top: [] }, NA], [{}, NA]],
+        tracking: [[{ annualPct: -0.96, years: 3 }, '過去 3 年，平均每年的報酬比它追蹤的指數少 0.96 個百分點。'],
+                   [{ annualPct: 0.57, years: 1 }, '過去 1 年的報酬比它追蹤的指數多 0.57 個百分點。'],
+                   [{ annualPct: 0.001, years: 3 }, '過去 3 年，平均每年的報酬跟它追蹤的指數幾乎一樣。'],
+                   [{ years: 3 }, NA]],
+        premium: [[{ pct: 0.33 }, '成交價比淨值貴 0.33%（溢價）。'],
+                  [{ pct: -0.04 }, '成交價比淨值便宜 0.04%（折價）。'],
+                  [{ pct: 0 }, '成交價跟淨值幾乎一樣。'],
+                  [{ pct: -0.44, lead: '一般的情況（中位數）' }, '一般的情況（中位數）：成交價比淨值便宜 0.44%（折價）。'],
+                  [{ lead: '一般的情況（中位數）' }, NA]],
+        premiumRank: [[{ pct: 0.5, p25: 0.1, p75: 0.9, n: 30, min: 20 }, '落在自己過去 30 個交易日中間那一半的範圍裡（0.10%～0.90%）。'],
+                      [{ pct: -0.5, p25: -0.3, p75: -0.1, n: 25, min: 20 }, '比自己過去 25 個交易日裡四分之三的日子都低。'],
+                      [{ pct: 1.5, p25: 0.1, p75: 0.9 }, '比自己的歷史裡四分之三的日子都高。'],
+                      [{ pct: 0.5, p25: 0.1, p75: 0.9, n: 3, min: 20 }, '還在累積：3/20 個交易日；滿 20 個交易日才有自己的歷史可以比。'],
+                      [{ pct: 0.5 }, NA]],
+        accumulating: [[{ n: 3, min: 20 }, '還在累積：3/20 個交易日；滿 20 個交易日才有自己的歷史可以比。'],
+                       [{ n: 0, min: 20 }, '還在累積：0/20 個交易日；滿 20 個交易日才有自己的歷史可以比。'],
+                       [{ n: 3 }, NA]],
+        barPremium: [[{ pct: 0.8, spec: '1 公斤' }, '同樣重量的黃金，1 公斤條塊比黃金存摺貴 0.80%（鑄造與加工的費用）。'],
+                     [{ pct: -0.2, spec: '100 公克' }, '同樣重量的黃金，100 公克條塊比黃金存摺便宜 0.20%。'],
+                     [{ pct: 0 }, '同樣重量的黃金，條塊跟黃金存摺幾乎一樣價。'],
+                     [{ spec: '1 公斤' }, NA]],
+        residual: [[{ pct: -0.39, kind: 'gold' }, '台銀的牌價比「國際金價 × 匯率」算出來的低 0.39%；這個差來自銀行的價差、期貨與現貨的價差，以及兩邊報價的時間不一樣。'],
+                   [{ pct: 0.11, kind: 'etf', lead: '平均每個月' }, '平均每個月：00646 的報酬比「指數 × 匯率」合起來算的多 0.11 個百分點；差在費用、股息與換匯的時間點。'],
+                   [{ pct: -0.02, kind: 'cny' }, '人民幣兌台幣實際的變動，比用美元換算出來的少 0.02 個百分點。'],
+                   [{ pct: 0, kind: 'cny' }, '人民幣兌台幣實際的變動，跟用美元換算出來的幾乎一樣。'],
+                   [{ pct: 3 }, '實際的數字比公式算出來的高 3.00%。'],
+                   [{ kind: 'gold' }, NA]],
+        fxLeg: [[{ total: 8.1, usdTwd: 4.15, usdCny: -3.66 }, '這段期間人民幣兌台幣漲了 8.10%：美元兌台幣漲了 4.15%，美元兌人民幣跌了 3.66%（人民幣對美元變貴）。'],
+                [{ total: -2, usdTwd: -1, usdCny: 1 }, '這段期間人民幣兌台幣跌了 2.00%：美元兌台幣跌了 1.00%，美元兌人民幣漲了 1.00%（人民幣對美元變便宜）。'],
+                [{ total: 0, usdTwd: 0, usdCny: 0 }, '這段期間人民幣兌台幣幾乎沒動：美元兌台幣幾乎沒動，美元兌人民幣幾乎沒動。'],
+                [{ total: 1 }, NA]],
+        fee: [[{ pct: 0.36 }, '每放 10,000 元，一年大約有 36 元是這一項費用；已經算在淨值裡，不會另外扣。'],
+              [{ pct: 0.3, kind: 'tax' }, '每 10,000 元的成交金額，這一項是 30 元。'],
+              [{ pct: 0, kind: 'tax' }, '目前這一項是 0。'],
+              [{ kind: 'tax' }, NA]],
+        concMax: [[{ pct: 30, label: '債券 ETF' }, '放最多的一類是「債券 ETF」，佔全部的 30%。'],
+                  [{ pct: 100, label: '個股' }, '放最多的一類是「個股」，佔全部的 100%。'],
+                  [{ pct: 30 }, NA]],
+        concTopTwo: [[{ pct: 50, labels: ['債券 ETF', '指數 ETF'] }, '最大的兩類（債券 ETF＋指數 ETF）合起來佔全部的 50%。'],
+                     [{ pct: 100, labels: ['個股'] }, '最大的兩類（個股）合起來佔全部的 100%。'],
+                     [{ pct: 50, labels: [] }, NA]],
+        concAligned: [[{ pct: 30, proxy: 'tw2330' }, '跟收入來源的代理標的（tw2330）常常同方向走的類別，合起來佔全部的 30%。'],
+                      [{ pct: 0, proxy: 'tw2330' }, '跟收入來源的代理標的（tw2330）常常同方向走的類別，合起來佔全部的 0%。'],
+                      [{ pct: 30 }, NA]]
+      };
+
       if (loaded) {
-        var P = window.Plain, G = window.Glossary;
+        var P = window.Plain, G = window.Glossary, I = window.Indicators;
+        function lamp(pct) { return I.positionSignal({ percentile: pct, days: 252, full: true }); }
 
         check('three_states_follow_the_printed_rules', function (p) {
-          same(p, '5 年百分位 39.9', P.positionState(39.9).word, '偏便宜');
-          same(p, '5 年百分位 40', P.positionState(40).word, '中間');
-          same(p, '5 年百分位 60', P.positionState(60).word, '中間');
-          same(p, '5 年百分位 60.1', P.positionState(60.1).word, '偏貴');
+          same(p, '5 年百分位 39.9', P.fxPositionState(39.9).word, '偏便宜');
+          same(p, '5 年百分位 40', P.fxPositionState(40).word, '中間');
+          same(p, '5 年百分位 60', P.fxPositionState(60).word, '中間');
+          same(p, '5 年百分位 60.1', P.fxPositionState(60.1).word, '偏貴');
           same(p, '成本 0.89 倍', P.costState(0.89, 1).word, '便宜');
           same(p, '成本 0.9 倍', P.costState(0.9, 1).word, '正常');
           same(p, '成本 1.1 倍', P.costState(1.1, 1).word, '正常');
@@ -41,12 +155,81 @@
           same(p, '風險 0.79 倍', P.riskState(7.9, 10).word, '平靜');
           same(p, '風險 1 倍', P.riskState(10, 10).word, '正常');
           same(p, '風險 1.21 倍', P.riskState(12.1, 10).word, '劇烈');
-          same(p, '位置的 key', P.positionState(10).key + P.positionState(50).key + P.positionState(90).key, 'lowmidhigh');
+          same(p, '匯率位置的 key', P.fxPositionState(10).key + P.fxPositionState(50).key + P.fxPositionState(90).key, 'lowmidhigh');
+          same(p, '匯率位置的面向', P.fxPositionState(10).aspect + '／' + P.fxPositionState(10).name, 'fxPosition／匯率位置');
+        });
+
+        check('position_state_is_the_pinned_lamp_word_for_word', function (p) {
+          /* 對照組：位置面向的字眼被改成偏貴（或換成匯率位置那一套）→ 這一條會紅。
+             位置的狀態詞就是卡片燈號的字（Indicators.positionSignal，A1-5 釘住）：這裡不重算、不換字。 */
+          [[10, 'low', '相對低檔區'], [24.9, 'low', '相對低檔區'], [25, 'mid', '中性'], [50, 'mid', '中性'], [75, 'mid', '中性'], [75.1, 'high', '相對高檔區'], [99, 'high', '相對高檔區']].forEach(function (c) {
+            var sig = lamp(c[0]), s = P.lampState(sig, '測試');
+            same(p, '區間位置 ' + c[0] + ' 的 key', s.key, c[1]);
+            same(p, '區間位置 ' + c[0] + ' 的狀態詞', s.word, c[2]);
+            same(p, '區間位置 ' + c[0] + ' 跟燈號同一個字', s.word, sig.label);
+            same(p, '區間位置 ' + c[0] + ' 的面向', s.aspect + '／' + s.name, 'position／位置');
+            same(p, '區間位置 ' + c[0] + ' 用色點', s.icon, 'dot');
+            if (['偏便宜', '中間', '偏貴', '便宜', '正常'].indexOf(s.word) >= 0) p.push('位置的狀態詞不可以是「' + s.word + '」');
+          });
+          var w = P.ASPECTS.position.words;
+          same(p, '位置三態（圖例用的那一份）', w.low + '／' + w.mid + '／' + w.high, lamp(1).label + '／' + lamp(50).label + '／' + lamp(99).label);
+          same(p, '這次的數字用燈號自己的規則句', P.lampState(lamp(91), '').because, '位於52 週區間第 91 百分位 → 高於 75% → 相對高檔區');
+          same(p, '有給規則句就用給的', P.lampState(lamp(91), '位於近 40 個交易日（資料自 2026-08-01）區間第 91 百分位 → 高於 75%').because,
+               '位於近 40 個交易日（資料自 2026-08-01）區間第 91 百分位 → 高於 75% → 相對高檔區');
+          var none = P.lampState(I.positionSignal(null));
+          same(p, '沒有資料', none.key + '／' + none.word + '／' + none.icon, 'na／資料不足／none');
+          same(p, '沒有資料的原因', none.because, '歷史資料還不夠算出區間位置');
+          same(p, '連燈號都沒有', P.lampState(null).key, 'na');
+        });
+
+        check('premium_state_uses_own_quartiles_not_the_median', function (p) {
+          /* 對照組：折溢價用錯規則（拿去跟中位數比一成）→ 這一條會紅。 */
+          function st(pct, p25, p75, n) { return P.premiumState({ pct: pct, p25: p25, p75: p75, n: n, min: 20, tag: '確定' }); }
+          same(p, '低於第 25 百分位', st(0.09, 0.1, 0.9, 30).word, '便宜');
+          same(p, '剛好第 25 百分位', st(0.1, 0.1, 0.9, 30).word, '正常');
+          same(p, '中間', st(0.5, 0.1, 0.9, 30).word, '正常');
+          same(p, '剛好第 75 百分位', st(0.9, 0.1, 0.9, 30).word, '正常');
+          same(p, '高於第 75 百分位', st(0.91, 0.1, 0.9, 30).word, '偏貴');
+          same(p, '折價（負的）也照大小排：比第 25 百分位還低', st(-0.35, -0.3, -0.1, 30).word, '便宜');
+          same(p, '折價（負的）：中間', st(-0.2, -0.3, -0.1, 30).word, '正常');
+          same(p, '折價（負的）：比第 75 百分位高', st(-0.05, -0.3, -0.1, 30).word, '偏貴');
+          var s = st(0.5, 0.1, 0.9, 30);
+          same(p, '規則句', s.rule, '規則：跟自己的歷史比——低於第 25 百分位＝便宜、25–75＝正常、高於第 75＝偏貴');
+          same(p, '這次的數字', s.because, '折溢價（確定） 0.50%，自己歷史的第 25 百分位 0.10%、第 75 百分位 0.90% → 正常');
+          same(p, '面向', s.aspect, 'cost');
+          var acc = st(0.5, undefined, undefined, 3);
+          same(p, '不滿 20 天', acc.key + '／' + acc.word + '／' + acc.note, 'na／資料不足／累積中 3/20');
+          if (acc.rule !== s.rule) p.push('累積中也要印同一條規則');
+          if (acc.because.indexOf('滿 20 個交易日') < 0) p.push('累積中要寫原因：' + acc.because);
+          same(p, '滿 20 天剛好就判定', st(0.5, 0.1, 0.9, 20).word, '正常');
+          var missing = P.premiumState({ pct: 0.5, n: 30, min: 20, reason: '分析檔裡沒有第 25／75 百分位' });
+          same(p, '滿了但沒有百分位', missing.key + '／' + missing.because, 'na／分析檔裡沒有第 25／75 百分位');
+          if (missing.note) p.push('不是累積中就不該標累積中');
+        });
+
+        check('insufficient_not_applicable_and_unavailable_are_three_different_things', function (p) {
+          /* 對照組：不適用被寫成資料不足 → 這一條會紅。 */
+          var na = P.insufficient('risk', '沒有週線長歷史'), none = P.notApplicable('cost', '指數沒有成本可比'), err = P.unavailable('risk');
+          same(p, '資料不足', na.key + '／' + na.word + '／' + na.icon + '／' + na.because, 'na／資料不足／none／沒有週線長歷史');
+          same(p, '不適用', none.key + '／' + none.word + '／' + none.because, 'none／不適用／指數沒有成本可比');
+          same(p, '暫時讀不到', err.key + '／' + err.word + '／' + err.because, 'error／暫時讀不到／分析資料暫時讀不到');
+          if (na.word === none.word || na.key === none.key) p.push('資料不足與不適用不可以是同一個');
+          same(p, '常數', P.NA + '／' + P.NOT_APPLICABLE + '／' + P.UNAVAILABLE + '／' + P.UNAVAILABLE_NOTE, '資料不足／不適用／暫時讀不到／分析資料暫時讀不到');
+          var acc = P.accumulating('cost', 14, 20, '規則：測試', '還在累積的原因');
+          same(p, '累積中', acc.key + '／' + acc.word + '／' + acc.note + '／' + acc.rule + '／' + acc.because, 'na／資料不足／累積中 14/20／規則：測試／還在累積的原因');
+          [na, none, err, acc].forEach(function (s) { if (!s.rule || s.rule.indexOf('規則：') !== 0) p.push(s.key + '：沒有規則句'); });
+          same(p, '成本可以指定比的是什麼', P.costState(1.1, 1, { what: '存摺價差', base: '自己 264 天的中位數', rule: '規則：測試' }).because,
+               '存摺價差 1.10%，自己 264 天的中位數 1.00% → 正常');
+          same(p, '成本可以指定規則句', P.costState(1.1, 1, { rule: '規則：測試' }).rule, '規則：測試');
+          same(p, '成本資料不足的原因', P.costState(1.1, null, { reason: '還沒有可以比的中位數' }).because, '還沒有可以比的中位數');
+          same(p, '風險資料不足的原因', P.riskState(10, null, '資料不足：只有 40 週').because, '資料不足：只有 40 週');
         });
 
         check('every_icon_has_its_word_next_to_it', function (p) {
           /* 對照組：badge 不印狀態詞 → 這一條會紅。 */
-          var states = [P.positionState(10), P.positionState(50), P.positionState(90), P.costState(1, 1), P.riskState(5, 10), P.positionState(null), P.costState(null, 1)];
+          var states = [P.fxPositionState(10), P.fxPositionState(50), P.fxPositionState(90), P.costState(1, 1), P.riskState(5, 10), P.fxPositionState(null), P.costState(null, 1),
+                        P.lampState(lamp(10)), P.lampState(lamp(90)), P.premiumState({ pct: 1, p25: 0, p75: 2, n: 30, min: 20 }), P.accumulating('cost', 3, 20, '規則：測試', 'x'),
+                        P.unavailable('risk')];
           states.forEach(function (s) {
             var d = box(P.badge(s, '測試'));
             var icon = d.querySelector('.glance-icon svg'), word = d.querySelector('.glance-word');
@@ -56,20 +239,29 @@
             var name = d.querySelector('.glance-icon').getAttribute('aria-label');
             if (!name) p.push(s.aspect + '/' + s.key + '：圖示沒有文字替代（aria-label）');
           });
+          var noted = box(P.badge(P.accumulating('cost', 3, 20, '規則：測試', 'x'), '成本'));
+          if (!noted.querySelector('.glance-note') || noted.querySelector('.glance-note').textContent !== '累積中 3/20') p.push('累積中要印在狀態詞旁邊');
+          if (box(P.badge(P.costState(1, 1), '成本')).querySelector('.glance-note')) p.push('沒有附註時不該多一個空的附註');
           var words = {};
-          ['position', 'cost', 'risk', 'trend', 'mood'].forEach(function (a) {
+          ['position', 'fxPosition', 'cost', 'risk', 'valuation', 'trend', 'mood'].forEach(function (a) {
             ['low', 'mid', 'high'].forEach(function (k) { if (!P.ASPECTS[a].words[k]) p.push(a + ' 少了 ' + k + ' 的狀態詞'); words[a + k] = P.ASPECTS[a].words[k]; });
+            if (!P.ASPECTS[a].rule || P.ASPECTS[a].rule.indexOf('規則：') !== 0) p.push(a + ' 沒有規則句');
           });
-          same(p, '位置三態', words.positionlow + '／' + words.positionmid + '／' + words.positionhigh, '偏便宜／中間／偏貴');
+          same(p, '位置三態', words.positionlow + '／' + words.positionmid + '／' + words.positionhigh, '相對低檔區／中性／相對高檔區');
+          same(p, '匯率位置三態', words.fxPositionlow + '／' + words.fxPositionmid + '／' + words.fxPositionhigh, '偏便宜／中間／偏貴');
+          same(p, '估值三態', words.valuationlow + '／' + words.valuationmid + '／' + words.valuationhigh, '偏便宜／中間／偏貴');
           same(p, '成本三態', words.costlow + '／' + words.costmid + '／' + words.costhigh, '便宜／正常／偏貴');
           same(p, '風險三態', words.risklow + '／' + words.riskmid + '／' + words.riskhigh, '平靜／正常／劇烈');
           same(p, '趨勢三態', words.trendhigh + '／' + words.trendmid + '／' + words.trendlow, '向上／持平／向下');
           same(p, '情緒三態', words.moodlow + '／' + words.moodmid + '／' + words.moodhigh, '冷／中性／熱');
+          same(p, '位置用色點、不用天氣', P.ASPECTS.position.icon, 'dot');
+          same(p, '風險用天氣', P.riskState(5, 10).icon + P.riskState(10, 10).icon + P.riskState(15, 10).icon, 'suncloudrain');
+          same(p, '成本用天氣', P.costState(0.5, 1).icon + P.costState(1, 1).icon + P.costState(1.5, 1).icon, 'suncloudrain');
         });
 
         check('every_icon_prints_its_rule_and_this_times_number', function (p) {
           /* 對照組：badge 不印規則 → 這一條會紅。 */
-          var d = box(P.badge(P.positionState(72), '人民幣現在'));
+          var d = box(P.badge(P.fxPositionState(72), '人民幣現在'));
           var rule = d.querySelector('.glance-rule'), because = d.querySelector('.glance-because');
           if (!rule || rule.textContent.indexOf('規則：') !== 0) p.push('圖示旁邊沒有印規則');
           else if (rule.textContent.indexOf('40') < 0 || rule.textContent.indexOf('60') < 0) p.push('規則句沒有寫門檻');
@@ -77,7 +269,7 @@
           var c = box(P.badge(P.costState(1.056, 1.082), '換匯成本'));
           if (c.querySelector('.glance-because').textContent.indexOf('1.06%') < 0 || c.querySelector('.glance-because').textContent.indexOf('1.08%') < 0) p.push('成本的數字沒印');
           if (c.querySelector('.glance-rule').textContent.indexOf('規則：') !== 0) p.push('成本沒有印規則');
-          var n = box(P.badge(P.positionState(undefined), '人民幣現在'));
+          var n = box(P.badge(P.fxPositionState(undefined), '人民幣現在'));
           if (n.querySelector('.glance-rule').textContent.indexOf('規則：') !== 0) p.push('資料不足時也要印規則');
           same(p, '資料不足的狀態詞', n.querySelector('.glance-word').textContent, '資料不足');
           same(p, '資料不足的說明', n.querySelector('.glance-because').textContent, '資料不足');
@@ -85,32 +277,38 @@
         });
 
         check('plain_sentences_say_insufficient_instead_of_nothing', function (p) {
-          /* 對照組：資料不足時回空字串 → 這一條會紅。 */
-          ['position', 'distance', 'spread', 'cash', 'quota', 'backtest', 'drawdown', 'volatility'].forEach(function (k) {
+          /* 對照組：白話模板在資料不足時輸出空字串 → 這一條會紅。每一種模板都餵五種「沒有資料」的輸入。 */
+          if (!P.KINDS || P.KINDS.length < 20) p.push('模板清單（Plain.KINDS）太少：' + (P.KINDS && P.KINDS.length));
+          P.KINDS.forEach(function (k) {
             [undefined, {}, { pct: null }, { pct: 'abc' }, { pct: NaN }].forEach(function (data) {
               var s = P.sentence(k, data);
               if (s !== '資料不足') p.push(k + ' 遇到 ' + JSON.stringify(data) + ' 應輸出「資料不足」，得到「' + s + '」');
             });
             var html = P.line(k, {});
-            if (html.indexOf('資料不足') < 0 || html.indexOf('plain-line') < 0) p.push(k + ' 的 line() 在資料不足時沒有印出來');
+            var d = box(html).querySelector('.plain-line');
+            if (!d || d.textContent !== '資料不足') p.push(k + ' 的 line() 在資料不足時沒有印「資料不足」：' + html);
           });
           same(p, '沒有這種模板', P.sentence('nothing-like-this', { pct: 1 }), '資料不足');
         });
 
-        check('plain_sentences_carry_the_numbers', function (p) {
-          same(p, '位置', P.sentence('position', { pct: 96.9, years: 5 }), '過去 5 年裡，有 97% 的時候比現在便宜或一樣。');
-          same(p, '距離', P.sentence('distance', { fromLowPct: 11.9, fromHighPct: -1.55 }), '比一年內最低的時候高 11.9%，比一年內最高的時候低 1.6%。');
-          same(p, '價差', P.sentence('spread', { pct: 1.056 }), '銀行掛的兩個價格差 1.06%：每換 100 元，來回一趟大約有 1.06 元是這個差。');
-          same(p, '現鈔', P.sentence('cash', { pct: 0.841 }), '拿實體鈔票換，比用帳戶裡的錢換貴 0.84%。');
-          same(p, '額度', P.sentence('quota', { pct: 65.9, ratioPct: 20, bucket: '60–80%' }), '5 年百分位 65.9% 落在「60–80%」那一檔，規則額度是預算池的 20%。');
-          if (P.sentence('quota', { pct: 96.9, ratioPct: 0, bucket: '> 80%' }).indexOf('觀望') < 0) p.push('0% 那一檔要寫觀望');
-          same(p, '最大回檔一半', P.sentence('drawdown', { pct: -52 }), '歷史上最慘的一次曾經跌掉大約一半，到現在還沒漲回原來的高點。');
-          same(p, '最大回檔有漲回', P.sentence('drawdown', { pct: -21.6, recoveredDate: '2020-08-24' }), '歷史上最慘的一次曾經跌掉大約五分之一，2020-08-24 才漲回原來的高點。');
-          same(p, '波動', P.sentence('volatility', { pct: 12.3 }), '一年裡漲跌 12% 左右算平常；數字越大，價格越會大起大落。');
-          var tie = P.sentence('backtest', { n: 76, months: 36, winSharePct: 0, tieSharePct: 100, medianImprovePct: 0, worstImprovePct: 0 });
-          if (tie.indexOf('76') < 0 || tie.indexOf('沒有差別') < 0) p.push('全部平手時要直說沒有差別：' + tie);
-          var win = P.sentence('backtest', { n: 76, months: 36, winSharePct: 71.1, tieSharePct: 11.8, medianImprovePct: 0.104, worstImprovePct: -0.677 });
-          if (win.indexOf('71.1%') < 0 || win.indexOf('0.10%') < 0 || win.indexOf('0.68%') < 0) p.push('回測的三個數字沒印：' + win);
+        check('every_template_has_normal_extreme_and_insufficient_cases', function (p) {
+          /* 每一種白話模板至少三組：正常、極端（正負號、0、很大）、資料不足；輸出逐字比對。 */
+          P.KINDS.forEach(function (k) {
+            if (k === 'backtestStory') return;                             // 分支多，另外一題測
+            var cases = CASES[k];
+            if (!cases) { p.push('模板「' + k + '」沒有測試表'); return; }
+            if (cases.length < 3) p.push('模板「' + k + '」不到三組測試');
+            if (!cases.some(function (c) { return c[1] === NA; })) p.push('模板「' + k + '」沒有資料不足那一組');
+            if (cases.filter(function (c) { return c[1] !== NA; }).length < 2) p.push('模板「' + k + '」至少要有正常與極端兩組');
+            cases.forEach(function (c) {
+              var got = P.sentence(k, c[0]);
+              if (got !== c[1]) p.push(k + ' ' + JSON.stringify(c[0]) + '：應為「' + c[1] + '」，得到「' + got + '」');
+              if (!got) p.push(k + ' ' + JSON.stringify(c[0]) + '：輸出是空的');
+              var line = box(P.line(k, c[0])).querySelector('.plain-line');
+              if (!line || line.textContent !== c[1]) p.push(k + ' 的 line() 跟 sentence() 不一致');
+            });
+          });
+          Object.keys(CASES).forEach(function (k) { if (P.KINDS.indexOf(k) < 0) p.push('測試表裡有不存在的模板：' + k); });
         });
 
         check('backtest_story_follows_the_numbers', function (p) {
@@ -144,20 +342,21 @@
 
         check('no_trading_words_and_no_counting_anywhere', function (p) {
           /* 對照組：狀態詞換成帶方向的字眼、或印出「幾個面向怎樣」→ 這一條會紅。 */
-          var all = [];
+          var all = [P.NA, P.NOT_APPLICABLE, P.UNAVAILABLE, P.UNAVAILABLE_NOTE, P.PREMIUM_RULE];
           Object.keys(P.ASPECTS).forEach(function (a) {
             all.push(P.ASPECTS[a].name, P.ASPECTS[a].rule);
             Object.keys(P.ASPECTS[a].words).forEach(function (k) { all.push(P.ASPECTS[a].words[k]); });
           });
           [5, 45, 95, null].forEach(function (v) {
-            all.push(box(P.badge(P.positionState(v), '位置')).textContent);
+            all.push(box(P.badge(P.fxPositionState(v), '匯率位置')).textContent);
             all.push(box(P.badge(P.costState(v, 50), '成本')).textContent);
             all.push(box(P.badge(P.riskState(v, 50), '風險')).textContent);
+            all.push(box(P.badge(P.lampState(v === null ? null : lamp(v)), '位置')).textContent);
+            all.push(box(P.badge(P.premiumState({ pct: v, p25: 20, p75: 80, n: 30, min: 20, tag: '確定' }), '成本')).textContent);
           });
-          ['position', 'distance', 'spread', 'cash', 'quota', 'backtest', 'drawdown', 'volatility'].forEach(function (k) {
-            all.push(P.sentence(k, { pct: 50, years: 5, fromLowPct: 1, fromHighPct: -1, ratioPct: 40, bucket: '40–60%', n: 10, months: 36,
-                                     winSharePct: 60, tieSharePct: 0, medianImprovePct: 0.6, worstImprovePct: -1 }));
-          });
+          all.push(box(P.badge(P.notApplicable('cost', '指數沒有成本可比'), '成本')).textContent, box(P.badge(P.unavailable('risk'), '風險')).textContent);
+          Object.keys(CASES).forEach(function (k) { CASES[k].forEach(function (c) { all.push(P.sentence(k, c[0])); }); });
+          all.push(P.sentence('backtestStory', { winSharePct: 60, tieSharePct: 0, medianImprovePct: 0.6, thresholds: { winSharePct: 55, medianImprovePct: 0.5 }, spreadPct: 1, method: 'B' }));
           Object.keys(G.TERMS).forEach(function (t) { all.push(t, G.TERMS[t]); });
           var text = all.join('\n');
           BANNED.forEach(function (w) { if (text.indexOf(w) >= 0) p.push('出現「' + w + '」'); });
@@ -167,7 +366,9 @@
         });
 
         check('glossary_has_the_required_terms_and_opens_on_click', function (p) {
-          ['波動', '回檔', '百分位', '相關係數', '追蹤差', '折溢價', '即期', '現鈔', '預算池'].forEach(function (t) {
+          ['波動', '回檔', '百分位', '相關係數', '追蹤差', '折溢價', '即期', '現鈔', '預算池',
+           '面向', '狀態詞', '保底', '歷史模擬', '視窗重疊',                                       // A1-7 規格點名的
+           'RSI', '移動平均', '近 10 日漲跌', '年化波動', '區間位置', '目前距高點', '殘差', '淨值', '資料標籤', '條塊溢價', '中位數', '價差'].forEach(function (t) {
             var d = G.define(t);
             if (!d || d.length < 8) p.push('名詞「' + t + '」沒有解釋');
           });
@@ -187,6 +388,29 @@
           btn.click();
           if (d.querySelector('.term-def')) p.push('再點一下應該收起來');
           same(p, 'aria-expanded（收起）', btn.getAttribute('aria-expanded'), 'false');
+        });
+
+        check('glossary_upgrades_placeholders_and_keeps_clicks_to_itself', function (p) {
+          /* 儀表板先畫、名詞解釋後到：先留記號的字要能換成按鈕；放在會響應點擊的地方（可排序的表頭）時，點名詞不可以觸發外面的點擊。 */
+          var outer = 0;
+          var d = box('<div class="k"><span data-term-pending="RSI">RSI (14)</span></div><div class="k">現價 vs <span data-term-pending="移動平均">MA20</span></div>' +
+                      '<div class="k"><span data-term-pending="沒有這個詞">照樣印</span></div>');
+          d.addEventListener('click', function () { outer++; });
+          var before = d.textContent;
+          G.upgrade(d);
+          same(p, '字不可以變', d.textContent, before);
+          if (d.querySelector('[data-term-pending]')) p.push('記號沒有清掉');
+          var btns = d.querySelectorAll('button.term');
+          if (btns.length !== 2) { p.push('兩個有定義的名詞要變成按鈕，得到 ' + btns.length); return; }
+          same(p, '按鈕上的字', btns[0].textContent + '｜' + btns[1].textContent, 'RSI (14)｜MA20');
+          same(p, '按鈕對到的名詞', btns[0].getAttribute('data-term') + '｜' + btns[1].getAttribute('data-term'), 'RSI｜移動平均');
+          btns[1].click();
+          var def = d.querySelector('.term-def');
+          if (!def || def.textContent.indexOf('移動平均：') !== 0) p.push('升級之後點一下要展開解釋');
+          same(p, '點名詞不往外傳', outer, 0);
+          G.upgrade(d);                                          // 再叫一次不會壞、也不會多掛一個監聽
+          btns[1].click();
+          if (d.querySelector('.term-def')) p.push('再點一下應該收起來（監聽不可以掛兩個）');
         });
       }
       document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });
