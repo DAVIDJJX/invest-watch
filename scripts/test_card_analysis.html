@@ -183,6 +183,31 @@
           if (html.indexOf('30 個交易日中位數 0.40%') < 0) p.push('累積滿 20 天要顯示中位數');
           if (html.indexOf('累積中') >= 0) p.push('滿 20 天不該再標累積中');
         });
+        check('same_index_in_two_versions_is_not_its_own_most_aligned', function (p) {
+          /* 對照組：把「同一個東西的兩個版本互相排除」拿掉 → 這一條會紅。
+             S&P 500 指數（gspc）與它的總報酬版本（sp500tr，追蹤差用的基準）相關是 1.00；當彼此的「最同向」沒有資訊，要取下一個。 */
+          var R2 = JSON.parse(JSON.stringify(RISK));
+          R2.assets.sp500tr = { name: 'S&P 500 總報酬指數', assetClass: 'index', currency: 'USD', bars: 2000, lastBar: '2026-09-14', dataLabel: '單一來源', volatility: {} };
+          R2.correlation.matrix.gspc = { gspc: { r: 1, n: 156 }, sp500tr: { r: 0.999, n: 156, through: '2026-09-08' }, tw00646: { r: 0.9, n: 156, through: '2026-09-08' }, tw00679b: { r: 0.02, n: 156, through: '2026-09-08' } };
+          R2.correlation.matrix.sp500tr = { sp500tr: { r: 1, n: 156 }, gspc: { r: 0.999, n: 156, through: '2026-09-08' }, tw00646: { r: 0.88, n: 156, through: '2026-09-08' }, tw00679b: { r: 0.03, n: 156, through: '2026-09-08' } };
+          R2.correlation.matrix.tw00646.sp500tr = { r: 0.95, n: 156, through: '2026-09-08' };
+          var g = CA.facts({ id: 'gspc' }, R2, COST).correlation, s = CA.facts({ id: 'sp500tr' }, R2, COST).correlation;
+          if (!g || !g.available || g.mostAligned.id !== 'tw00646') p.push('S&P 500 的最同向應該跳過它的總報酬版本、取下一個（tw00646），得到 ' + (g && g.mostAligned && g.mostAligned.id));
+          if (!s || !s.available || s.mostAligned.id !== 'tw00646') p.push('總報酬版本的最同向也要跳過 S&P 500，得到 ' + (s && s.mostAligned && s.mostAligned.id));
+          var other = CA.facts(A646, R2, COST).correlation;
+          if (other.mostAligned.id !== 'sp500tr') p.push('別的標的不受影響：00646 的最同向照 r 最高取（sp500tr 0.95），得到 ' + other.mostAligned.id);
+          if (g.leastRelated.id !== 'tw00679b') p.push('最不相關不受影響');
+          var html = CA.render(CA.facts({ id: 'gspc', date: '2026-09-24' }, R2, COST));
+          var d = box(html);
+          var first = d.querySelector('.ana-group:nth-of-type(2) .ana-row .ana-v') || d.querySelectorAll('.ana-row .ana-v')[0];
+          var rows = Array.prototype.filter.call(d.querySelectorAll('.ana-row'), function (r) { return r.querySelector('.ana-k').innerText === '最同向'; });
+          if (rows.length !== 1 || rows[0].innerText.indexOf('tw00646') < 0 || rows[0].innerText.indexOf('sp500tr') >= 0) p.push('畫出來的「最同向」那一列還是總報酬版本');
+          var only = JSON.parse(JSON.stringify(R2));
+          only.correlation.matrix.gspc = { gspc: { r: 1, n: 156 }, sp500tr: { r: 0.999, n: 156 } };
+          var lone = CA.facts({ id: 'gspc' }, only, COST).correlation;
+          if (!lone || lone.available) p.push('只剩同一個東西的另一個版本可以比時，照實說沒有可用的成對資料');
+          if (JSON.stringify(CA.SAME_THING) !== JSON.stringify([['gspc', 'sp500tr']])) p.push('互相排除的清單只該有這一對');
+        });
         check('no_judgement_words_or_totals_in_rendered_text', function (p) {
           /* 對照組：把數字換成一個假的加總數字 → 這一條會紅。 */
           var all = [A646, { id: 'tw00679b' }, { id: 'gold_twd' }, { id: 'gold_bar' }, { id: 'gold_cny' }, { id: 'gspc' }, { id: 'fx_cny' }, { id: 'fx_usd' }].map(function (a) { return CA.render(CA.facts(a, RISK_AFTER, COST)); }).join('\n');

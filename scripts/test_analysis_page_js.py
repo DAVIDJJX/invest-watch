@@ -73,7 +73,7 @@ class TestAnalysisDebugJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/analysis-debug.js")
-        self.assertEqual(self.report.get("total"), 38)
+        self.assertEqual(self.report.get("total"), 39)
 
     # --- A1-6：換匯助手（一眼看懂、位置、成本、規則表、歷史模擬、私人設定） ---
     def test_fx_glance_row(self):
@@ -134,6 +134,10 @@ class TestAnalysisDebugJs(unittest.TestCase):
     def test_overview_row_expands(self):
         """對照組：圖示沒有規則 → 這一條會紅。"""
         self.case("overview_row_expands_into_rule_numbers_and_plain_lines")
+
+    def test_overview_not_applicable_row_lists_fixed_costs(self):
+        """A1-7 驗收裁決。對照組：總覽表沒有把靜態費用表交給面向的判定 → 這一條會紅。"""
+        self.case("overview_not_applicable_row_lists_fixed_costs")
 
     def test_overview_never_counts(self):
         """對照組：總覽表顯示計數 → 這一條會紅。"""

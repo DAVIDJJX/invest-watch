@@ -983,7 +983,8 @@
         var hist = (m.histories || {})[id];
         rows.push({ asset: latest.assets[id], order: rows.length,
                     aspects: CA.aspects(latest.assets[id], { points: (hist && hist.points) || [], historyFailed: !hist,
-                                                             risk: data.risk, cost: data.cost, fx: data.fx }) });
+                                                             risk: data.risk, cost: data.cost, fx: data.fx,
+                                                             staticCosts: data.staticCosts }) });   // 不適用的成本：細節裡列固定的費用
       });
     });
     return rows;

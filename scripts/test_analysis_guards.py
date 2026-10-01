@@ -48,9 +48,8 @@ CORE_FILES = [
     "scripts/test_aspects.html", "scripts/test_aspects_js.py", "scripts/test_dashboard_live.html", "scripts/test_dashboard_requests_js.py",
     "js/app.js",
 ]
-# js/app.js 是分析系列之前就有的檔，A1-7 才納入掃描。它原本就有一個價格的名字「黃金存摺＋賣＋出價」（＝黃金存摺的本行賣＋出牌價，
-# 條塊卡上用來說明「比存摺貴」跟什麼比）：那是價格的名字，不是判斷；只在這一個檔豁免這一個詞，別的寫法照擋。
-LEGACY_PRICE_NAMES = {"js/app.js": ("黃金存摺" + "賣" + "出價",)}
+# js/app.js 是分析系列之前就有的檔，A1-7 才納入掃描。它沒有任何豁免：條塊卡上說明「比存摺貴」跟哪個牌價比的那個詞，
+# 驗收時裁決改成台銀牌價欄位的寫法（本行＋賣＋出價），不為它開豁免——豁免清單不可以開始累積。
 # 集中度設定檔的鍵名：只准出現在 js/concentration.js（讀設定檔的那一支）。公開輸出、頁面、其他 JS 一律零命中。
 PROFILE_KEYS = ("wei" + "ghts", "salaryProxy" + "AssetId", "as" + "Of")
 PROFILE_KEY_HOME = "js/concentration.js"
@@ -101,9 +100,9 @@ def read_text(rel):
 
 # ---------------------------------------------------------------- 掃描器本體（純函式，測試也拿假文字餵它）
 
-def judgement_hits(text, extra_exempt=()):
+def judgement_hits(text):
     t = text
-    for e in list(EXEMPT_PHRASES) + list(extra_exempt):
+    for e in EXEMPT_PHRASES:
         t = t.replace(e, "")
     return [w for w in JUDGEMENT_WORDS if w in t]
 
@@ -274,12 +273,13 @@ class TestScannerItself(unittest.TestCase):
         self.assertTrue(judgement_hits("狀態詞可以用" + "偏" + "買、" + "偏" + "賣"))                 # 換一種寫法就不豁免
         self.assertEqual(judgement_hits("位置：偏便宜／中間／偏貴；成本：便宜／正常／偏貴；風險：平靜／正常／劇烈"), [])
 
-    def test_legacy_price_name_is_exempt_only_where_listed(self):
-        name = "黃金存摺" + "賣" + "出價"
-        self.assertEqual(judgement_hits("今日" + name + " 4,316 元"), ["賣" + "出"])                   # 沒有列在豁免裡：照擋
-        self.assertEqual(judgement_hits("今日" + name + " 4,316 元", LEGACY_PRICE_NAMES["js/app.js"]), [])
-        self.assertTrue(judgement_hits("這一檔可以" + "賣" + "出", LEGACY_PRICE_NAMES["js/app.js"]))   # 豁免的只有那一個詞
-        self.assertEqual(sorted(LEGACY_PRICE_NAMES), ["js/app.js"])                                   # 只有這一個檔有這種豁免
+    def test_no_file_has_an_exemption_of_its_own(self):
+        """驗收裁決：不為任何一個檔開豁免。舊的寫法照擋；改成台銀牌價欄位的寫法（本行＋賣＋出價）才過。"""
+        self.assertEqual(judgement_hits("今日黃金存摺" + "賣" + "出價 4,316 元"), ["賣" + "出"])
+        self.assertEqual(judgement_hits("今日黃金存摺本行" + "賣" + "出價 4,316 元"), [])
+        import inspect
+        self.assertEqual(list(inspect.signature(judgement_hits).parameters), ["text"])               # 沒有「額外豁免」這個參數
+        self.assertEqual(len(EXEMPT_PHRASES), 9)                                                      # 頁尾一句、台銀牌價欄位七個、文件裡那一句列舉
 
     def test_fake_exchange_plan_amounts_are_caught(self):
         self.assertTrue(privacy_hits("月預算 " + "12,000 元"))
@@ -361,7 +361,7 @@ class TestPublicFilesAreClean(unittest.TestCase):
     def test_no_judgement_words_in_analysis_files(self):
         bad = {}
         for rel in self.files:
-            hits = judgement_hits(read_text(rel), LEGACY_PRICE_NAMES.get(rel, ()))
+            hits = judgement_hits(read_text(rel))
             if hits:
                 bad[rel] = hits
         self.assertEqual(bad, {}, "分析系列的檔案裡出現判斷用語：%s" % bad)

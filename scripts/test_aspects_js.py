@@ -41,7 +41,7 @@ class TestAspectsJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 indicators／plain／glossary／card-analysis 其中一支")
-        self.assertEqual(self.report.get("total"), 15)
+        self.assertEqual(self.report.get("total"), 16)
 
     def test_aspects_order_word_number_rule(self):
         self.case("aspects_come_in_a_fixed_order_each_with_word_number_and_rule")
@@ -71,6 +71,10 @@ class TestAspectsJs(unittest.TestCase):
     def test_not_applicable_is_not_insufficient(self):
         """對照組：不適用被寫成資料不足 → 這一條會紅。"""
         self.case("not_applicable_is_not_the_same_as_insufficient")
+
+    def test_not_applicable_still_lists_the_fixed_costs(self):
+        """A1-7 驗收裁決：不適用是沒有動態成本，不是沒有成本。對照組：不適用的細節不列靜態費用 → 這一條會紅。"""
+        self.case("not_applicable_still_lists_the_fixed_costs")
 
     def test_fx_cards_keep_the_lamp_and_link_to_the_helper(self):
         """對照組：匯率卡的位置換成 5 年百分位那一套、或把連結拿掉 → 這一條會紅。"""

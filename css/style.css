@@ -1409,6 +1409,7 @@ button.asp[aria-expanded="true"] { border-color: rgba(91, 156, 248, .6); backgro
 .asp-v { font-variant-numeric: tabular-nums; font-weight: 600; }
 .asp-fnote { flex-basis: 100%; font-size: 11px; color: var(--text-faint); }
 .asp-fact .plain-line, .ana-row .plain-line { flex-basis: 100%; margin-top: 0; }
+.asp-facts-title { font-size: 12px; color: var(--text-dim); margin-top: 9px; }
 .asp-extra { font-size: 12.5px; margin-top: 8px; }
 .asp-dates { font-size: 11px; color: var(--text-faint); margin-top: 8px; }
 @media (max-width: 479px) {

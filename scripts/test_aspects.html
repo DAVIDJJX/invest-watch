@@ -292,7 +292,7 @@
             var a = of(ALL[c[0]], 'cost');
             same(p, c[0] + ' 的成本', a.state.key + '／' + a.state.word, 'none／不適用');
             same(p, c[0] + ' 的原因', a.state.because, c[1]);
-            if (a.facts.length) p.push(c[0] + '：不適用就沒有數字可列');
+            if (a.facts.length) p.push(c[0] + '：沒有給靜態費用表時，不適用的面向沒有數字可列');
             var strip = box(CA.strip(ASSETS[c[0]], ALL[c[0]]));
             same(p, c[0] + ' 的卡片只畫兩個圖示', Array.prototype.map.call(strip.querySelectorAll('button.asp'), function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk');
             if (strip.textContent.indexOf('不適用') >= 0) p.push(c[0] + '：卡片上不畫不適用的面向');
@@ -312,6 +312,46 @@
           var blind = of(CA.aspects(ASSETS.tw2330, ctx(null, { risk: null })), 'cost').state;
           same(p, '不知道類別又讀不到檔', blind.key, 'error');
           same(p, '資料不足與不適用的字', P.NA + '／' + P.NOT_APPLICABLE, '資料不足／不適用');
+        });
+
+        check('not_applicable_still_lists_the_fixed_costs', function (p) {
+          /* 對照組：不適用的細節不列靜態費用 → 這一條會紅。
+             不適用＝沒有「比平常貴或便宜」可比的動態成本，不是沒有成本：靜態費用表裡有這個標的的項目就要列在細節裡。 */
+          var SC = { entries: [
+            { asset: 'tw2330', item: '證券交易稅（股票）', value: '0.3', unit: '%，每次成交課徵', label: '官方公告', source: 'https://example.invalid/tax', checkedOn: '2026-09-25', note: '千分之三' },
+            { asset: 'tw2330', item: '分級的費率（測試）', value: '甲級 0.50；乙級 0.40', unit: '%／年', label: '官方公告', checkedOn: '2026-09-20', note: '' },
+            { asset: 'tw2330', item: '還沒查到的項目（測試）', value: null, nullReason: '測試：沒有查到', label: '官方公告', checkedOn: '2026-09-21' },
+            { asset: 'tw00646', item: '經理費（測試）', value: '0.30', unit: '%／年', label: '官方公告', checkedOn: '2026-09-25' } ] };
+          var list = CA.aspects(ASSETS.tw2330, ctx(null, { staticCosts: SC }));
+          var a = of(list, 'cost');
+          same(p, '還是不適用', a.state.key + '／' + a.state.word, 'none／不適用');
+          same(p, '列出這個標的的三筆、不列別人的', a.facts.map(function (f) { return f.k; }).join('｜'), '證券交易稅（股票）｜分級的費率（測試）｜還沒查到的項目（測試）');
+          same(p, '數值與單位', a.facts[0].v, '0.3 %，每次成交課徵');
+          same(p, '資料標籤與查核日期', a.facts[0].label + '／' + a.facts[0].date, '官方公告／2026-09-25');
+          same(p, '單一個百分比有白話', a.facts[0].plain, '每 10,000 元的成交金額，這一項是 30 元。');
+          same(p, '分級費率是一段文字，不寫白話', a.facts[1].plain, null);
+          same(p, '沒查到的照實寫', a.facts[2].v + '／' + a.facts[2].note + '／' + a.facts[2].plain, '沒有查到／測試：沒有查到／null');
+          same(p, '查核日期取最新的', a.dates, '費用的查核日期：2026-09-25（抄自官方公告，出處在分析分頁的靜態成本表）。');
+          var d = box(CA.detail(a));
+          same(p, '細節的標題', d.querySelector('.asp-title').textContent, '成本：不適用');
+          same(p, '小標', d.querySelector('.asp-facts-title').textContent, '固定的費用（不隨時間變動，所以沒有狀態）');
+          if (d.querySelector('.asp-rule') || d.querySelector('svg')) p.push('不適用還是沒有圖示、沒有規則');
+          var facts = d.querySelectorAll('.asp-fact');
+          same(p, '畫出三列', facts.length, 3);
+          same(p, '第一列的白話', facts[0].querySelector('.plain-line').textContent, '每 10,000 元的成交金額，這一項是 30 元。');
+          if (facts[1].querySelector('.plain-line') || facts[2].querySelector('.plain-line')) p.push('不是單一個數字的那兩列不該有白話行（也不該印成資料不足）');
+          if (facts[0].querySelector('.ana-tag').textContent.indexOf('官方公告') < 0 || facts[0].querySelector('.ana-tag').textContent.indexOf('2026-09-25') < 0) p.push('固定費用那一列要有資料標籤與查核日期');
+          // 卡片上還是不畫這個面向的圖示（卡片也拿不到靜態費用表）
+          var strip = box(CA.strip(ASSETS.tw2330, list));
+          same(p, '卡片只畫兩個圖示', strip.querySelectorAll('button.asp').length, 2);
+          if (strip.textContent.indexOf('證券交易稅') >= 0) p.push('卡片的圖示列不該出現不適用面向的內容');
+          // 沒有它的項目（指數）、或沒有給費用表：不適用照舊只有原因
+          same(p, '表裡沒有它的項目', of(CA.aspects(ASSETS.twii, ctx(null, { staticCosts: SC })), 'cost').facts.length, 0);
+          same(p, '沒有給費用表', of(CA.aspects(ASSETS.tw2330, ctx()), 'cost').facts.length, 0);
+          if (box(CA.detail(of(ALL.tw2330, 'cost'))).querySelector('.asp-facts-title')) p.push('沒有固定費用可列時不該有小標');
+          // 有動態成本的標的（ETF）不走這條路：細節照舊是折溢價
+          var etf = of(CA.aspects(ASSETS.tw00646, ctx(null, { staticCosts: SC })), 'cost');
+          if (etf.facts.some(function (f) { return f.k === '經理費（測試）'; })) p.push('有動態成本的標的，細節不混進靜態費用');
         });
 
         check('fx_cards_keep_the_lamp_and_link_the_five_year_position_to_the_helper', function (p) {
@@ -398,7 +438,7 @@
                 var v = f.querySelector('.asp-v'), line = f.querySelector('.plain-line'), tg = f.querySelector('.ana-tag');
                 if (!v || !v.textContent.trim()) p.push(tag + '：有一列沒有數字');
                 if (!line || !line.textContent.trim()) p.push(tag + '：有一個數字下面沒有白話（' + (f.querySelector('.asp-k') || {}).textContent + '）');
-                if (!tg || !/(估算|單一來源|有對照|多來源一致|日線)/.test(tg.textContent)) p.push(tag + '：有一列沒有資料標籤（' + (tg && tg.textContent) + '）');
+                if (!tg || !/(估算|單一來源|有對照|多來源一致|日線|官方公告)/.test(tg.textContent)) p.push(tag + '：有一列沒有資料標籤（' + (tg && tg.textContent) + '）');
               });
               if (a.facts.length && !d.querySelector('.asp-dates')) p.push(tag + '：沒有資料日期');
               if (a.facts.length && !/\d{4}-\d{2}-\d{2}/.test(d.querySelector('.asp-dates').textContent)) p.push(tag + '：資料日期不是日期');
@@ -469,6 +509,7 @@
 
         check('fold_rows_get_a_plain_line_when_the_plain_layer_is_loaded', function (p) {
           var f = CA.facts(ASSETS.tw00646, RISK, COST);
+          same(p, '摺疊區的最同向', f.correlation.mostAligned.id, 'twii');
           var d = box(CA.render(f));
           var rows = d.querySelectorAll('.ana-row');
           if (rows.length < 7) p.push('列數太少：' + rows.length);

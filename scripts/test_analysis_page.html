@@ -753,6 +753,26 @@
           if (fx.querySelector('.asp-detail[data-aspect="position"] .asp-extra').innerText !== '5 年位置：偏貴（見換匯助手）') p.push('匯率列的位置細節要有 5 年位置那一行');
           if (!fx.querySelector('.asp-detail[data-aspect="position"] .asp-extra a[href="analysis.html#fx"]')) p.push('5 年位置沒有連到換匯助手');
         });
+        check('overview_not_applicable_row_lists_fixed_costs', function (p) {
+          /* 對照組：總覽表沒有把靜態費用表交給面向的判定 → 這一條會紅。 */
+          var data = { status: FIX.status, risk: FIX.risk, cost: FIX.cost, fx: FIX.fx, market: FIX.market,
+                       staticCosts: { entries: [ { asset: 'gspc', item: '測試用的固定費用', value: '0.30', unit: '%／年', label: '官方公告', checkedOn: '2026-09-25' } ] } };
+          var d = document.createElement('div');
+          d.innerHTML = AnalysisDebug.renderOverview(data);
+          var item = d.querySelector('tbody.ov-item[data-id="gspc"]');
+          same(p, '那一格還是灰字的不適用', item.querySelector('td.ov-asp[data-aspect="cost"]').textContent.trim(), '不適用');
+          if (item.querySelector('td.ov-asp[data-aspect="cost"] svg')) p.push('不適用那一格不該有圖示');
+          var cost = item.querySelector('.asp-detail[data-aspect="cost"]');
+          var facts = cost.querySelectorAll('.asp-fact');
+          same(p, '細節列出固定費用', facts.length, 1);
+          same(p, '那一列的內容', facts.length ? facts[0].querySelector('.asp-k').textContent + '｜' + facts[0].querySelector('.asp-v').textContent : '', '測試用的固定費用｜0.30 %／年');
+          same(p, '那一列的白話', facts.length ? facts[0].querySelector('.plain-line').textContent : '', '每放 10,000 元，一年大約有 30 元是這一項費用；已經算在淨值裡，不會另外扣。');
+          if (cost.textContent.indexOf('指數只是一個數字') < 0) p.push('不適用的原因要照樣寫');
+          // 頁面上真的那一張（FIX.staticCosts 裡沒有 gspc 的項目）：不適用只有原因
+          if ($('#ov-table tbody.ov-item[data-id="gspc"] .asp-detail[data-aspect="cost"] .asp-fact')) p.push('費用表裡沒有它的項目時，不該硬列');
+          var src = AnalysisDebug.overviewRows.toString();
+          if (src.indexOf('staticCosts: data.staticCosts') < 0) p.push('總覽表沒有把靜態費用表交給面向的判定');
+        });
         check('overview_never_counts_or_totals', function (p) {
           /* 對照組：總覽表顯示計數（例如「3 個標的在相對高檔區」）→ 這一條會紅。 */
           var t = $('#overview').innerText;
@@ -836,6 +856,15 @@
           var tsmc = items[ids.indexOf('tw2330')].querySelector('.plain-line').innerText;
           same(p, '有反向的那一檔', tsmc, '最常跟它同方向走的是 tw00646（0.51）；走勢最沒有關係的是 00679B（0.03）；常常跟它反方向的是 fx_usd（-0.32）。');
           items.forEach(function (li) { if (!li.querySelector('.plain-line').innerText.trim()) p.push('有一句是空的'); });
+          // S&P 500 指數與它的總報酬版本不互相當「最常同方向」
+          var twin = { window: '3 年（156 週）', label: '單一來源', matrix: {
+            gspc: { gspc: { r: 1, n: 156 }, sp500tr: { r: 0.999, n: 156 }, nvda: { r: 0.71, n: 156 }, wti: { r: 0.04, n: 156 } },
+            sp500tr: { sp500tr: { r: 1, n: 156 }, gspc: { r: 0.999, n: 156 }, nvda: { r: 0.7, n: 156 }, wti: { r: 0.05, n: 156 } } } };
+          var tw = document.createElement('div');
+          tw.innerHTML = AnalysisDebug.corrSentences(twin, { gspc: { name: 'S&P 500 指數' }, sp500tr: { name: 'S&P 500 總報酬指數' }, nvda: { name: 'NVIDIA' }, wti: { name: 'WTI 原油' } }, ['gspc', 'sp500tr']);
+          var lines = Array.prototype.map.call(tw.querySelectorAll('.plain-line'), function (l) { return l.textContent; });
+          same(p, 'S&P 500 的那一句', lines[0], '最常跟它同方向走的是 NVIDIA（0.71）；走勢最沒有關係的是 WTI 原油（0.04）；沒有哪一檔常常跟它反方向。');
+          same(p, '總報酬版本的那一句', lines[1], '最常跟它同方向走的是 NVIDIA（0.70）；走勢最沒有關係的是 WTI 原油（0.05）；沒有哪一檔常常跟它反方向。');
         });
         check('adhoc_detail_gets_a_glance_row_and_plain_lines', function (p) {
           var d = document.createElement('div');

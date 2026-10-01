@@ -19,6 +19,11 @@
   'use strict';
 
   var INVERSE_THRESHOLD = -0.3;        // 「反向最強」：相關係數低於這個才顯示（分散與對沖是兩回事，分開列）
+  // 同一個東西的兩個版本不互相當「最同向」：S&P 500 指數與它的總報酬版本（追蹤差用的基準）相關是 1.00，列出來沒有資訊，取下一個
+  var SAME_THING = [['gspc', 'sp500tr']];
+  function sameThing(a, b) {
+    return SAME_THING.some(function (p) { return (p[0] === a && p[1] === b) || (p[0] === b && p[1] === a); });
+  }
   var PREMIUM_MIN_DAYS = 20;           // 折溢價累積滿幾個交易日才有中位數（跟 analyze.py 一樣）
 
   function esc(s) {
@@ -85,9 +90,11 @@
     var byR = rows.slice().sort(function (x, y) { return y.r - x.r; });
     var byAbs = rows.slice().sort(function (x, y) { return Math.abs(x.r) - Math.abs(y.r); });
     var lowest = byR[byR.length - 1];
+    var aligned = byR.filter(function (x) { return !sameThing(id, x.id); });
+    if (!aligned.length) return { available: false, reason: '相關矩陣裡沒有可用的成對資料' };
     return {
       available: true, window: corr.window || '', label: corr.label || '',
-      mostAligned: byR[0],                                   // r 最高
+      mostAligned: aligned[0],                               // r 最高（同一個東西的另一個版本不算）
       leastRelated: byAbs[0],                                // |r| 最接近 0
       strongestInverse: lowest.r < INVERSE_THRESHOLD ? lowest : null,   // r 低於 −0.3 才有
       threshold: INVERSE_THRESHOLD
@@ -367,7 +374,26 @@
     }
     // 走到這裡：不是存摺、條塊、匯率，也不是 ETF → 這一類沒有可比的成本
     out.state = Pl.notApplicable('cost', COST_NOT_APPLICABLE[cls] || COST_NOT_APPLICABLE_DEFAULT);
+    // 不適用＝沒有「比平常貴或便宜」可比的動態成本，不是沒有成本：靜態費用表裡有這個標的的項目就列出來
+    out.facts = staticFacts(asset, ctx.staticCosts);
+    if (out.facts.length) {
+      out.factsTitle = '固定的費用（不隨時間變動，所以沒有狀態）';
+      var checked = out.facts.map(function (f) { return f.date; }).filter(function (d) { return d; }).sort();
+      out.dates = '費用的查核日期：' + (checked.length ? checked[checked.length - 1] : '—') + '（抄自官方公告，出處在分析分頁的靜態成本表）。';
+    }
     return out;
+  }
+  /* 靜態費用表（data/analysis/static-costs.json）裡屬於這個標的的項目。數值是單一個百分比才寫白話；分級費率是一段文字，不是一個數字。
+     儀表板不載這一檔（首屏之後只多五個請求），所以卡片上拿不到；分析分頁的總覽表有。 */
+  function staticFacts(asset, sc) {
+    var Pl = global.Plain;
+    return ((sc && sc.entries) || []).filter(function (e) { return e && e.asset === asset.id; }).map(function (e) {
+      var has = e.value !== null && e.value !== undefined;
+      var single = has && /^\s*\d+(\.\d+)?\s*$/.test(String(e.value)) && /^%/.test(String(e.unit || ''));
+      return { k: e.item || '', v: has ? e.value + (e.unit ? ' ' + e.unit : '') : '沒有查到', label: e.label || '官方公告', date: e.checkedOn || '',
+               note: has ? (e.note || '') : (e.nullReason || ''),
+               plain: single ? Pl.sentence('fee', { pct: parseFloat(e.value), kind: /稅/.test(String(e.item || '')) ? 'tax' : 'fee' }) : null };
+    });
   }
   function goldCost(asset, cost, out) {
     var Pl = global.Plain;
@@ -500,10 +526,12 @@
             (s.note ? '<span class="asp-note">' + esc(s.note) + '</span>' : '') + '</div>';
     h += '<div class="asp-because">' + esc(s.because) + '</div>';
     if (applies) h += '<div class="asp-rule">' + esc(s.rule) + '</div>';
+    if (a.factsTitle) h += '<div class="asp-facts-title">' + esc(a.factsTitle) + '</div>';
     (a.facts || []).forEach(function (f) {
+      // plain 是 null＝這一項不是一個數字（例如分級費率的文字），不寫白話；其餘一律有一行，資料不足就寫資料不足
       h += '<div class="asp-fact"><span class="asp-k">' + termLabel(f) + '</span><span class="asp-v">' + esc(f.v) + '</span>' +
            tag(f.label, f.date) + (f.note ? '<span class="asp-fnote">' + esc(f.note) + '</span>' : '') +
-           '<div class="plain-line">' + esc(f.plain || global.Plain.NA) + '</div></div>';
+           (f.plain === null ? '' : '<div class="plain-line">' + esc(f.plain || global.Plain.NA) + '</div>') + '</div>';
     });
     (a.extra || []).forEach(function (x) {
       h += '<div class="asp-extra">' + esc(x.text) + (x.link ? '（<a class="ana-link" href="' + esc(x.link.href) + '">' + esc(x.link.text) + '</a>）' : '') + '</div>';
@@ -536,6 +564,7 @@
     INVERSE_THRESHOLD: INVERSE_THRESHOLD, PREMIUM_MIN_DAYS: PREMIUM_MIN_DAYS,
     // A1-7：面向
     aspects: aspects, strip: strip, chip: chip, detail: detail, cell: cell, detailId: detailId,
-    ASPECT_ORDER: ASPECT_ORDER, COST_MIN_DAYS: COST_MIN_DAYS, COST_PREMIUM_TAG: COST_PREMIUM_TAG, COST_NOT_APPLICABLE: COST_NOT_APPLICABLE
+    ASPECT_ORDER: ASPECT_ORDER, COST_MIN_DAYS: COST_MIN_DAYS, COST_PREMIUM_TAG: COST_PREMIUM_TAG, COST_NOT_APPLICABLE: COST_NOT_APPLICABLE,
+    SAME_THING: SAME_THING
   };
 })(window);
