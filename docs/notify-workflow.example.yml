@@ -1,0 +1,70 @@
+# notify.yml —— 自動駕駛的通知信（範本）
+#
+# 這個檔放在【私人倉庫 invest-data】的 .github/workflows/notify.yml，不是放在這個公開倉庫。
+# 怎麼放：見 docs/AUTOPILOT.md「第一次設定」的三個步驟（在 GitHub 網頁上貼上就好，不必用指令）。
+#
+# 它做的事：被觸發時，用 GitHub 自己的機器人在 invest-data 開一個 issue 並指派給倉庫的主人
+# → GitHub 會寄信給你、手機 App 也會跳通知。issue 開在私人倉庫，內容只有你看得到。
+# 「放行」並合併完之後，同一個流程會在那個 issue 留言並把它關掉。
+#
+# 誰會觸發它：你電腦上的 Claude Code，用你已經登入的 gh 執行
+#     gh workflow run notify.yml -R <你的帳號>/invest-data -f title=… -f body=… -f stage=… -f action=open
+# 這裡不需要、也不存任何密碼或權杖：開 issue 用的是 GitHub 每次執行自動發的臨時權限（只有 issues: write）。
+
+name: notify
+
+on:
+  workflow_dispatch:
+    inputs:
+      title:
+        description: "信的標題"
+        required: true
+        type: string
+      body:
+        description: "信的內文（Markdown）"
+        required: true
+        type: string
+      stage:
+        description: "階段名稱（例如 A1-4）"
+        required: false
+        type: string
+        default: ""
+      action:
+        description: "open＝開一封新的；close＝在那個階段的信留言並結案"
+        required: false
+        type: choice
+        options:
+          - open
+          - close
+        default: open
+
+permissions:
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # 內容一律經過環境變數交給指令，不直接寫進指令列（避免標題或內文裡的符號被當成指令）。
+      - name: 開一個 issue（GitHub 會寄信、手機會通知）
+        if: ${{ inputs.action == 'open' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+        run: |
+          gh label create autopilot --repo "$GITHUB_REPOSITORY" --color 5319e7 --description "自動駕駛的通知" 2>/dev/null || true
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY" --label autopilot --assignee "$GITHUB_REPOSITORY_OWNER"
+
+      - name: 留言並結案
+        if: ${{ inputs.action == 'close' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ inputs.body }}
+          STAGE: ${{ inputs.stage }}
+        run: |
+          for n in $(gh issue list --repo "$GITHUB_REPOSITORY" --label autopilot --state open --search "\"$STAGE\" in:title" --json number --jq '.[].number'); do
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+            gh issue close "$n" --repo "$GITHUB_REPOSITORY"
+          done

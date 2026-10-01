@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "about": "自動駕駛的常數。這個檔是保護檔：生效的是主目錄（main）上的那一份，改它要經過「放行」。說明見 docs/AUTOPILOT.md。",
+
+  "requiredModel": "claude-fable-5-1",
+  "requiredEffort": "xhigh",
+  "requiredModelLabel": "Fable 5.1",
+  "requiredEffortLabel": "Extra high",
+  "maxHours": 8,
+
+  "remote": "origin",
+  "mainBranch": "main",
+  "tagPrefix": "stop",
+  "branchPrefix": "feat/stop",
+  "worktreeDir": ".claude/worktrees",
+  "runsDir": ".autopilot/runs",
+  "outboxDir": ".autopilot/outbox",
+
+  "credentialHours": 24,
+  "docsFollowupMinutes": 60,
+  "docsFollowupFiles": ["README.md", "docs/CHANGELOG.md"],
+
+  "reviewer": {
+    "agentType": "iw-reviewer",
+    "maxRounds": 2
+  },
+
+  "notify": {
+    "repo": "davidjjx/invest-data",
+    "workflow": "notify.yml",
+    "reportMaxLines": 40,
+    "reportMaxChars": 2400,
+    "diffMaxLines": 200,
+    "minMinutesBetweenFallbacks": 10
+  },
+
+  "goldJob": {
+    "about": "筆電黃金排程的推送：不需要通行證的唯一例外。檔案清單必須等於 data/assets.json 裡 owner 是 local 的標的（有測試釘住）。",
+    "files": [
+      "data/latest.json",
+      "data/sources/local.json",
+      "data/history/gold_twd.json",
+      "data/history/gold_cny.json",
+      "data/history/gold_bar.json"
+    ],
+    "subjectPatterns": [
+      "^data: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} 盤中輕量更新（本機：台銀黃金現價）(（第 \\d+ 次重試）)?$",
+      "^data: \\d{4}-\\d{2}-\\d{2} 本機補抓（台銀黃金）(（第 \\d+ 次重試）)?$"
+    ]
+  },
+
+  "cloudJob": {
+    "about": "雲端更新流程的資料 commit 長這樣（事後偵測用；雲端的推送不經過這台電腦）。",
+    "author": "github-actions[bot]",
+    "pathPrefix": "data/",
+    "subjectPatterns": [
+      "^data: \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} 盤中更新（雲端）(（第 \\d+ 次重試）)?$",
+      "^data: \\d{4}-\\d{2}-\\d{2} (morning|midmorning|midday|close|review|manual) 更新（雲端，\\d{2}:\\d{2}）(（第 \\d+ 次重試）)?$"
+    ]
+  },
+
+  "tier1": {
+    "about": "自動駕駛期間一律不能動；要動就停下來（停止條件 3）。",
+    "paths": [
+      ".github/workflows/**",
+      "data/schedule.json",
+      "data/assets.json",
+      "scripts/update_local.ps1",
+      "scripts/publish.py",
+      "scripts/net_policy.py",
+      "scripts/sensitive_terms_hmac.json",
+      ".gitignore"
+    ]
+  },
+
+  "selfFiles": {
+    "about": "自動駕駛自己的檔：自動駕駛期間不能改（連 worktree 裡的副本也不行）。",
+    "paths": [
+      ".claude/settings.json",
+      ".claude/settings.local.json",
+      ".claude/hooks/**",
+      ".claude/agents/**",
+      ".claude/skills/**",
+      ".claude/autopilot/**",
+      "scripts/autopilot_install.py",
+      "scripts/test_autopilot_*.py",
+      "docs/AUTOPILOT.md",
+      "docs/notify-workflow.example.yml"
+    ]
+  },
+
+  "tier2": {
+    "about": "動了就停、寄信給 David 看 diff；他輸入「繼續 <階段>」之前不能推、不能寄「可以合併」的信。",
+    "paths": [
+      "scripts/fetch_data.py",
+      "scripts/merge_latest.py",
+      "scripts/test_analysis_guards.py",
+      "js/storage.js",
+      "js/fxplan.js",
+      "js/concentration.js",
+      "js/settings.js",
+      "settings.html",
+      "js/lock.js",
+      "js/portfolio.js",
+      "js/records.js",
+      "records.html"
+    ]
+  }
+}

@@ -91,9 +91,20 @@ invest-watch/
 │   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
 │   ├─ backfill_fx_history.py  匯率日線一次性回補到 400 個營業日（A1-6；只增不改、重疊區逐日比對、差超過 0.3% 就停）
 │   ├─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
-│   └─ test_aspects_js.py／test_dashboard_requests_js.py  A1-7：卡片面向的離線測試；真的開瀏覽器量儀表板請求數（自己起一個只聽本機的小伺服器，不連外網）
+│   ├─ test_aspects_js.py／test_dashboard_requests_js.py  A1-7：卡片面向的離線測試；真的開瀏覽器量儀表板請求數（自己起一個只聽本機的小伺服器，不連外網）
+│   ├─ autopilot_install.py  自動駕駛（P1）的安裝與檢查：裝「推送前的檢查」（git 的 pre-push）、設定事後偵測的起點；換電腦時跑一次
+│   └─ test_autopilot_guard.py／_prepush.py／_flow.py／_shell.py／_config.py  自動駕駛的離線測試（繞過寫法、推送前的檢查、通行證與整個流程、指令解析、設定一致性與隱私掃描）
 ├─ docs/ANALYSIS.md      分析方法（公開版）：五個面向、方法證據★、資料標籤、assetClass 對應、已實作的定義
+├─ docs/AUTOPILOT.md     自動駕駛（P1）給 David 的白話說明：怎麼開始、放行、修改、停止；三道保護；擋不住的事
 ├─ docs/adhoc-workflow.example.yml  私人倉庫 invest-data 用的試算 workflow 範本（A1-3；內容不含任何代號，複製過去即可用）
+├─ docs/notify-workflow.example.yml 私人倉庫 invest-data 用的通知信 workflow 範本（P1；機器人開 issue → GitHub 寄信）
+├─ .claude/              Claude Code 的專案設定——自動駕駛（P1）。這個資料夾只有下面五項進版控，其餘（worktree、截圖…）都被忽略
+│   ├─ settings.json     模型與思考強度的預設值、hook 掛在哪些事件、允許與拒絕的指令清單
+│   ├─ hooks/            檢查程式（Python）：iw_guard（每個動作執行前）、iw_prepush（推送前）、iw_events（各事件）、iw_state（狀態與通行證）、
+│   │                    iw_notify（通知信與事後偵測）、iw_shell（把指令拆開）、iw_common、iw_hook（入口）
+│   ├─ autopilot/        常數與清單：config.json（模型、時間上限、動不得的檔、黃金排程的例外）、allowlist.json（自動駕駛期間可以用的工具與程式）
+│   ├─ skills/iw-autopilot/  Claude 照著做的流程、停止報告模板、審查準則
+│   └─ agents/iw-reviewer.md 審查代理（獨立、唯讀）
 └─ .github/workflows/
     ├─ update-data.yml     排程設定（cron-job.org 觸發）
     ├─ probe-bot.yml       量測台銀（手動觸發；停點 6 的工具）
@@ -832,7 +843,17 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
     既有各區每個數字下面一行白話、表頭的名詞可以點；相關矩陣改成每個標的一句（S&P 500 與它的總報酬版本是同一個東西的兩個版本，不互相當「最同向」）；試算結果多一條圖示列
   - **後端只動一處**：`cost.json` 的折溢價摘要多第 25／75 百分位兩個欄位（滿 20 個交易日才有，所以現在的資料檔沒有變）；不加請求、不改排程
   - 改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`「分析系列」；標籤 `stopA1-7`
-- [ ] 分析系列 A1-4 — 00646 官方淨值回補（小停點）
+- [x] **停點 P1 — 自動駕駛**（2026-10-01 完成，等驗收與第一次實戰；說明見 `docs/AUTOPILOT.md`）
+  - **做什麼**：一個階段裡的例行來回（偵察、覆述、施工、測試、驗收）由 Claude 自己跑完，只在九種情況停下來，每次停下來都寄信（GitHub 通知信）；
+    固定格式、一頁以內、寫給初學者看
+  - **只有 David 親手輸入「放行 <階段>」才能合併**：這句話由程式（不是 Claude）換成一張一次性的通行證，綁定階段與要合併的那個版本。
+    三道保護——每個動作執行前的檢查、git 的推送前檢查（看實際要推上去的內容）、保護檔本身不能改——加上每封信最後的「安全檢查」一行
+  - **審查由獨立的審查代理做**（唯讀、看不到施工那邊的對話）；它的結論是程式記的，沒有它對現在這個版本的批准，「做完了」的信寄不出去
+  - **模型固定 Claude Fable 5.1、思考強度 Extra high**；被換掉就暫停寄信，不偷偷換模型繼續
+  - **筆電的黃金排程一個字沒改**：推送前的檢查對「只動那五個黃金相關的資料檔、不是從 Claude Code 裡推的」放行
+  - **平常（不在自動駕駛）也有效的部分**：工作階段只要開在這個資料夾，沒有通行證就合併不了、推不上正式版、改不了保護檔
+  - 排程、雲端的更新流程、資料檔一個字沒改；改動、驗證（含把保護改壞的對照組與三輪獨立找漏洞）與退回方式見 `docs/CHANGELOG.md`；標籤 `stopP1`
+- [ ] 分析系列 A1-4 — 00646 官方淨值回補（小停點；預定用「自動駕駛：A1-4」跑）
 - [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、各面向狀態的快照紀錄與回顧（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 

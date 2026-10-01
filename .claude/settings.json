@@ -1,0 +1,224 @@
+{
+  "model": "claude-fable-5-1",
+  "effortLevel": "xhigh",
+  "switchModelsOnFlag": false,
+  "permissions": {
+    "deny": [
+      "Bash(git push *--force*)",
+      "Bash(git push -f *)",
+      "Bash(git push * -f)",
+      "Bash(git push * -f *)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--no-verify*)",
+      "Bash(git commit *--no-verify*)",
+      "Bash(git tag -d *)",
+      "Bash(git tag --delete *)",
+      "Bash(git tag -f *)",
+      "Bash(git rebase *)",
+      "Bash(git filter-branch *)",
+      "Bash(git update-ref *)",
+      "Bash(git reflog expire *)",
+      "Bash(git config *hooksPath*)",
+      "Bash(git credential *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh auth token*)",
+      "Bash(gh auth refresh*)",
+      "Bash(gh secret *)",
+      "Bash(gh repo delete *)",
+      "PowerShell(git push *--force*)",
+      "PowerShell(git push -f *)",
+      "PowerShell(git push *--no-verify*)",
+      "PowerShell(git tag -d *)",
+      "PowerShell(gh pr merge *)",
+      "PowerShell(gh auth token*)",
+      "Bash(git send-pack *)",
+      "Bash(git http-push *)",
+      "PowerShell(git send-pack *)",
+      "Agent(isolation:remote)",
+      "Read(~/.git-credentials)",
+      "Read(~/.config/gh/hosts.yml)",
+      "Read(~/AppData/Roaming/GitHub CLI/hosts.yml)",
+      "Read(~/.ssh/id_*)",
+      "Read(~/AppData/Local/Google/Chrome/User Data/**)",
+      "Read(~/AppData/Local/Microsoft/Edge/User Data/**)",
+      "Read(~/Library/Application Support/Google/Chrome/**)",
+      "Read(~/Library/Application Support/Microsoft Edge/**)"
+    ],
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git rev-parse *)",
+      "Bash(git fetch *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git worktree *)",
+      "Bash(git branch *)",
+      "Bash(git tag *)",
+      "Bash(git push origin feat/*)",
+      "Bash(git push -u origin feat/*)",
+      "Bash(git push origin stop*)",
+      "Bash(python scripts/*)",
+      "Bash(python -m unittest *)",
+      "Bash(python .claude/hooks/iw_notify.py *)",
+      "Bash(py -3 scripts/*)",
+      "Bash(py -3 -m unittest *)",
+      "Bash(py -3 .claude/hooks/iw_notify.py *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)",
+      "Bash(gh auth status)",
+      "Bash(gh workflow run notify.yml -R davidjjx/invest-data *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(?!(Read|Grep|Glob)$).*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" pretool; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" pretool; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" pretool; fi || exit 2",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" prompt; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" prompt; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" prompt; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" permission; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" permission; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" permission; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" posttool; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" posttool; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" posttool; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "iw-reviewer",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" subagentstop; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" subagentstop; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" subagentstop; fi",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stop; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stop; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stop; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stopfailure; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stopfailure; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" stopfailure; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|agent_needs_input|elicitation_dialog|quota_auto_resume_fired|quota_auto_resume_stale|quota_auto_resume_disabled",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" notification; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" notification; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" notification; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "user_settings|project_settings|local_settings|skills",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" configchange; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" configchange; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" configchange; fi || exit 2",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PreModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" modelswitch; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionstart; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionstart; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionstart; fi",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if command -v py >/dev/null 2>&1; then py -3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionend; elif python3 -c \"\" >/dev/null 2>&1; then python3 -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionend; else python -X utf8 \"${CLAUDE_PROJECT_DIR}/.claude/hooks/iw_hook.py\" sessionend; fi",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
