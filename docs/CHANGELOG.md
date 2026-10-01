@@ -785,7 +785,15 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
-## 2026-09-30 · 分析系列 A1-7 小白呈現框架（標籤 `stopA1-7`；等驗收後合併）
+## 2026-09-30 · 分析系列 A1-7 小白呈現框架（標籤 `stopA1-7`；2026-10-01 合併 54dd3f9）
+
+**合併紀錄（2026-10-01）**
+
+- 驗收通過；六件裁決與裁決後的修正見本節最後的「驗收後的修正」。
+- 合併 commit **54dd3f9**（`--no-ff`；第一個 parent 是 main 的 4e49c64，第二個是分支的 e11f44c）。合併在另一個暫時的 worktree 做，主目錄留在 main、排程照跑。
+- 沒有衝突：A1-7 沒有動任何資料檔，main 這段期間只有資料 commit。第一次合併好、要推之前，雲端剛好又推了一筆資料（08:49 那一輪），所以改以新的 main 為底重做一次合併、重跑測試再推；沒有用強推。
+- 合併後的樹上全套測試 540 條全綠（兩次合併各跑一次）。
+- 合併後的這一筆文件 commit 只填 README 的回滾表與這一段紀錄，沒有動程式。
 
 把 A1-6 換匯助手的「圖示＋狀態詞＋規則＋白話＋名詞解釋」推到所有卡片與整個分析分頁，分析分頁最上面加一張總覽表。不多算新指標、不改排程、不加對外請求；原本畫面上的東西一項不減。
 
@@ -997,7 +1005,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 ```bash
 git log --oneline stopA1-7 -1                     # 看標籤指到哪個 commit
 # 合併前：分支還沒進 main，不必退；不要了就不合併
-git revert -m 1 <A1-7 的合併 commit> && git push  # 合併後：退整個 A1-7（編號用 git log --oneline --merges -3 查）
+git revert -m 1 54dd3f9 && git push                # 合併後：退整個 A1-7（含驗收後的修正）
 ```
 
 退回後：卡片的圖示列、指標格的名詞、分析分頁的總覽表與各區的白話都消失，儀表板回到「展開分析才抓 risk／cost」；`cost.json` 的折溢價摘要少掉 `p25Pct`／`p75Pct`（目前本來就還沒有）。資料檔不受影響。
@@ -1063,7 +1071,7 @@ git revert -m 1 <A1-7 的合併 commit> && git push  # 合併後：退整個 A1-
 
 ```bash
 git revert --no-edit stopA1-7..feat/stopA1-7       # 合併前：只退這一段修正，回到 tag 那一版
-git revert -m 1 <A1-7 的合併 commit> && git push   # 合併後：修正跟 A1-7 在同一個合併裡，要退就整個 A1-7 一起退
+git revert -m 1 54dd3f9 && git push                 # 合併後：修正跟 A1-7 在同一個合併裡，要退就整個 A1-7 一起退
 ```
 
 ---
