@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "about": "自動駕駛期間允許的工具與程式。清單以外＝擋下＝停止條件 8。這個檔是保護檔，改它要經過「放行」。",
+
+  "tools": {
+    "about": "工具名稱。讀檔與搜尋（Read、Grep、Glob）不經過檢查程式，所以不在這裡。",
+    "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "Skill",
+      "ToolSearch",
+      "TaskStop",
+      "TaskOutput",
+      "TodoWrite",
+      "SendUserFile",
+      "WebFetch",
+      "WebSearch",
+      "SubagentHandback",
+      "mcp__ccd_session__mark_chapter",
+      "mcp__ccd_host__request_keep_awake",
+      "mcp__Claude_Browser__preview_start",
+      "mcp__Claude_Browser__preview_stop",
+      "mcp__Claude_Browser__preview_list",
+      "mcp__Claude_Browser__preview_logs",
+      "mcp__Claude_Browser__navigate",
+      "mcp__Claude_Browser__computer",
+      "mcp__Claude_Browser__read_page",
+      "mcp__Claude_Browser__get_page_text",
+      "mcp__Claude_Browser__find",
+      "mcp__Claude_Browser__javascript_tool",
+      "mcp__Claude_Browser__read_console_messages",
+      "mcp__Claude_Browser__read_network_requests",
+      "mcp__Claude_Browser__resize_window",
+      "mcp__Claude_Browser__tabs_context",
+      "mcp__Claude_Browser__tabs_create",
+      "mcp__Claude_Browser__tabs_close",
+      "mcp__Claude_Browser__tabs_select",
+      "mcp__Claude_Browser__browser_batch"
+    ],
+    "agentTypes": ["iw-reviewer"],
+    "browserHosts": ["127.0.0.1", "localhost"]
+  },
+
+  "programs": {
+    "about": "Bash 指令拆開之後，每一段的程式名稱都要在這裡。git 與 gh 另有細則（見 iw_guard.py）。",
+    "allow": [
+      "git", "gh", "python", "python3", "py", "curl",
+      "cd", "pushd", "popd", "export", "set", "true", "false", ":", "test", "[", "[[", "echo", "printf", "exit", "return", "wait", "sleep",
+      "ls", "dir", "cat", "head", "tail", "wc", "grep", "egrep", "fgrep", "sed", "awk", "sort", "uniq", "cut", "tr", "find", "diff", "cmp",
+      "date", "basename", "dirname", "realpath", "pwd", "which", "command", "type", "stat", "file", "du", "df", "md5sum", "sha256sum",
+      "mkdir", "cp", "mv", "touch", "rm", "rmdir", "tee", "xargs", "env", "timeout", "nohup", "time"
+    ],
+    "pythonInterpreters": ["python", "python3", "py"],
+    "pythonModules": ["unittest", "http.server", "json.tool", "py_compile", "compileall"],
+    "curlHosts": ["127.0.0.1", "localhost", "davidjjx.github.io"],
+    "ghAllowed": [
+      ["workflow", "run", "notify.yml"],
+      ["run", "list"],
+      ["run", "view"],
+      ["run", "watch"],
+      ["workflow", "list"],
+      ["workflow", "view"],
+      ["auth", "status"]
+    ]
+  }
+}

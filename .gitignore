@@ -1,5 +1,14 @@
-# Claude Code 的本機設定，不需要進倉庫
-.claude/
+# Claude Code：本機用的東西不進倉庫（預覽設定、個人設定、截圖用的外框頁、施工用的 worktree）。
+# 例外是自動駕駛（停點 P1）的設定、檢查程式、流程與審查代理：它們要進倉庫，生效的是 main 上的那一份。
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+!.claude/agents/
+!.claude/skills/
+!.claude/autopilot/
+
+# 自動駕駛每個階段的覆述、報告、審查意見、寄出的信的存檔：只留在本機
+.autopilot/
 
 # Python
 __pycache__/
