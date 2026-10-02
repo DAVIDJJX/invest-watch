@@ -3,8 +3,8 @@
   "name": "台積電 2330",
   "currency": "TWD",
   "unit": "元",
-  "count": 264,
-  "updatedAt": "2026-10-02T08:40:26+08:00",
+  "count": 265,
+  "updatedAt": "2026-10-02T09:10:25+08:00",
   "points": [
     {"d":"2025-09-01","c":1165.0},
     {"d":"2025-09-02","c":1160.0},
@@ -269,6 +269,7 @@
     {"d":"2026-09-24","c":2475.0,"dateSource":"official"},
     {"d":"2026-09-29","c":2475.0,"dateSource":"official"},
     {"d":"2026-09-30","c":2480.0,"dateSource":"official"},
-    {"d":"2026-10-01","c":2510.0,"dateSource":"official"}
+    {"d":"2026-10-01","c":2510.0,"dateSource":"official"},
+    {"d":"2026-10-02","c":2507.5,"dateSource":"intraday","provisional":true}
   ]
 }
