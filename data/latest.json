@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-02T15:00:10+08:00",
- "updatedAtText": "2026-10-02 15:00",
+ "updatedAt": "2026-10-02T15:05:15+08:00",
+ "updatedAtText": "2026-10-02 15:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -11,7 +11,7 @@
   "error": 0,
   "errorIds": []
  },
- "requests": 8,
+ "requests": 10,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -72,7 +72,7 @@
     4305.0,
     4311.0
    ],
-   "fetchedAt": "2026-10-02T15:00:08+08:00",
+   "fetchedAt": "2026-10-02T15:05:10+08:00",
    "error": null,
    "buy": 4264.0,
    "sell": 4311.0,
@@ -80,11 +80,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-02T15:00:08+08:00",
-   "lastSuccessAt": "2026-10-02T15:00:08+08:00",
+   "lastAttemptAt": "2026-10-02T15:05:10+08:00",
+   "lastSuccessAt": "2026-10-02T15:05:10+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-02T15:00:00+08:00",
-   "nextDueAt": "2026-10-02T15:05:00+08:00"
+   "lastDueAt": "2026-10-02T15:05:00+08:00",
+   "nextDueAt": "2026-10-02T15:30:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -145,7 +145,7 @@
     906.4,
     906.9
    ],
-   "fetchedAt": "2026-10-02T15:00:10+08:00",
+   "fetchedAt": "2026-10-02T15:05:12+08:00",
    "error": null,
    "buy": 897.25,
    "sell": 906.9,
@@ -153,11 +153,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-02T15:00:10+08:00",
-   "lastSuccessAt": "2026-10-02T15:00:10+08:00",
+   "lastAttemptAt": "2026-10-02T15:05:12+08:00",
+   "lastSuccessAt": "2026-10-02T15:05:12+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-02T15:00:00+08:00",
-   "nextDueAt": "2026-10-02T15:05:00+08:00"
+   "lastDueAt": "2026-10-02T15:05:00+08:00",
+   "nextDueAt": "2026-10-02T15:30:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -174,52 +174,52 @@
    "bars": [
     {
      "spec": "1 公斤",
-     "sell": 4351074.0,
+     "sell": 4345249.0,
      "buy": null,
      "grams": 1000.0,
-     "perGram": 4351.07,
-     "premiumPct": 0.789
+     "perGram": 4345.25,
+     "premiumPct": 0.794
     },
     {
      "spec": "500 公克",
-     "sell": 2179249.0,
+     "sell": 2176333.0,
      "buy": null,
      "grams": 500.0,
-     "perGram": 4358.5,
-     "premiumPct": 0.961
+     "perGram": 4352.67,
+     "premiumPct": 0.967
     },
     {
      "spec": "250 公克",
-     "sell": 1091741.0,
+     "sell": 1090281.0,
      "buy": null,
      "grams": 250.0,
-     "perGram": 4366.96,
-     "premiumPct": 1.157
+     "perGram": 4361.12,
+     "premiumPct": 1.163
     },
     {
      "spec": "100 公克",
-     "sell": 437986.0,
+     "sell": 437401.0,
      "buy": null,
      "grams": 100.0,
-     "perGram": 4379.86,
-     "premiumPct": 1.456
+     "perGram": 4374.01,
+     "premiumPct": 1.462
     },
     {
      "spec": "金鑽 1 台兩",
-     "sell": 164434.0,
-     "buy": 160125.0,
+     "sell": 164215.0,
+     "buy": 159900.0,
      "grams": 37.5,
-     "perGram": 4384.91,
-     "premiumPct": 1.573
+     "perGram": 4379.07,
+     "premiumPct": 1.579
     }
    ],
-   "quoteTime": "2026/10/02 12:59",
+   "quoteTime": "2026/10/02 14:54",
    "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
    "points": 16,
-   "goldSell": 4317.0,
+   "goldSell": 4311.0,
    "spark": [
     4592.501,
     4569.963,
@@ -236,20 +236,18 @@
     4305.599,
     4350.466,
     4353.492,
-    4351.074
+    4345.249
    ],
    "date": "2026-10-02",
    "historyNote": null,
-   "fetchedAt": "2026-10-02T13:05:28+08:00",
+   "fetchedAt": "2026-10-02T15:05:15+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-02T13:05:28+08:00",
-   "lastSuccessAt": "2026-10-02T13:05:28+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
+   "lastAttemptAt": "2026-10-02T15:05:15+08:00",
+   "lastSuccessAt": "2026-10-02T15:05:15+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-02T13:05:00+08:00",
-   "nextDueAt": "2026-10-02T15:05:00+08:00"
+   "lastDueAt": "2026-10-02T15:05:00+08:00",
+   "nextDueAt": "2026-10-03T10:05:00+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -1046,19 +1044,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 19,
+   "ageMinutes": 24,
    "nextDueAt": "2026-10-02T15:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-02T15:00:10+08:00",
+   "runAt": "2026-10-02T15:05:15+08:00",
    "slot": "light",
-   "mode": "light",
+   "mode": "full",
    "ok": 3,
    "error": 0,
-   "requests": 3,
+   "requests": 5,
    "ageMinutes": 0,
-   "nextDueAt": "2026-10-02T15:05:00+08:00",
+   "nextDueAt": "2026-10-02T15:30:00+08:00",
    "status": "ok"
   }
  }
