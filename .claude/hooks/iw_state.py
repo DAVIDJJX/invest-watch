@@ -290,6 +290,63 @@ def parse_command(prompt):
     return None
 
 
+# 機器包起來的訊息（代理回報、背景工作通知…）也會經過同一個 hook。它們裡面出現指令字不提示——
+# 不然審查代理每回報一次「請輸入 放行 X」就跳一行。這張表只影響「要不要提示」，不影響認不認指令詞（那邊是以 < 開頭一律不認）。
+_MACHINE_WRAPPERS = ("agent-message", "task-notification", "system-reminder", "teammate-message", "local-command", "command-name",
+                     "command-message", "command-args", "bash-input", "bash-stdout", "bash-stderr", "ci-monitor-event")
+_TAG_ONLY_LINE = re.compile(r"^</?[A-Za-z][\w-]*(\s[^<>]*)?>$")
+_PASTE_TAG_LINE = re.compile(r"^</?pasted[_-]content\b[^<>]*>$", re.I)
+_SHORT = 60                                                        # 「一句話」的長度上限：超過就當成文件，不用「有提到就提示」
+
+
+def strip_paste_wrapper(text):
+    """桌面 App 會把貼上的長文字包成 <pasted_content …>…</pasted_content …>。存規格時把那兩行標籤拿掉，內容一個字不動。"""
+    lines = [x for x in (text or "").split("\n") if not _PASTE_TAG_LINE.match(x.strip())]
+    return "\n".join(lines).strip("\n")
+
+
+def near_miss(prompt, stage=None):
+    """parse_command 不認的訊息裡，有沒有「長得像指令詞」的東西。有就回 dict(kind=…, where=…)，沒有回 None。
+
+    只用來給 David 一句看得到的提示（2026-10-02 的事故：整段貼上時指令詞在貼上的區塊裡，hook 靜悄悄沒反應）。
+    這個函式不啟動、不放行、不改任何狀態；回傳的東西也不可以拿去當指令用。
+    where：pasted（在貼上的區塊裡）／line（單獨一行是指令詞，但不在第一行或前後還有別的行）／shape（像指令詞，但寫法不對）。
+    stage：現在紀錄裡的階段（有的話，「繼續 <階段> 吧」這種也提示；沒有的話「繼續」「修改」開頭的句子太常見，不提示）。"""
+    t = clean_prompt(prompt)
+    if not t or parse_command(t) is not None:
+        return None
+    wrapped = t.startswith("<")
+    if wrapped:
+        m = re.match(r"^<([A-Za-z][\w-]*)", t)
+        if not m or m.group(1).lower().startswith(_MACHINE_WRAPPERS):
+            return None
+    lines = [x.strip() for x in t.split("\n")]
+    for line in lines:
+        if not line or _TAG_ONLY_LINE.match(line):
+            continue
+        cmd = parse_command(line)
+        if cmd and (cmd.get("stage") is None or C.stage_ok(cmd["stage"])):
+            return {"kind": cmd["kind"], "where": "pasted" if wrapped else "line"}
+    if wrapped:
+        return None
+    first = lines[0]
+    colon = "[:" + chr(0xFF1A) + "]"
+    shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("approve_model", r"^放行\s*模型"),
+              ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛")]
+    if stage:
+        end = r"(?![A-Za-z0-9._-])"                                 # 階段名稱要完整（P1 不可以對到 P10）；後面接中文字沒關係
+        shapes += [("resume", r"^繼續\s*" + re.escape(stage) + end), ("revise", r"^修改\s*" + re.escape(stage) + end)]
+    for kind, pat in shapes:
+        if re.search(pat, first):
+            return {"kind": kind, "where": "shape"}
+    if len(lines) == 1 and len(first) <= _SHORT:                    # 一句話裡提到了（「請幫我 放行 P1」「我想結束自動駕駛」）
+        for kind, pat in (("approve_model", r"放行\s*模型"), ("approve", r"放行\s*[A-Za-z0-9]"),
+                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛")):
+            if re.search(pat, first):
+                return {"kind": kind, "where": "shape"}
+    return None
+
+
 def approval_text(stage):
     return "放行 " + stage
 

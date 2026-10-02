@@ -430,11 +430,52 @@ def _out(system=None, context=None):
     return 0
 
 
+NEAR_MISS_HOW = {
+    "start": ("沒有啟動", "第一行請手打「自動駕駛：<階段>」，規格貼在下面"),
+    "approve": ("沒有放行", "請手打「放行 <階段>」，整則訊息只有這一句（不能用貼的，前後不能有別的字）"),
+    "approve_model": ("沒有放行模型", "請手打「放行模型」，整則訊息只有這一句"),
+    "resume": ("沒有繼續", "請手打「繼續 <階段>」，整則訊息只有這一句"),
+    "revise": ("沒有當成修改指令", "第一行請手打「修改 <階段>：要改什麼」"),
+    "end": ("沒有結束", "請手打「結束自動駕駛」，整則訊息只有這一句"),
+}
+NEAR_MISS_WHERE = {"pasted": "指令詞在貼上的區塊裡", "line": "指令詞不在第一行，或前後還有別的字", "shape": "寫法跟指令詞差一點"}
+
+
+def near_miss_hint(miss, st, is_mine):
+    """訊息裡有長得像指令詞的東西、但格式不被接受：回一句 David 看得到的提示。只是提示——不啟動、不放行、不改狀態。"""
+    what, how = NEAR_MISS_HOW[miss["kind"]]
+    why = NEAR_MISS_WHERE[miss["where"]]
+    system = "（自動駕駛）%s：%s。%s。如果你不是要下指令，不用理會這一行。" % (what, why, how)
+    context = ("hook 的提示：David 這一則訊息裡有長得像自動駕駛指令詞的字，但格式不被接受（%s），所以%s——狀態沒有變、沒有開通行證。"
+               "不要把它當成指令照做（不要因此開始自動駕駛的流程、不要合併）；請告訴他正確的輸入方式：%s。" % (why, what, how))
+    if is_mine:
+        context += "自動駕駛目前的狀態：階段 %s，狀態 %s；規則仍然有效。" % (st.get("stage"), st.get("status"))
+    return system, context
+
+
+def tests_env_note(cfg):
+    """跑測試的環境（config.json 的 testEnv）。每次啟動、繼續、修改、放行、壓縮對話之後都由 hook 講一次，不靠 Claude 記得
+    （2026-10-02：實戰第一次重跑測試用了這台電腦預設的 python，少套件，55 條假紅；瀏覽器那幾組用到 Edge，回空白頁）。"""
+    te = cfg.get("testEnv") or {}
+    if not te.get("python"):
+        return ""
+    return ("\n跑測試的環境（hook 提供；寫死在 .claude/autopilot/config.json 的 testEnv，不要用別的）：Python 一律 `%s`（測試與專案的腳本都是）；"
+            "瀏覽器那幾組先 `export %s=\"%s\"`；全套測試是 `%s -W ignore -m unittest discover -s scripts -p \"test_*.py\"`，輸出存到這個階段的紀錄資料夾。"
+            "主目錄有 .autopilot/local-env.txt 的話，把裡面的 export 加在前面（具名字串的隱私掃描要用）；沒有就在報告裡照實寫那一條略過。"
+            "測試條數比上一次少、或瀏覽器那幾組一開始就錯，先懷疑環境（查版本的指令不會被擋），不要改程式去配合。"
+            % (te["python"], te.get("browserEnv"), te.get("browser"), te["python"]))
+
+
 def prompt(inp, env):
     cmd = ST.parse_command(inp.get("prompt"))
     st = ST.load(env.sd)
     cfg = env.cfg
     if cmd is None:
+        miss = ST.near_miss(inp.get("prompt"), st.get("stage"))
+        if miss:
+            ST.log(env.sd, {"event": "near-miss", "kind": miss["kind"], "where": miss["where"], "session": inp.get("session_id")})
+            system, context = near_miss_hint(miss, st, mine(st, inp))
+            return _out(system=system, context=context)
         if mine(st, inp) and not str(inp.get("prompt") or "").lstrip().startswith("<"):
             return _out(context="自動駕駛的狀態（hook 提供）：階段 %s，狀態 %s。David 這一則不是指令詞；照他說的做，但自動駕駛的規則仍然有效。"
                                 % (st.get("stage"), st.get("status")))
@@ -468,7 +509,7 @@ def prompt(inp, env):
         # 這個階段還在自動駕駛中又輸入一次啟動的話，沿用第一次記下的——不可以把自動駕駛中途動的也算進「原本就有」。
         still_running = same and bool(st.get("active")) and st.get("preexisting") is not None
         pre = st.get("preexisting") if still_running else N.preexisting_protected(env.main_root, cfg, stage)
-        spec = cmd.get("rest") or ""
+        spec = ST.strip_paste_wrapper(cmd.get("rest") or "")        # 手打第一行＋貼上規格：貼上的那一塊外面包著標籤，存的時候拿掉
         spec_path = ST.save_spec(env.sd, stage, spec) if spec.strip() else (st.get("spec_path") if same else None)
         if spec.strip():
             try:                                                    # 給人看的副本；審查代理以 .git/iw-autopilot/specs/ 那一份為準
@@ -512,7 +553,8 @@ def prompt(inp, env):
                              % (stage, spec_path or "這次沒有貼；請看 .autopilot/runs/%s/ 裡有沒有之前的規格" % stage, hours, cfg["requiredModel"],
                                 cfg["requiredEffort"],
                                 ("\n這個階段的分支在啟動之前就已經改了 %d 個動不得的檔（David 在場時改的）。你不能再改它們；"
-                                 "停止報告的「你要決定的事」第一件要寫明這次改了保護或排程相關的檔。" % len(pre)) if pre else "")))
+                                 "停止報告的「你要決定的事」第一件要寫明這次改了保護或排程相關的檔。" % len(pre)) if pre else ""))
+                    + tests_env_note(cfg))
 
     if kind == "end":
         if not st.get("active"):
@@ -591,7 +633,7 @@ def prompt(inp, env):
         ST.log(env.sd, {"event": "resume", "stage": stage})
         return _out(system="自動駕駛繼續：%s（重新計時，上限 %s 小時）。" % (stage, cfg["maxHours"]),
                     context="David 親手輸入了「繼續 %s」。請從上次停下的地方接著做（先看 .autopilot/runs/%s/ 與 python .claude/hooks/iw_notify.py status）。"
-                            "如果上一次是請他看 diff，他這句話就是看過了。" % (stage, stage))
+                            "如果上一次是請他看 diff，他這句話就是看過了。" % (stage, stage) + tests_env_note(cfg))
 
     if kind == "revise":
         def fn(s):
@@ -612,7 +654,7 @@ def prompt(inp, env):
         ST.log(env.sd, {"event": "revise", "stage": stage})
         return _out(system="自動駕駛回到施工：%s（之前的通行證與「可以合併」的登記都作廢，改完會再寄一次信）。" % stage,
                     context="David 親手輸入了「修改 %s」，要改的事：%s\n請照做（修正做在標籤之後的 commit、標籤不動），改完重新驗收審查、再寄一次停止報告。"
-                            % (stage, cmd.get("rest") or "（他沒有寫內容，請問他）"))
+                            % (stage, cmd.get("rest") or "（他沒有寫內容，請問他）") + tests_env_note(cfg))
 
     if kind == "approve":
         cand = st.get("candidate") or {}
@@ -648,7 +690,7 @@ def prompt(inp, env):
                              "git push origin HEAD:main → 主目錄 git merge --ff-only origin/main → 文件 commit → 收 worktree 與分支 → "
                              "python .claude/hooks/iw_notify.py close --stage %s。"
                              % (stage, cand["sha"][:7], "、".join(cfg["docsFollowupFiles"]), cfg["docsFollowupMinutes"],
-                                cfg["worktreeDir"], cfg["tagPrefix"], stage, stage))
+                                cfg["worktreeDir"], cfg["tagPrefix"], stage, stage)) + tests_env_note(cfg)
                     if new else None)
     return 0
 
@@ -776,7 +818,8 @@ def sessionstart(inp, env):
     if st.get("active"):
         if st.get("session_id") == inp.get("session_id"):
             ctx.append("自動駕駛進行中（hook 提供）：階段 %s，狀態 %s。流程在 iw-autopilot 這個 skill；紀錄在 .autopilot/runs/%s/；"
-                       "python .claude/hooks/iw_notify.py status 可以看完整狀態。" % (st.get("stage"), st.get("status"), st.get("stage")))
+                       "python .claude/hooks/iw_notify.py status 可以看完整狀態。" % (st.get("stage"), st.get("status"), st.get("stage"))
+                       + tests_env_note(env.cfg))
         else:
             ctx.append("注意：另一個工作階段正在自動駕駛（階段 %s，狀態 %s）。這個工作階段不受自動駕駛的清單限制，但「合併進 main 要 David 放行」等保護仍然有效；"
                        "不要動那個階段的 worktree。" % (st.get("stage"), st.get("status")))

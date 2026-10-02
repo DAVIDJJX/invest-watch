@@ -8,6 +8,13 @@
   "requiredEffortLabel": "Extra high",
   "maxHours": 8,
 
+  "testEnv": {
+    "about": "跑測試的環境寫死在這裡，不靠記憶（SKILL.md 的指令要跟這裡一致，有測試釘住）。python：專案排程用的版本——這台電腦的 python 指到別的版本、沒裝 requests，會讓幾十條測試假紅。browser：Edge 的無頭模式在這台電腦回空白頁，瀏覽器那幾組一律用 Chrome。換電腦時改這裡（改它要經過放行）。",
+    "python": "py -3.12",
+    "browserEnv": "IW_BROWSER",
+    "browser": "C:/Program Files/Google/Chrome/Application/chrome.exe"
+  },
+
   "remote": "origin",
   "mainBranch": "main",
   "tagPrefix": "stop",

@@ -33,6 +33,7 @@ import iw_state as ST          # noqa: E402
 
 CFG = C.load_json(os.path.join(ROOT, ".claude", "autopilot", "config.json"))
 ALLOW = C.load_json(os.path.join(ROOT, ".claude", "autopilot", "allowlist.json"))
+TEST_ENV = CFG["testEnv"]                # 跑測試的環境（Python 版本、瀏覽器）：寫死在設定裡
 
 # 假的資料夾（不存在；所有 git 查詢由 FakeGit 回答）
 MAIN = "D:/Fake/invest-watch"
@@ -1488,6 +1489,91 @@ class TestChangesMadeBeforeAutopilotStarted(Base):
         used = self.with_credential(self.state(status="merged"), merge={"sha": "e" * 40, "at": C.iso(NOW)})
         self.blocked(self.bash("git commit -q -m merge", state=used, cwd=MERGE_WT), code=3)             # 通行證的合併已經用過
         self.blocked(self.bash("git commit -q -m x", state=st, cwd=WT), code=3)       # 施工的 worktree：不是在合併
+
+
+class TestVersionQueriesAndTheFixedTestEnvironment(Base):
+    """2026-10-02 實戰前的修正（標籤之後）。那一天 `command -v py; py -3 --version` 被擋了兩次：
+    守門把 command -v 後面的名字當成「要執行的程式」，於是說「py 沒有指定腳本檔」。查版本是唯讀的，不該擋。
+    同一次也發現：只要參數裡有 --version 就整段不檢查——排在程式碼或腳本後面的 --version 只是那段程式自己的參數。"""
+
+    QUERIES = ("command -v py", "command -v python", "command -V python3", "command -v py; py -3 --version; python --version",
+               "which python", "which py python3", "type python",
+               "python --version", "python -V", "python3 --version", "py --version", "py -3 --version", "py -3.12 --version",
+               "py -3.12 -VV", "py -0p", "py --list", "py --list-paths", "py -3.12 -W ignore --version")
+    CHROME = TEST_ENV["browser"]
+    FULL_SUITE = ("export %s=\"%s\"\n%s -W ignore -m unittest discover -s scripts -p \"test_*.py\" > \"%s/.autopilot/runs/X1/tests.txt\" 2>&1\n"
+                  "echo \"rc=$?\" >> \"%s/.autopilot/runs/X1/tests.txt\"" % (TEST_ENV["browserEnv"], TEST_ENV["browser"], TEST_ENV["python"], MAIN, MAIN))
+
+    def ctx(self):
+        inp = {"session_id": "S1", "cwd": MAIN, "tool_name": "Write", "tool_input": {}, "scratchpad_dir": SCRATCH,
+               "permission_mode": "auto", "hook_event_name": "PreToolUse"}
+        return G.Ctx(MAIN, ST.default_state(), CFG, ALLOW, self.git, inp, home=HOME, now=NOW)
+
+    def test_version_queries_are_never_blocked(self):
+        """對照組：把 command -v 改回「當成要執行後面那個程式」→ 這一條會紅。"""
+        for cmd in self.QUERIES:
+            for cwd in (WT, MAIN):
+                self.allowed(self.bash(cmd, cwd=cwd), msg=cmd)
+            self.allowed(self.bash(cmd, state=self.state()), msg="自動駕駛中：" + cmd)
+
+    def test_the_fixed_test_command_runs_in_autopilot(self):
+        self.assertEqual(TEST_ENV["python"], "py -3.12")
+        self.assertEqual(TEST_ENV["browserEnv"], "IW_BROWSER")
+        self.assertTrue(self.CHROME.lower().endswith("chrome.exe"), self.CHROME)
+        self.allowed(self.bash(self.FULL_SUITE, state=self.state()), msg=self.FULL_SUITE)
+        self.allowed(self.bash(self.FULL_SUITE), msg=self.FULL_SUITE)
+        one = "export IW_BROWSER=\"%s\"\npy -3.12 -W ignore -m unittest scripts/test_freshness_js.py" % self.CHROME
+        self.allowed(self.bash(one, state=self.state()), msg=one)
+
+    def test_a_version_flag_after_the_code_does_not_switch_the_checks_off(self):
+        """對照組：改回「參數裡有 --version 就整段不檢查」→ 這一條會紅。"""
+        for cmd in ("python -c \"import subprocess; subprocess.run(['git', 'push', 'origin', 'main'])\" --version",
+                    "python -c \"open('.claude/settings.json', 'w').write('{}')\" --help",
+                    "py -3.12 -c \"import os; os.remove('.git/hooks/pre-push')\" -V"):
+            self.blocked(self.bash(cmd, cwd=MAIN), msg=cmd)
+        st = self.state()
+        for cmd in ("python -c \"print(1)\" --version",                       # 自動駕駛期間不執行寫在指令裡的程式碼
+                    "python -m pip install requests --version",              # 清單以外的模組
+                    "py -3.12 D:/Fake/elsewhere/x.py --version",              # 專案外面的腳本
+                    "python - --version"):                                    # 從標準輸入讀程式碼
+            self.blocked(self.bash(cmd, state=st), code=8, msg=cmd)
+        self.blocked(self.bash("command py -3.12 -c \"print(1)\"", state=st), code=8)          # 沒有 -v 的 command 照樣是「執行後面那個程式」
+        self.blocked(self.bash("command git push origin main"), msg="command git push")
+        self.blocked(self.bash("command -v git > .claude/settings.json", cwd=MAIN), msg="查詢的輸出也不能蓋掉保護檔")
+
+    def test_the_skill_folder_is_not_mistaken_for_the_state_folder(self):
+        """流程檔的資料夾（.claude/skills/iw-autopilot）跟狀態資料夾（.git/iw-autopilot）同名。2026-10-02：一般模式下改 worktree 裡的
+        SKILL.md 被當成「寫入狀態資料夾」擋下——照設計，worktree 的副本平常可以改（要放行合併才生效）。
+        對照組：改回「路徑裡有這幾個字就算狀態資料夾」→ 第一段會紅；把例外放寬成「有 skills 就不算」→ 後面的會紅。"""
+        skill = "/.claude/skills/iw-autopilot/"
+        for name in ("SKILL.md", "review-criteria.md", "report-template.md"):
+            self.allowed(self.run_tool("Edit", {"file_path": WT + skill + name}), msg=name)
+            self.allowed(self.run_tool("Write", {"file_path": (WT + skill + name).replace("/", "\\"), "content": "x"}), msg=name)
+        self.allowed(self.bash("sed -i s/a/b/ .claude/skills/iw-autopilot/SKILL.md", cwd=WT))
+        st = self.state()
+        self.blocked(self.run_tool("Edit", {"file_path": WT + skill + "SKILL.md"}, state=st), code=3)       # 自動駕駛期間照樣不能改
+        for path in (MAIN + skill + "SKILL.md",                                                             # 生效的那一份：永遠擋
+                     MAIN + "/.claude/skills/iw-autopilot./SKILL.md",
+                     MAIN + "/.git/iw-autopilot/state.json",                                                # 真正的狀態資料夾：永遠擋
+                     MAIN + "/.git/IW-Autopilot/approvals.jsonl",
+                     MAIN + "/.git/iw-autopilot./state.json",
+                     WT + skill + "../../../../../.git/iw-autopilot/state.json",
+                     MAIN + "/.git/skills/iw-autopilot/../../iw-autopilot/state.json",
+                     MAIN + "/.git/skills/iw-autopilot/state.json"):
+            self.blocked(self.run_tool("Write", {"file_path": path, "content": "{}"}), msg=path)
+        # 只靠「名字」認出來的（不在這個倉庫底下、或路徑裡有變數）：例外只有「skills 的下一段剛好是這個名字」這一種
+        for path in ("D:/Fake/elsewhere/iw-autopilot/state.json",
+                     "D:/Fake/elsewhere/skills/x/iw-autopilot/state.json",
+                     "D:/Fake/elsewhere/skills/iw-autopilot-old/state.json",
+                     "D:/Fake/elsewhere/skills/iw-autopilot/../iw-autopilot/state.json"):
+            self.blocked(self.run_tool("Write", {"file_path": path, "content": "{}"}), has="狀態資料夾", msg=path)
+        self.assertEqual(G.classify_path("$D/skills/iw-autopilot/SKILL.md", MAIN, self.ctx())[0], "state")   # 有變數：看不出是哪一份，從嚴
+        self.assertEqual(G.classify_path(WT + skill + "SKILL.md", MAIN, self.ctx())[0], "copy")
+        self.assertEqual(G.classify_path(MAIN + skill + "SKILL.md", MAIN, self.ctx())[0], "live")
+        self.blocked(self.bash("echo x >> .claude/skills/iw-autopilot/SKILL.md", cwd=MAIN))
+        self.blocked(self.bash("echo '{}' > ../../../.git/iw-autopilot/state.json", cwd=WT))
+        self.blocked(self.bash("cd ../../../.git && echo '{}' > iw-autopilot/state.json", cwd=WT))
+        self.blocked(self.bash("echo x > \"$D/skills/iw-autopilot/SKILL.md\"", cwd=MAIN))
 
 
 if __name__ == "__main__":

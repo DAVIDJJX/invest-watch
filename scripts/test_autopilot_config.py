@@ -257,6 +257,29 @@ class TestDocsAndSkill(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(ROOT, ".claude", "skills", "iw-autopilot", "report-template.md")))
         self.assertTrue(os.path.exists(os.path.join(ROOT, ".claude", "skills", "iw-autopilot", "review-criteria.md")))
 
+    def test_the_test_environment_is_written_down_once(self):
+        """2026-10-02：實戰第一次重跑測試，python 指到沒裝 requests 的版本（55 條假紅）、Edge 的無頭模式回空白頁（11 組假紅）。
+        跑測試的環境寫死在 config.json 的 testEnv；hook 每次啟動時照它告訴 Claude（test_autopilot_flow.py 釘住），
+        程式與流程檔裡不另外寫一份。對照組：把設定裡的 py -3.12 改成 python → 這一條會紅。"""
+        env = CFG["testEnv"]
+        self.assertEqual(sorted(env), ["about", "browser", "browserEnv", "python"])
+        self.assertEqual((env["python"], env["browserEnv"]), ("py -3.12", "IW_BROWSER"))
+        self.assertIn("Chrome", env["browser"])
+        self.assertNotIn("Edge", env["browser"])
+        for path in sorted(glob.glob(os.path.join(ROOT, ".claude", "hooks", "*.py"))):         # 同一個常數只寫一次：程式從設定讀
+            text = io.open(path, encoding="utf-8").read()
+            for literal in (env["python"], "chrome.exe"):
+                self.assertFalse(literal in text, "%s 裡寫死了 %s（應該從 config.json 的 testEnv 讀）" % (os.path.basename(path), literal))
+        body = read(".claude/skills/iw-autopilot/SKILL.md")
+        self.assertNotRegex(body, r"(?m)^\s+python3? .*-m unittest")                # 流程裡不可以另外寫一條「用 python 跑測試」的指令
+        guide = read("docs/AUTOPILOT.md")
+        self.assertIn(env["python"], guide)
+        self.assertIn(env["browserEnv"], guide)
+        allow = SETTINGS["permissions"]["allow"]
+        for rule in ("Bash(%s -m unittest *)" % env["python"], "Bash(%s -W ignore -m unittest *)" % env["python"], "Bash(%s scripts/*)" % env["python"],
+                     "Bash(%s --version)" % env["python"], "Bash(python --version)", "Bash(py --list)", "Bash(command -v *)"):
+            self.assertIn(rule, allow, rule)
+
     def test_report_template_has_the_eight_sections_in_order(self):
         import iw_notify as N
         text = read(".claude/skills/iw-autopilot/report-template.md")

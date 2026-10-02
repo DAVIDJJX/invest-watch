@@ -326,6 +326,19 @@ def _classify_key(k, main_key, home_key, ctx):
     return None, None
 
 
+def _names_state_dir(low):
+    """路徑裡有沒有提到狀態資料夾（.git/iw-autopilot）。
+    流程檔的資料夾（.claude/skills/iw-autopilot）剛好同名：只看「有沒有這幾個字」的話，流程檔連 worktree 裡的副本都改不了
+    （2026-10-02 實際發生：一般模式下要改 SKILL.md 被當成「寫入狀態資料夾」擋下）。
+    所以：某一段含有這個名字就算，唯一的例外是「前一段是 skills、這一段剛好就是這個名字」——那是流程檔，
+    交給後面「自動駕駛自己的檔」的規則（主目錄那一份照樣擋；worktree 的副本在自動駕駛期間照樣擋）。"""
+    segs = [s.rstrip(". ") for s in low.split("/")]
+    for i, s in enumerate(segs):
+        if C.STATE_DIR_NAME in s and not (s == C.STATE_DIR_NAME and i > 0 and segs[i - 1] == "skills"):
+            return True
+    return False
+
+
 def classify_path(path_text, cwd, ctx, dynamic=False):
     """這個路徑屬於哪一種受保護的東西。回傳 (種類, 白話名稱) 或 (None, None)。
     種類：state／gitdir／live（生效中的保護檔）／copy（worktree 裡的副本）／user（使用者層級的設定）／transcript
@@ -333,9 +346,9 @@ def classify_path(path_text, cwd, ctx, dynamic=False):
     t = path_text.replace("\\", "/")
     t = re.sub(r"(:+\$[A-Za-z0-9_]+)+", "", t)                      # 檔名::$DATA、資料夾:$I30:$INDEX_ALLOCATION：同一個東西的另一種寫法，那個 $ 不是變數
     low = t.lower()
-    if C.STATE_DIR_NAME in low:
-        return "state", "自動駕駛的通行證與狀態資料夾"
     unresolved = dynamic or "$" in t or "`" in t or "%" in t or (t.startswith("~") and not (t == "~" or t.startswith("~/")))
+    if _names_state_dir(low) or (unresolved and C.STATE_DIR_NAME in low):       # 路徑裡有變數：看不出是哪一份，照舊「有這幾個字就算」
+        return "state", "自動駕駛的通行證與狀態資料夾"
     if not unresolved:
         kind, name = _classify_key(C.key(t, cwd), ctx.main_key, ctx.home_key, ctx)
         if kind is None:                                            # 再用「解開捷徑之後的實際位置」看一次（資料夾連結、短檔名）
@@ -834,6 +847,8 @@ def _is_readonly(p, words, shell):
                                                              a.startswith("--upload-pack") or a.startswith("--exec") for a in argv[1:])
     if shell in ("powershell", "cmd"):
         return p in READONLY_PS or (p in ("echo", "type", "dir", "more", "find", "findstr", "where", "ver", "vol", "set", "rem") and shell == "cmd")
+    if p == "command":                                              # command -v python：只是查這個名字是哪個程式，不會執行它
+        return len(argv) > 1 and argv[1] in ("-v", "-V")
     if p == "find":                                                 # find … -exec 指令：那個指令只是讀，整個就只是讀
         if any(a in ("-delete", "-fprint", "-fprint0", "-fprintf", "-fls") for a in argv[1:]):
             return False
@@ -1113,8 +1128,11 @@ def _interpreter(c, words, p, cwd, ctx, auto):
     argv = [w.text for w in words]
     flag = INLINE_CODE[p]
     is_py = p in ctx.allow["programs"]["pythonInterpreters"] or p in ("python", "python3", "py")
-    if any(a in ("-V", "-VV", "--version", "-h", "--help", "-?") for a in argv[1:]):
-        return
+    # 查版本、看說明：印完就結束，不執行任何程式碼。只認「排在腳本、-c、-m 前面」的——
+    # 排在後面的（python -c "…" --version、python x.py --version）只是那段程式自己的參數，照樣要檢查。
+    query = set(["-V", "-VV", "--version", "-h", "--help", "-?"])
+    if p == "py":
+        query |= set(["-0", "-0p", "--list", "--list-paths"])       # Windows 的 py：列出裝了哪幾個版本
     inline_msg = ("自動駕駛期間不執行直接寫在指令裡的程式碼（%s）。請把它寫成腳本檔（放這個階段的 worktree 或暫存資料夾）再執行——"
                   "腳本留得下來，審查代理與 David 之後才看得到。")
     i = 1
@@ -1139,6 +1157,8 @@ def _interpreter(c, words, p, cwd, ctx, auto):
             return                                                  # 執行模組（unittest、http.server…）
         if a == "-":
             break
+        if a in query:
+            return
         if a in ("-W", "-X", "--require", "-r", "-I", "--check-hash-based-pycs") and p != "php":
             i += 2
             continue
