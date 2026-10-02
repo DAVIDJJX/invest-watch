@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-02T15:40:30+08:00",
- "updatedAtText": "2026-10-02 15:40",
+ "updatedAt": "2026-10-02T16:00:11+08:00",
+ "updatedAtText": "2026-10-02 16:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -24,10 +24,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4314.0,
+   "price": 4309.0,
    "prevClose": 4305.0,
-   "change": 9.0,
-   "changePct": 0.2091,
+   "change": 4.0,
+   "changePct": 0.0929,
    "date": "2026-10-02",
    "points": 266,
    "spark": [
@@ -70,21 +70,21 @@
     4275.0,
     4323.0,
     4305.0,
-    4314.0
+    4309.0
    ],
-   "fetchedAt": "2026-10-02T15:30:07+08:00",
+   "fetchedAt": "2026-10-02T16:00:08+08:00",
    "error": null,
-   "buy": 4267.0,
-   "sell": 4314.0,
-   "quoteTime": "2026/10/02 15:24",
+   "buy": 4258.0,
+   "sell": 4309.0,
+   "quoteTime": "2026/10/02 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-02T15:30:07+08:00",
-   "lastSuccessAt": "2026-10-02T15:30:07+08:00",
+   "lastAttemptAt": "2026-10-02T16:00:08+08:00",
+   "lastSuccessAt": "2026-10-02T16:00:08+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-02T15:30:00+08:00",
-   "nextDueAt": "2026-10-02T16:00:00+08:00"
+   "lastDueAt": "2026-10-02T16:00:00+08:00",
+   "nextDueAt": "2026-10-02T16:30:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -145,19 +145,19 @@
     906.4,
     906.9
    ],
-   "fetchedAt": "2026-10-02T15:30:10+08:00",
+   "fetchedAt": "2026-10-02T16:00:11+08:00",
    "error": null,
    "buy": 897.25,
    "sell": 906.9,
-   "quoteTime": "2026/10/02 15:24",
+   "quoteTime": "2026/10/02 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-02T15:30:10+08:00",
-   "lastSuccessAt": "2026-10-02T15:30:10+08:00",
+   "lastAttemptAt": "2026-10-02T16:00:11+08:00",
+   "lastSuccessAt": "2026-10-02T16:00:11+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-02T15:30:00+08:00",
-   "nextDueAt": "2026-10-02T16:00:00+08:00"
+   "lastDueAt": "2026-10-02T16:00:00+08:00",
+   "nextDueAt": "2026-10-02T16:30:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -1046,19 +1046,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 19,
    "nextDueAt": "2026-10-02T16:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-02T15:30:10+08:00",
+   "runAt": "2026-10-02T16:00:11+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 3,
    "error": 0,
    "requests": 3,
-   "ageMinutes": 10,
-   "nextDueAt": "2026-10-02T16:00:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-10-02T16:30:00+08:00",
    "status": "ok"
   }
  }
