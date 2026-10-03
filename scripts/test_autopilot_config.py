@@ -292,6 +292,10 @@ class TestDocsAndSkill(unittest.TestCase):
         self.assertNotRegex(text, r"(?m)^\s*python3? 腳本")                           # 第一條改成 py -3.12
         for m in re.finditer(r"\[([^\]]+\.md)\]\(([^)]+\.md)\)", text):                # SKILL.md 連到的同資料夾檔要在
             self.assertTrue(os.path.exists(os.path.join(ROOT, ".claude", "skills", "iw-autopilot", m.group(2))), m.group(2))
+        steps = read(".claude/skills/iw-autopilot/merge-steps.md")                      # 拆出去的檔也有上限（David 的裁決 8），隱私掃描另外涵蓋
+        self.assertLess(len(steps), 4000)
+        for must in ("兩個指令", "--no-verify", "finish-docs", "60 分鐘", "放行 <階段>"):
+            self.assertIn(must, steps, must)
 
     def test_stop_levels_and_the_protection_version_are_written_once(self):
         """P1-1 第 3 節：三個等級的字串只寫在 config.json；hook 不另外寫死；說明文件照它寫。對照組：hook 裡寫死標籤 → 紅。"""

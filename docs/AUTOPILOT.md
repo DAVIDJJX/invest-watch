@@ -18,9 +18,9 @@
 2. 檔名那一格打：`.github/workflows/notify.yml`（打斜線的時候它會自動變成資料夾）。
 3. 把 `docs/notify-workflow.example.yml` 的全部內容貼進去，按右上角「Commit changes…」→「Commit changes」。
 
-**二、裝「推送前的檢查」**　請 Claude 執行 `python scripts/autopilot_install.py`（它會告訴你裝好了沒）。
+**二、裝「推送前的檢查」**　請 Claude 執行 `py -3.12 scripts/autopilot_install.py`（它會告訴你裝好了沒）。
 
-**三、測試信**　請 Claude 執行 `python .claude/hooks/iw_notify.py test`。一分鐘內你的信箱會收到一封 GitHub 寄的信、手機的 GitHub App 會跳通知。沒收到的話：到 GitHub 右上角頭像 → Settings → Notifications，確認「Participating」有勾 Email。
+**三、測試信**　請 Claude 執行 `py -3.12 .claude/hooks/iw_notify.py test`。一分鐘內你的信箱會收到一封 GitHub 寄的信、手機的 GitHub App 會跳通知。沒收到的話：到 GitHub 右上角頭像 → Settings → Notifications，確認「Participating」有勾 Email。
 
 ## 怎麼用
 
@@ -51,7 +51,7 @@
 
 每一句，程式都會在 Claude 做下一個動作之前回頭查對話紀錄：這句話是不是你親手打的。不是的話——有東西冒充你——自動駕駛立刻暫停、通行證作廢、寄信給你。
 
-**寫法差一點的時候會有提示，不會靜悄悄沒反應。** 訊息裡有長得像這六句話的東西、但格式不被接受——整段用貼的、指令不在第一行、前後多了別的字、`放行P1` 少了空白——畫面會出現一行「（自動駕駛）沒有啟動／沒有放行／…：原因。正確的打法」。這一行只是提示：不啟動、不放行、不改任何狀態；照它說的重新打一次就好。你不是要下指令的話，不用理會。代理回報、背景工作通知這類機器送來的訊息不會觸發提示。（2026-10-02 第一次實戰就是整段貼上、畫面沒有任何反應，所以加了這個。）
+**寫法差一點的時候會有提示，不會靜悄悄沒反應。** 訊息裡有長得像這七句話的東西、但格式不被接受——整段用貼的、指令不在第一行、前後多了別的字、`放行P1` 少了空白——畫面會出現一行「（自動駕駛）沒有啟動／沒有放行／…：原因。正確的打法」。這一行只是提示：不啟動、不放行、不改任何狀態；照它說的重新打一次就好。你不是要下指令的話，不用理會。代理回報、背景工作通知這類機器送來的訊息不會觸發提示。（2026-10-02 第一次實戰就是整段貼上、畫面沒有任何反應，所以加了這個。）
 
 ## 什麼時候會停下來寄信
 
@@ -191,10 +191,10 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 | 信說「已經合併、只差補文件」或「時間窗過了」 | 輸入 `放行 <階段>`：重開一次補文件的時間窗（只准改 README 與 CHANGELOG 各一筆）。這時輸入「繼續」「修改」都沒有作用 |
 | 想把 Cowork 的回答正式交給 Claude | 第一行手打 `裁決：<階段>`，下面貼 Cowork 寫的內容。它會存在 `.autopilot/runs/<階段>/`；要接著做還是得另外輸入「繼續」或「放行」 |
 | Claude 說每個動作都被「檢查程式出錯」擋下 | 檢查程式自己壞了。用記事本建立 `invest-watch\.claude\settings.local.json`，內容 `{"disableAllHooks": true}`，然後開新的工作階段請 Claude 修；修好把那個檔刪掉 |
-| 筆電排程推不上去（`scripts/update_local.log` 出現 pre-push 的字樣） | 執行 `python scripts/autopilot_install.py --uninstall` 先拿掉第二道，再把紀錄轉給 Cowork |
+| 筆電排程推不上去（`scripts/update_local.log` 出現 pre-push 的字樣） | 執行 `py -3.12 scripts/autopilot_install.py --uninstall` 先拿掉第二道，再把紀錄轉給 Cowork |
 | 你自己要在終端機手動推程式 | `git push --no-verify`（Claude 用這個旗標會被擋） |
 | 狀態怪怪的，想重來 | 輸入「結束自動駕駛」；還是不行就刪掉 `invest-watch\.git\iw-autopilot\state.json` |
-| 整套不要了 | 後合併的先退，順序照 README 的回滾表。先退 P1-1：`git revert -m 1 <P1-1 的合併 commit> && git push --no-verify`（推送前的檢查對沒有通行證的 main 推送對誰都擋、連你的終端機也擋，所以要加 `--no-verify`；Claude 加這個會被擋）。再退 P1：先 `python scripts/autopilot_install.py --uninstall`，再 `git revert -m 1 80e6ad6 && git push`（退回 P1 會把檢查程式一起拿掉，入口自動放行，所以這一步不用 `--no-verify`） |
+| 整套不要了 | 後合併的先退，順序照 README 的回滾表。先退 P1-1：`git revert -m 1 <P1-1 的合併 commit> && git push --no-verify`（推送前的檢查對沒有通行證的 main 推送對誰都擋、連你的終端機也擋，所以要加 `--no-verify`；Claude 加這個會被擋）。再退 P1：先 `py -3.12 scripts/autopilot_install.py --uninstall`，再 `git revert -m 1 80e6ad6 && git push`（退回 P1 會把檢查程式一起拿掉，入口自動放行，所以這一步不用 `--no-verify`） |
 | 換到 MacBook | clone 之後執行一次 `python3 scripts/autopilot_install.py`；工作階段一樣開在 `invest-watch` |
 
 ## 名詞解釋
@@ -238,7 +238,7 @@ hook 的指令都寫成「任何失敗都以結束碼 2 結束」。原因：官
 
 測試：`scripts/test_autopilot_*.py`（守門、推送前的檢查、流程、設定一致性、指令解析），全部離線。
 
-**保護的版本**：`.claude/autopilot/config.json` 的 `protectionVersion`（現在是 P1-1）。合併進 main、主目錄快轉之後新版就直接生效——hook 每個動作都新開一個程序讀主目錄的檔，不用安裝、不用重開；只有 `.claude/settings.json`（hook 掛在哪些事件）要開新的工作階段才生效。`python .claude/hooks/iw_notify.py status` 會印版本；`python scripts/autopilot_install.py --check` 看入口與保護檔在不在。
+**保護的版本**：`.claude/autopilot/config.json` 的 `protectionVersion`（現在是 P1-1）。合併進 main、主目錄快轉之後新版就直接生效——hook 每個動作都新開一個程序讀主目錄的檔，不用安裝、不用重開；只有 `.claude/settings.json`（hook 掛在哪些事件）要開新的工作階段才生效。`py -3.12 .claude/hooks/iw_notify.py status` 會印版本；`py -3.12 scripts/autopilot_install.py --check` 看入口與保護檔在不在（這台電腦請一律用 `py -3.12`，不要用 `python`——見下面的測試環境）。
 
 **合併固定分兩個指令**：先單獨建合併用的 worktree，確認在了，再用第二個指令進去合併（2026-10-02 兩步寫在同一段被擋——檢查程式在執行前就把整段看完，那時候資料夾還不存在）。合併推上去之後**立刻**推文件那一筆；中途停了或 60 分鐘過了，狀態維持「已合併、等補文件」，你再輸入一次「放行 <階段>」就重開一次性的時間窗。早先階段的文件併進這一筆時（P1 的回滾表併進 P1-1），用 `iw_notify.py finish-docs --stage P1 --merged-into P1-1` 把早先的階段結案，之後「放行 P1」不會再開任何時間窗。
 
