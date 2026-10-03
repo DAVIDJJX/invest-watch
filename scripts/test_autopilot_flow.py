@@ -397,7 +397,9 @@ class TestLifecycle(FlowBase):
         self.assertEqual(len(self.sent), 1)
         title = [a for a in self.sent[0] if a.startswith("title=")][0]
         self.assertIn("原因不明", title)
-        self.assertEqual(self.state()["status"], "stopped")
+        self.assertIn("【要你決定】", title)                                    # 等級由程式判：原因不明＝要你決定
+        st = self.state()
+        self.assertEqual((st["status"], st["pause"]["reason"]), ("running", "unknown"))   # P1-1：暫停是獨立的欄位，status 不再有 stopped
         E.stop(self.inp("Stop", background_tasks=[], session_crons=[]), self.env())      # 已經寄過，不重寄
         self.assertEqual(len(self.sent), 1)
         rc, why = self.bash("python scripts/x.py")                             # 停下之後只能寫報告
@@ -421,7 +423,8 @@ class TestLifecycle(FlowBase):
         E.stopfailure(self.inp("StopFailure", error="rate_limit", error_details="429",
                                last_assistant_message="You've hit your session limit · resets 3:20am (Asia/Taipei)"), self.env())
         st = self.state()
-        self.assertEqual(st["status"], "paused")
+        self.assertTrue(st["pause"]["reason"].startswith("api:"), st["pause"])
+        self.assertEqual(st["status"], "running")
         body = [a for a in self.sent[0] if a.startswith("body=")][0]
         self.assertIn("3:20am (Asia/Taipei)", body)
         self.assertIn("繼續 X1", body)
@@ -464,7 +467,7 @@ class TestLifecycle(FlowBase):
         self.assertEqual(rc, 2)
         self.assertIn("放行模型", why)
         st = self.state()
-        self.assertEqual(st["status"], "paused")
+        self.assertEqual(st["pause"]["reason"], "model")
         self.assertEqual(st["model_violation"]["model"], "claude-opus-5-5")
         body = [a for a in self.sent[0] if a.startswith("body=")][0]
         self.assertIn("模型被換成 claude-opus-5-5，已暫停。要用 claude-opus-5-5 繼續請輸入「放行模型」；或等額度恢復後輸入「繼續 X1」。", body)
@@ -510,6 +513,7 @@ class TestLifecycle(FlowBase):
         d = self.outs[-1]["hookSpecificOutput"]["decision"]
         self.assertEqual(d["behavior"], "deny")
         self.assertEqual(self.state()["stop_required"]["code"], 8)
+        self.assertEqual(self.state()["pause"]["reason"], "stop")               # P1-1：代拒＝暫停
         n = len(self.outs)
         E.permission(self.inp("PermissionRequest", tool_name="Bash", tool_input={"command": "x"}, session_id="S2"), self.env())
         self.assertEqual(len(self.outs), n)                                    # 別的工作階段：不插手
@@ -559,6 +563,7 @@ class TestApprovalFlow(FlowBase):
         self.assertEqual(rec["verdict"], "APPROVE")
         self.assertEqual(self.send("ready"), 0, self.errs)
         self.assertEqual(self.state()["status"], "awaiting_approval")
+        self.assertIn("【要你放行上線】", [a for a in self.sent[-1] if a.startswith("title=")][0])
 
     def test_approval_before_the_ready_mail_gives_no_credential(self):
         self.start()
@@ -639,7 +644,10 @@ class TestApprovalFlow(FlowBase):
         self.bash("git status --short", cwd=sb.main)
         st = self.state()
         self.assertEqual(st["status"], "done")
-        self.assertFalse(st["active"])
+        self.assertTrue(st["active"])                                          # P1-1（David 的裁決 3）：done 之後收尾照常做，「結束自動駕駛」才解除
+        self.assertIsNone(st["pause"])
+        rc, why = self.bash("git worktree list", cwd=sb.main)                  # 收尾用的指令不被鎖
+        self.assertEqual(rc, 0, why)
         # 用過即失效：第三次推 main
         sb.write("README.md", "one more\n", mw)
         run_git(["commit", "-q", "-am", "docs: one more"], mw)
@@ -707,7 +715,7 @@ class TestApprovalFlow(FlowBase):
         self.assertEqual(rc, 2)
         st = self.state()
         self.assertTrue(st["active"])
-        self.assertEqual(st["status"], "paused")
+        self.assertEqual(st["pause"]["reason"], "forged")
 
     def test_a_command_is_not_trusted_until_the_transcript_shows_it(self):
         self.start()
@@ -732,10 +740,16 @@ class TestApprovalFlow(FlowBase):
             run_git(["tag", "stopX1", self.sb.cand], self.sb.main)
 
     def test_resume_at_the_merge_stop_points_to_the_right_words(self):
+        """對不上停下原因的指令不解除：合併前打「繼續」不會合併（P1-1 第 1 節）。"""
         self.ready()
         out = self.say("繼續 X1")
         self.assertIn("放行 X1", out["systemMessage"])
         self.assertEqual(self.state()["status"], "awaiting_approval")
+        self.assertIsNone(self.state().get("credential"))
+        rc, why = self.bash("git worktree add --detach .claude/worktrees/stopX1-merge origin/main", cwd=self.sb.main)
+        self.assertEqual(rc, 2)
+        rc, err = self.sb.push(self.sb.merge_worktree(), ["origin", "HEAD:main"], claude=True)
+        self.assertNotEqual(rc, 0)
 
 
 # ============================================================ 4. 審查紀錄
@@ -827,12 +841,15 @@ class TestNotify(FlowBase):
         self.assertEqual(self.sent, [])
         self.assertEqual(self.state()["status"], "running")
 
-    def test_a_stop_mail_marks_the_stage_stopped(self):
+    def test_a_stop_mail_marks_the_stage_paused(self):
+        """模型自己判斷要停而寄停止報告：寄信的同時進暫停（P1-1 第 1 節）；status 不動。對照組：寄信不寫 pause → 這一條會紅。"""
         self.start()
         self.assertEqual(self.send("stop"), 0, self.errs)
         st = self.state()
-        self.assertEqual(st["status"], "stopped")
+        self.assertEqual((st["status"], st["pause"]["reason"]), ("running", "stop-mail"))
         self.assertEqual(st["notified_epoch"], st["epoch"])
+        rc, why = self.bash("python scripts/x.py")                             # 寄了信就是暫停：接著做要 David 輸入「繼續」
+        self.assertEqual(rc, 2)
         args = self.sent[0]
         self.assertEqual(args[:5], ["workflow", "run", "notify.yml", "-R", "davidjjx/invest-data"])
         body = [a for a in args if a.startswith("body=")][0]
@@ -895,7 +912,7 @@ class TestNotify(FlowBase):
         body = [a for a in self.sent[-1] if a.startswith("body=")][0]
         self.assertIn("scripts/fetch_data.py", body)
         self.assertIn("+# changed", body)
-        self.assertEqual(self.state()["status"], "stopped")
+        self.assertEqual(self.state()["pause"]["reason"], "tier2")
         self.say("繼續 X1")                                                     # David 看過了
         self.bash("ls")
         self.assertTrue(self.state()["tier2"]["touched"]["scripts/fetch_data.py"]["ack"])
@@ -962,7 +979,7 @@ class TestNotify(FlowBase):
         outbox = os.path.join(self.sb.main, ".autopilot", "outbox")
         files = [f for f in os.listdir(outbox) if f.endswith(".md")]
         self.assertEqual(len(files), 1)
-        self.assertEqual(self.state()["status"], "stopped")                     # 停還是停了
+        self.assertTrue(ST.is_paused(self.state()))                             # 停還是停了
         self.assertFalse(self.state()["last_notification"]["ok"])
         self.fail_mail = False
         E.stop(self.inp("Stop", background_tasks=[]), self.env())               # 下次停下時重試
@@ -1269,7 +1286,8 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         body = [a for a in self.sent[-1] if a.startswith("body=")][0]
         self.assertIn("這個階段不是自動駕駛跑的", body)
         self.assertIn(".gitignore", body)
-        self.assertIn("沒有經過審查代理", body)
+        self.assertIn("一般模式", body)
+        self.assertIn("僅供參考", body)
         self.assertEqual(self.state()["candidate"]["sha"], head)
 
 
@@ -1406,6 +1424,623 @@ class TestTheTestsLeaveNoTrace(unittest.TestCase):
             text = io.open(os.path.join(ROOT, ".claude", "hooks", name), encoding="utf-8").read()
             calls = [line.strip() for line in text.split("\n") if "toast(" in line and not line.strip().startswith(("def ", "#", '"""'))]
             self.assertEqual(calls, ["toast(title, text)"] if name == "iw_notify.py" else [], name)
+
+
+# ============================================================ 10. 結構性暫停（P1-1 第 1 節）
+
+def title_of(args):
+    return [a for a in args if a.startswith("title=")][0]
+
+
+def body_of(args):
+    return [a for a in args if a.startswith("body=")][0]
+
+
+class TestStructuralPause(FlowBase):
+    """2026-10-02 P1 實戰：路徑打錯被守門擋下（停止條件 8），程式只擋了那一個動作、沒有讓流程停下，Claude 又做了幾分鐘才自己停。
+    P1-1：自動駕駛期間任何擋下，hook 立刻記成暫停；之後只准讀、寫報告、寄信；只有 David 手打、而且對得上原因的指令能解除。"""
+
+    def pause_by_block(self):
+        self.start()
+        rc, why = self.bash("npm --version", cwd=self.sb.wt)                  # 清單以外的程式：守門擋下（停止條件 8）
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertEqual((st["pause"]["reason"], st["pause"]["code"], st["pause"]["retries"], st["status"]), ("blocked", 8, 0, "running"))
+        return st
+
+    def test_a_block_pauses_everything_until_david_types_resume(self):
+        """對照組：pretool 在擋下時不寫 pause → 這一條會紅。"""
+        self.pause_by_block()
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)             # 下一個不相關的動作
+        self.assertEqual(rc, 2)
+        self.assertIn("暫停中", why)
+        self.assertIn("繼續 X1", why)
+        self.assertEqual(self.state()["pause"]["retries"], 1)
+        rc, why = self.tool("Edit", {"file_path": os.path.join(self.sb.wt, "js", "app.js"), "old_string": "a", "new_string": "b"})
+        self.assertEqual(rc, 2)
+        for cmd in ("git status --short", "cat README.md | head -3", "ls -la " + os.path.join(self.sb.main, ".autopilot", "runs", "X1")):
+            rc, why = self.bash(cmd, cwd=self.sb.wt)                           # 唯讀地看：可以
+            self.assertEqual(rc, 0, "%s → %s" % (cmd, why))
+        rc, why = self.tool("Write", {"file_path": os.path.join(self.sb.main, ".autopilot", "runs", "X1", "03_停止報告.md"), "content": "x"})
+        self.assertEqual(rc, 0, why)                                           # 寫報告：可以
+        self.assertEqual(self.send("stop"), 0, self.errs)                      # 寄信：可以
+        self.assertEqual(self.state()["pause"]["reason"], "blocked")           # 寄信不蓋掉第一個原因
+        out = self.say("繼續 X1")                                               # David 手打繼續
+        self.assertIn("繼續", out["systemMessage"])
+        self.assertIsNone(self.state()["pause"])
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+        self.assertEqual(self.state()["status"], "running")
+
+    def test_general_mode_blocks_do_not_pause(self):
+        """David 的補充 1：一般模式（沒有在自動駕駛）或別的工作階段被擋，只回訊息、不寫 pause，不能把他的工作階段鎖住。
+        對照組：pretool 不看 is_mine 就寫 pause → 這一條會紅。"""
+        rc, why = self.bash("git push origin HEAD:main", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertFalse(st.get("active"))
+        self.assertIsNone(st.get("pause"))
+        rc, why = self.bash("npm install", cwd=self.sb.wt)                     # 一般模式沒有清單、也沒有鎖
+        self.assertEqual(rc, 0, why)
+        self.start()
+        rc, why = self.bash("git push origin HEAD:main", cwd=self.sb.wt, session="S2")      # 別的工作階段被擋：不影響自動駕駛那一邊
+        self.assertEqual(rc, 2)
+        self.assertIsNone(self.state().get("pause"))
+        rc, why = self.bash("ls", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+
+    def test_pause_allowed_list_is_narrow(self):
+        """暫停期間只准：讀、寫 .autopilot/runs/<階段>/、主目錄那支寄信腳本、唯讀查看、四個不動檔的工具（David 的補充 2：防假唯讀）。
+        對照組：放寬任何一項（准寫暫存資料夾、准 WebFetch、准 git -c、准 tee、不看串在後面的指令…）→ 這一條會紅。"""
+        self.pause_by_block()
+        sb = self.sb
+        runs = os.path.join(sb.main, ".autopilot", "runs", "X1").replace("\\", "/")      # 給 shell 的路徑用正斜線（反斜線在 bash 裡是跳脫）
+        scratch = os.path.join(sb.tmp, "scratch").replace("\\", "/")
+        notify = os.path.join(sb.main, ".claude", "hooks", "iw_notify.py").replace("\\", "/")
+        for tool, ti in (("Write", {"file_path": os.path.join(scratch, "x.py"), "content": "x"}),
+                         ("Write", {"file_path": os.path.join(sb.main, ".autopilot", "outbox", "x.md"), "content": "x"}),
+                         ("Write", {"file_path": os.path.join(sb.main, ".autopilot", "runs", "Y2", "x.md"), "content": "x"}),
+                         ("Edit", {"file_path": os.path.join(sb.wt, "README.md"), "old_string": "a", "new_string": "b"}),
+                         ("WebFetch", {"url": "https://code.claude.com/docs/en/hooks"}),
+                         ("WebSearch", {"query": "x"}),
+                         ("SendUserFile", {"files": ["x"]}),
+                         ("mcp__ccd_session__mark_chapter", {"title": "x"}),
+                         ("mcp__Claude_Browser__navigate", {"url": "http://127.0.0.1:8766/"}),
+                         ("Agent", {"subagent_type": "iw-reviewer", "prompt": "REVIEW-KIND: acceptance\nSTAGE: X1\nCOMMIT: none\n"})):
+            rc, why = self.tool(tool, ti)
+            self.assertEqual(rc, 2, tool)
+        for cmd in ("python scripts/x.py", "py -3.12 scripts/x.py", "git add -- js/app.js", "git commit -m x", "git push origin feat/stopX1",
+                    "git diff --output=%s/d.txt" % runs, "git log --output=%s/l.txt -1" % runs,
+                    "git -c core.quotepath=false log -1", "git config user.name x", "git config --get user.name && git config user.name x",
+                    "git log -1 | tee %s/l.txt" % runs, "echo x > %s/x.txt" % scratch, "echo x > js/app.js",
+                    "echo x > %s" % os.path.join(sb.main, ".autopilot", "outbox", "x.md"),
+                    "git status; echo x > js/app.js", "git status && npm install", "cat README.md | sort -o %s/s.txt" % runs,
+                    "sed -i s/a/b/ README.md", "find . -name '*.pyc' -delete", "cat <<EOF > %s/x.md\nhi\nEOF" % runs,
+                    "python - <<'EOF'\nprint(1)\nEOF", "mkdir -p %s/sub" % runs, "cp README.md %s/r.md" % runs,
+                    "curl -s http://127.0.0.1:8766/", "python .claude/hooks/iw_notify.py status",                 # worktree 裡的副本不算
+                    "python %s send --stage X1 --kind stop --report x.md > %s/out.txt" % (notify, scratch)):
+            rc, why = self.bash(cmd, cwd=sb.wt)
+            self.assertEqual(rc, 2, cmd)
+        for cmd in ("git status --short", "git log --oneline -3", "git diff --stat origin/main...HEAD", "cat docs/CHANGELOG.md | head -5",
+                    "ls -la %s" % runs, "git log -3 > %s/log.txt" % runs, "grep -n x README.md", "wc -l README.md docs/CHANGELOG.md",
+                    "python %s status" % notify, "python %s send --stage X1 --kind stop --report %s/03_停止報告.md" % (notify, runs),
+                    "PY=python; \"$PY\" %s retry" % notify):
+            rc, why = self.bash(cmd, cwd=sb.wt)
+            self.assertEqual(rc, 0, "%s → %s" % (cmd, why))
+        for tool, ti in (("Write", {"file_path": os.path.join(runs, "03_停止報告.md"), "content": "x"}),
+                         ("Edit", {"file_path": os.path.join(runs, "02_驗收報告.md"), "old_string": "a", "new_string": "b"}),
+                         ("Skill", {"skill": "iw-autopilot"}), ("ToolSearch", {"query": "x"}), ("TodoWrite", {"todos": []}),
+                         ("SubagentHandback", {"message": "x"})):
+            rc, why = self.tool(tool, ti)
+            self.assertEqual(rc, 0, "%s → %s" % (tool, why))
+
+    def test_pasted_or_mismatched_commands_do_not_unpause(self):
+        """貼上的「繼續」不解除；對不上原因的指令（暫停中打「放行」）不解除；冒充的「繼續」鎖得更死。"""
+        self.pause_by_block()
+        for text, want in ((PASTED % "繼續 X1", "沒有繼續"), ("繼續 X1 吧", "沒有繼續"), ("繼續X1", "沒有繼續"), ("放行 X1", "還不能放行")):
+            out = self.say(text)
+            self.assertIn(want, out["systemMessage"], text)
+            self.assertIsNotNone(self.state()["pause"], text)
+            self.assertIsNone(self.state().get("credential"), text)
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        self.say("繼續 X1", human=False)                                        # 冒充的「繼續」：hook 當下分不出來……
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)             # ……下一個動作前核對：不是人打的 → 鎖住、原因變成 forged
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.state()["pause"]["reason"], "forged")
+
+    def test_done_keeps_autopilot_active_and_cleanup_blocks_are_ordinary_pauses(self):
+        """David 的裁決 3：文件推上去（done）之後收尾照常做；收尾時被擋算一般暫停，認「繼續」；之後可以直接啟動下一個階段。"""
+        sb = self.sb
+        self.start()
+        ST.update(sb.sd, lambda s: s.update({"status": "done", "credential": {"stage": "X1", "merge": {"sha": "a" * 40, "at": C.iso()},
+                                                                               "docs": {"sha": "b" * 40, "at": C.iso()}, "candidate": sb.cand}}))
+        for cmd in ("git worktree list", "git branch -d feat/stopX1", "git worktree remove .claude/worktrees/stopX1-merge"):
+            rc, why = self.bash(cmd, cwd=sb.main)                              # 收尾用的指令：不鎖
+            self.assertEqual(rc, 0, "%s → %s" % (cmd, why))
+        rc, why = self.bash("npm --version", cwd=sb.main)                      # 被擋 → 一般暫停
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertEqual((st["pause"]["reason"], st["status"], st["active"]), ("blocked", "done", True))
+        rc, why = self.bash("git worktree list", cwd=sb.main)
+        self.assertEqual(rc, 2)
+        out = self.say("繼續 X1")
+        self.assertIn("繼續", out["systemMessage"])
+        st = self.state()
+        self.assertEqual((st["pause"], st["status"], st["active"]), (None, "done", True))
+        rc, why = self.bash("git worktree list", cwd=sb.main)
+        self.assertEqual(rc, 0, why)
+        out = self.say("自動駕駛：Y2\n下一個階段的規格")                          # done 之後不用先「結束」就能啟動下一個
+        self.assertIn("已啟動", out["systemMessage"])
+        self.assertEqual(self.state()["stage"], "Y2")
+
+    def test_stop_hook_mails_for_a_block_without_a_report(self):
+        """暫停了卻沒寄信就結束：Stop hook 補寄，等級照程式判（守門擋下、沒重試＝小事）；原因不被蓋掉。"""
+        self.pause_by_block()
+        E.stop(self.inp("Stop", background_tasks=[]), self.env())
+        self.assertEqual(len(self.sent), 1)
+        title = title_of(self.sent[0])
+        self.assertIn("【小事，可以直接繼續】", title)
+        self.assertIn("暫停了", title)
+        self.assertEqual(self.state()["pause"]["reason"], "blocked")
+        E.stop(self.inp("Stop", background_tasks=[]), self.env())               # 不重寄
+        self.assertEqual(len(self.sent), 1)
+
+
+# ============================================================ 11. 信的等級（P1-1 第 3 節）
+
+class TestStopLevels(FlowBase):
+    def test_levels_follow_the_stop_reason(self):
+        """每一種停下的原因對到一個等級，由程式判、不由模型判。對照組：level_for 一律回「要你決定」→ 這一條會紅。"""
+        cfg = self.env().cfg
+        L = cfg["stopLevels"]
+        base = {"stage": "X1", "status": "running", "active": True}
+        merged = {"stage": "X1", "merge": {"sha": "a" * 40, "at": C.iso()}, "docs": None}
+        cases = [
+            (dict(base, pause={"reason": "blocked", "code": 8, "retries": 0}), None, "minor"),
+            (dict(base, pause={"reason": "blocked", "code": None, "retries": 0}), None, "minor"),
+            (dict(base, pause={"reason": "blocked", "code": 8, "retries": 1}), None, "decide"),      # 暫停後又重試
+            (dict(base, pause={"reason": "blocked", "code": 3, "retries": 0}), None, "decide"),      # 動到自己的檔（David 的裁決 2）
+            (dict(base, pause={"reason": "blocked", "code": 1, "retries": 0}), None, "decide"),
+            (dict(base, pause={"reason": "stop", "code": 3, "retries": 0}, stop_required={"code": 3, "reason": "x"}), None, "decide"),
+            (dict(base, stop_required={"code": 7, "reason": "x"}), None, "decide"),
+            (dict(base, stop_required={"code": 8, "reason": "x"}), None, "decide"),                   # 權限視窗被代拒
+            (dict(base, stop_required={"code": 9, "reason": "x"}), None, "decide"),                   # 時間上限
+            (dict(base), "stop", "decide"),                                                         # 模型自己判斷停（2、4、5、6）
+            (dict(base), "tier2", "decide"),
+            (dict(base, pause={"reason": "model", "code": 9}), None, "decide"),
+            (dict(base, pause={"reason": "effort", "code": 9}), None, "decide"),
+            (dict(base, pause={"reason": "api:rate_limit", "code": 9}), None, "decide"),
+            (dict(base, pause={"reason": "forged", "code": 1}), None, "decide"),
+            (dict(base, pause={"reason": "unknown"}), None, "decide"),
+            (dict(base, pause={"reason": "legacy:stopped"}), None, "decide"),
+            (dict(base, status="awaiting_approval"), "ready", "approve"),
+            (dict(base, status="merged", credential=merged), None, "approve"),
+            (dict(base, status="merged", credential=merged), "stop", "approve"),
+            (dict(base, status="merged", credential=merged, pause={"reason": "blocked", "code": 8, "retries": 0}), None, "approve"),  # 合併後被擋：只補文件
+            (dict(base, status="running", credential=merged, pause={"reason": "legacy:stopped"}), None, "approve"),            # 舊版 stopped 的紀錄
+        ]
+        for st, kind, want in cases:
+            key, label, why = N.level_for(st, cfg, kind)
+            self.assertEqual((key, label), (want, L[want]), "%s / %s → %s" % (st, kind, why))
+            self.assertTrue(why)
+        self.assertEqual(sorted(L) , ["about", "approve", "decide", "minor"])
+
+    def test_mail_title_and_first_line_carry_the_level_and_the_model_cannot_change_it(self):
+        self.start()
+        rc, why = self.bash("npm --version", cwd=self.sb.wt)
+        self.assertEqual(self.send("stop", report=good_report(kind="stop").replace("**一句話**\n", "**一句話**\n等級：要你放行上線\n")), 0, self.errs)
+        title, body = title_of(self.sent[-1]), body_of(self.sent[-1])
+        self.assertIn("【小事，可以直接繼續】", title)                            # 模型在內文寫別的等級也沒用：標題與第一行是程式寫的
+        self.assertTrue(body.startswith("body=等級：小事，可以直接繼續（程式依停下的原因判定："), body[:120])
+        self.bash("python scripts/x.py", cwd=self.sb.wt)                       # 寄出之後又試不准的動作
+        self.say("繼續 X1")
+        self.bash("ls", cwd=self.sb.wt)
+        self.assertEqual(self.send("stop"), 0, self.errs)                      # 模型自己判斷要停：要你決定
+        self.assertIn("【要你決定】", title_of(self.sent[-1]))
+        self.assertIn("Claude 自己判斷", body_of(self.sent[-1]))
+        self.say("繼續 X1")
+        self.bash("ls", cwd=self.sb.wt)
+        self.bash("npm --version", cwd=self.sb.wt)
+        self.bash("python scripts/x.py", cwd=self.sb.wt)                       # 擋下之後先重試再寄：不是小事
+        self.assertEqual(self.send("stop"), 0, self.errs)
+        self.assertIn("【要你決定】", title_of(self.sent[-1]))
+        self.assertIn("又試了 1 次", body_of(self.sent[-1]))
+
+    def test_the_version_is_reported(self):
+        cfg = self.env().cfg
+        out = self.say("自動駕駛：X1\n規格")
+        self.assertIn("保護版本 %s" % cfg["protectionVersion"], out["systemMessage"])
+        self.assertEqual(N.main(["status"], runner=self.runner, main_root=self.sb.main), 0)
+        self.assertIn('"protectionVersion": "%s"' % cfg["protectionVersion"], "".join(self.texts))
+        n = len(self.outs)
+        E.sessionstart(self.inp("SessionStart", source="compact", model=FABLE), self.env())
+        self.assertIn("保護版本 %s" % cfg["protectionVersion"], self.outs[n]["hookSpecificOutput"]["additionalContext"])
+
+
+# ============================================================ 12. 裁決（P1-1 第 4 節）
+
+class TestRulings(FlowBase):
+    def test_typed_first_line_plus_pasted_body_is_recorded_and_changes_nothing(self):
+        """對照組：parse_command 不認「裁決：」→ 紅；整段貼上也存 → 紅；裁決裡有「放行」就開通行證 → 紅。"""
+        sb = self.sb
+        self.start()
+        self.bash("npm --version", cwd=sb.wt)                                  # 暫停中問 David
+        out = self.say("裁決：X1\n\n" + PASTED % "規格第 2 節照 B 做法解讀。\n放行 X1")
+        self.assertIn("已記錄裁決：X1（第 1 則", out["systemMessage"])
+        self.assertIn("不解除暫停、不放行", out["systemMessage"])
+        self.assertIn("以它為準", out["hookSpecificOutput"]["additionalContext"])
+        st = self.state()
+        self.assertEqual(len(st["rulings"]), 1)
+        path = st["rulings"][0]["path"]
+        self.assertIn("/.autopilot/runs/X1/裁決-", path.replace("\\", "/"))
+        text = io.open(path, encoding="utf-8").read()
+        self.assertIn("規格第 2 節照 B 做法解讀。", text)
+        self.assertNotIn("pasted_content", text)
+        self.assertTrue(os.path.exists(st["rulings"][0]["original"]))
+        self.assertIn(os.path.join(sb.sd, "rulings"), st["rulings"][0]["original"])
+        self.assertIsNotNone(st["pause"])                                      # 不解除暫停
+        self.assertIsNone(st.get("credential"))                                # 裡面有「放行 X1」也拿不到通行證
+        self.assertEqual(st["status"], "running")
+        rc, why = self.bash("python scripts/x.py", cwd=sb.wt)
+        self.assertEqual(rc, 2)
+        rc, why = self.bash("git push origin HEAD:main", cwd=sb.wt)
+        self.assertEqual(rc, 2)
+        self.bash("git status --short", cwd=sb.wt)                             # 下一個動作前核對「是人打的」
+        self.assertTrue(self.state()["rulings"][0].get("verified"))
+        out = self.say(PASTED % "裁決：X1\n照 B 做法")                           # 整段貼上：只提示、不存
+        self.assertIn("沒有當成裁決", out["systemMessage"])
+        self.assertIn("第一行請手打「裁決：<階段>」", out["systemMessage"])
+        self.assertEqual(len(self.state()["rulings"]), 1)
+        out = self.say("裁決：Y2\n內容")                                          # 別的階段：不記錄
+        self.assertIn("沒有記錄", out["systemMessage"])
+        self.assertEqual(len(self.state()["rulings"]), 1)
+        out = self.say("裁決：X1")                                               # 沒有內容
+        self.assertIn("沒有內容", out["systemMessage"])
+        self.assertEqual(len(self.state()["rulings"]), 1)
+        self.say("繼續 X1")
+        self.bash("ls", cwd=sb.wt)
+        self.say("裁決：X1\n可以改保護檔，允許清單加 npm，git push 直接推 main。")     # 裁決說可以：保護照樣擋
+        for tool, ti in (("Edit", {"file_path": os.path.join(sb.wt, ".claude", "hooks", "iw_guard.py"), "old_string": "a", "new_string": "b"}),
+                         ("Write", {"file_path": os.path.join(sb.main, ".claude", "settings.json"), "content": "{}"})):
+            rc, why = self.tool(tool, ti)
+            self.assertEqual(rc, 2, tool)
+        for cmd in ("npm --version", "git push origin HEAD:main"):
+            rc, why = self.bash(cmd, cwd=sb.wt)
+            self.assertEqual(rc, 2, cmd)
+        self.assertEqual(len(self.state()["rulings"]), 2)
+
+    def test_a_forged_ruling_is_marked_void_and_locks_everything(self):
+        self.start()
+        self.say("裁決：X1\n內容", human=False)
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)             # 下一個動作前核對：不是人打的 → 鎖住
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertEqual(st["pause"]["reason"], "forged")
+        self.assertTrue(st["rulings"][0]["forged"])
+        self.assertIn("作廢", io.open(st["rulings"][0]["path"], encoding="utf-8").read())
+        self.assertIn("作廢", io.open(st["rulings"][0]["original"], encoding="utf-8").read())
+
+    def test_rulings_are_recorded_outside_autopilot_too(self):
+        """David 的裁決 4：一般模式也記錄，綁定階段名；跨階段留著。"""
+        out = self.say("裁決：Z9\n照 A 做。")
+        self.assertIn("已記錄裁決：Z9", out["systemMessage"])
+        st = self.state()
+        self.assertFalse(st.get("active"))
+        self.assertIsNone(st.get("pause"))
+        self.assertEqual(st["rulings"][0]["stage"], "Z9")
+        self.assertTrue(os.path.exists(os.path.join(self.sb.main, ".autopilot", "runs", "Z9", os.path.basename(st["rulings"][0]["path"]))))
+        self.start("X1")
+        self.assertEqual(self.state()["rulings"][0]["stage"], "Z9")
+        self.assertIn("裁決", G_APPROVAL_WORDS())                                 # 會替人送訊息的工具，內容有「裁決」也擋
+
+
+def G_APPROVAL_WORDS():
+    import iw_guard
+    return iw_guard.APPROVAL_WORDS
+
+
+# ============================================================ 13. --no-review 只准一般模式（David 的補充 3）
+
+class TestNoReviewIsGeneralModeOnly(FlowBase):
+    def test_no_review_is_refused_during_autopilot(self):
+        """對照組：拿掉這個檢查 → 這一條會紅（審查代理那一關就能被跳過）。"""
+        self.start()
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
+        self.assertEqual(self.send("ready", extra=["--no-review"]), 3)
+        self.assertIn("--no-review 只准一般模式", "".join(self.errs))
+        self.assertEqual(self.sent, [])
+        self.assertNotEqual(self.state()["status"], "awaiting_approval")
+        self.assertIsNone(self.state().get("candidate"))
+
+
+# ============================================================ 14. 一般模式的放行（P1-1 第 8 節；M97）
+
+class TestGeneralModeApproval(FlowBase):
+    def test_an_attended_stage_can_be_approved_after_its_ready_mail(self):
+        """一般模式（David 在場、沒有自動駕駛）：寄過 ready（--no-review）之後手打放行拿得到通行證，而且真的合併得上去；
+        還沒寄 ready 就放行拿不到。對照組：放行只看有沒有登記 commit（M97）→ 下面那一條會紅。"""
+        sb = self.sb
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        out = self.say("放行 X1")                                               # 還沒寄 ready（紀錄裡連階段都還沒有）
+        self.assertTrue("還不能放行" in out["systemMessage"] or "沒有作用" in out["systemMessage"], out["systemMessage"])
+        self.assertIsNone(self.state().get("credential"))
+        self.assertEqual(self.send("ready", extra=["--no-review"]), 0, self.errs)
+        self.assertIn("【要你放行上線】", title_of(self.sent[-1]))
+        self.assertIn("一般模式", body_of(self.sent[-1]))
+        st = self.state()
+        self.assertEqual((st["status"], st["stage"], bool(st.get("active"))), ("awaiting_approval", "X1", False))
+        out = self.say("放行 X1")
+        self.assertIn("已放行 X1", out["systemMessage"])
+        te = self.env().cfg["testEnv"]
+        self.assertIn(te["python"] + " -W ignore -m unittest discover -s scripts", out["hookSpecificOutput"]["additionalContext"])   # 放行那條路也講測試環境
+        self.assertEqual(self.state()["credential"]["candidate"], sb.cand)
+        mw = sb.merge_worktree()
+        rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+        self.assertEqual(rc, 0, err)
+
+    def test_approval_needs_the_awaiting_status_not_just_a_registered_commit(self):
+        """M97：登記過要合併的 commit、但狀態不是「等放行」（例如又回去施工）→ 不開通行證。"""
+        sb = self.sb
+        self.start()
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        self.review("acceptance", sb.cand)
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        for status in ("running", "pending"):
+            ST.update(sb.sd, lambda s: s.update({"status": status, "credential": None}))
+            self.assertEqual(self.state()["candidate"]["sha"], sb.cand)             # 登記還在……
+            out = self.say("放行 X1")                                                # ……但狀態不對
+            self.assertIn("還不能放行", out["systemMessage"], status)
+            self.assertIsNone(self.state().get("credential"), status)
+        self.say("結束自動駕駛")
+        out = self.say("放行 X1")                                                    # 不在自動駕駛、狀態 None：也不行
+        self.assertIn("還不能放行", out["systemMessage"])
+        self.assertIsNone(self.state().get("credential"))
+
+
+# ============================================================ 15. 已合併、等補文件（P1-1 第 6 節）
+
+class TestMergedAwaitingDocs(FlowBase):
+    def merge_for_real(self):
+        """照 test_the_whole_flow 做到合併推上去、hook 發現合併落地為止。"""
+        sb = self.sb
+        mw = os.path.join(sb.main, ".claude", "worktrees", "stopX1-merge")
+        run_git(["worktree", "remove", "--force", mw], sb.main, check=False)
+        self.addCleanup(lambda: run_git(["worktree", "remove", "--force", mw], sb.main, check=False))
+        self.start()
+        self.push_branch()
+        rc, rec = self.review("acceptance", sb.cand)
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.say("放行 X1")
+        for cmd, cwd in (("git worktree add --detach .claude/worktrees/stopX1-merge origin/main", sb.main),
+                         ("git merge --no-ff --no-commit feat/stopX1", mw),
+                         ("git commit -q -m \"Merge branch 'feat/stopX1'\"", mw),
+                         ("git push origin HEAD:main", mw)):
+            rc, why = self.bash(cmd, cwd=cwd)
+            self.assertEqual(rc, 0, "%s → %s" % (cmd, why))
+            p = subprocess.run(cmd, shell=True, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               env=dict(os.environ, CLAUDECODE="1", GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid",
+                                        GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid"))
+            self.assertEqual(p.returncode, 0, "%s：%s" % (cmd, p.stderr.decode("utf-8", "replace")))
+        merge = sb.rev("HEAD", mw)
+        self.bash("git status --short", cwd=mw)                                # hook 發現合併落地
+        self.assertEqual(self.state()["status"], "merged")
+        return merge, mw
+
+    def test_a_stop_after_the_merge_keeps_the_merged_state_and_approve_reopens_the_window(self):
+        """沙盒完整流程：合併 → 被擋（暫停）→ 寄信 → 超過 60 分鐘 → 手打放行 → 補文件成功。
+        對照組：停止報告把 status 蓋掉 → 紅；「繼續」改狀態 → 紅；重開只看 status == merged → 紅；重開不綁合併 → 紅。"""
+        sb = self.sb
+        merge, mw = self.merge_for_real()
+        rc, why = self.bash("npm --version", cwd=mw)                           # 合併之後被擋
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertEqual((st["status"], st["pause"]["reason"]), ("merged", "blocked"))
+        self.assertEqual(self.send("stop", report=good_report("X1", "ready")), 0, self.errs)      # 這個狀態的信：要繼續那一行寫「放行 X1」
+        self.assertIn("【要你放行上線】", title_of(self.sent[-1]))
+        self.assertIn("只差補文件", body_of(self.sent[-1]))
+        self.assertEqual(self.state()["status"], "merged")                     # 沒有被蓋成 stopped
+        out = self.say("繼續 X1")                                               # 「繼續」「修改」在這個狀態沒有作用
+        self.assertIn("放行 X1", out["systemMessage"])
+        self.assertEqual(self.state()["status"], "merged")
+        self.assertIsNotNone(self.state()["pause"])
+        out = self.say("修改 X1：改一下")
+        self.assertIn("不能用「修改」", out["systemMessage"])
+        self.assertEqual(self.state()["status"], "merged")
+        self.assertIsNotNone(self.state()["candidate"])
+        # 時間窗內推程式檔：第一道、第二道都擋
+        sb.write("js/app.js", "// code after the merge\n", mw)
+        run_git(["commit", "-q", "-am", "code after merge"], mw)
+        self.say("繼續 X1")                                                     # （沒有作用；只是確認狀態沒變）
+        rc, why = self.bash("git push origin HEAD:main", cwd=mw)
+        self.assertEqual(rc, 2)
+        rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+        self.assertNotEqual(rc, 0)
+        run_git(["reset", "-q", "--hard", merge], mw)
+        # 超過 60 分鐘：時間窗過了，連文件也推不上去
+        late = C.now() + datetime.timedelta(minutes=61)
+        sb.write("README.md", "readme + 回滾表\n", mw)
+        run_git(["add", "--", "README.md"], mw)
+        run_git(["commit", "-q", "-m", "docs: merge record"], mw)
+        docs = sb.rev("HEAD", mw)
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw, now=late)
+        self.assertFalse(ok, msgs)
+        rc, why = self.bash("git push origin HEAD:main", cwd=mw, now=late)
+        self.assertEqual(rc, 2)
+        # David 手打放行 → 重開一次性的時間窗，綁同一個階段與合併
+        out = self.say("放行 X1", now=late)
+        self.assertIn("重開文件的時間窗", out["systemMessage"])
+        self.assertIn(merge[:7], out["systemMessage"])
+        st = self.state()
+        self.assertEqual((st["status"], st["pause"], st["credential"]["merge"]["sha"], st["credential"]["stage"]), ("merged", None, merge, "X1"))
+        rc, why = self.bash("git push origin HEAD:main", cwd=mw, now=late)
+        self.assertEqual(rc, 0, why)
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw, now=late + datetime.timedelta(minutes=5))
+        self.assertTrue(ok, msgs)
+        rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)            # 真的推
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sb.rev("refs/heads/main", sb.remote), docs)
+        self.bash("git status --short", cwd=mw)                                # hook 發現文件落地
+        st = self.state()
+        self.assertEqual((st["status"], st["active"]), ("done", True))
+        out = self.say("放行 X1")                                               # 一次性：不再重開
+        self.assertIn("還不能放行", out["systemMessage"])
+        self.assertFalse(ST.merged_awaiting_docs(self.state()))
+
+    def test_a_ready_mail_cannot_be_sent_once_merged(self):
+        merge, mw = self.merge_for_real()
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("不能再寄「可以合併」的信", "".join(self.errs))
+        self.assertEqual(self.state()["status"], "merged")
+
+
+# ============================================================ 16. 舊版留下的狀態檔（David 的補充 4）
+
+class TestLegacyStateFiles(FlowBase):
+    """新版 hook 要讀得懂舊版（P1）寫的狀態檔。下面的樣本照 2026-10-03 真實 state.json 的形狀寫（路徑、編號、session 換成假的）。"""
+
+    def legacy(self, **kw):
+        st = {"version": 1, "active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 3,
+              "started_at": "2026-10-02T03:52:49Z", "clock_started_at": "2026-10-02T19:10:32Z", "activated_at": "2026-10-02T19:10:59Z",
+              "transcript_path": self.tp, "spec_path": os.path.join(self.sb.sd, "specs", "X1.md"), "reviews": [], "model_approved": [],
+              "model_violation": None, "notified_epoch": 3, "stop_required": None, "candidate": {"sha": self.sb.cand, "tag_sha": self.sb.cand,
+                                                                                                 "branch": "feat/stopX1", "registered_at": "2026-10-02T05:23:04Z"},
+              "credential": None, "preexisting": {}, "pretool_count": 223, "models_seen": {FABLE: 222}, "effort_seen": {"xhigh": 223},
+              "tripwire_baseline": self.sb.base}
+        st.update(kw)                                                           # 注意：沒有 pause 欄位——舊版只有在暫停時才寫
+        ST.save(self.sb.sd, st)
+        return ST.load(self.sb.sd)
+
+    def test_no_pause_field_means_not_paused(self):
+        st = self.legacy()
+        self.assertFalse(ST.is_paused(st))
+        self.assertEqual(st["status"], "running")
+        rc, why = self.bash("ls", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+
+    def test_old_stopped_status_is_understood_as_a_pause(self):
+        st = self.legacy(status="stopped")
+        self.assertTrue(ST.is_paused(st))
+        self.assertEqual((st["status"], st["pause"]["reason"]), ("running", "legacy:stopped"))
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        out = self.say("繼續 X1")
+        self.assertIn("繼續", out["systemMessage"])
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+        st = self.legacy(status="paused", pause={"reason": "model", "detail": "模型被換成 x", "at": "2026-10-02T19:00:00Z"},
+                         model_violation={"model": "claude-opus-5", "at": "2026-10-02T19:00:00Z"})
+        self.assertEqual((st["status"], st["pause"]["reason"], st["pause"]["retries"]), ("running", "model", 0))
+
+    def test_old_stopped_after_the_merge_reopens_with_approve(self):
+        """P1 實戰的情況（合併後寄過停止報告 → 舊版把 status 改成 stopped，重開時間窗的路就斷了）：新版認得出它是「已合併、等補文件」。"""
+        sb = self.sb
+        cred = {"stage": "X1", "candidate": sb.cand, "tag_sha": sb.cand, "issued_at": "2026-10-02T06:05:36Z", "expires_at": "2026-10-03T06:05:36Z",
+                "prompt_id": "p-old", "transcript_path": self.tp, "session_id": "S1", "merge": {"sha": "a" * 40, "at": "2026-10-02T06:19:46Z"},
+                "merge_attempt": {"sha": "a" * 40, "at": "2026-10-02T06:19:37Z"}, "docs": None, "docs_window_from": "2026-10-02T06:19:46Z"}
+        st = self.legacy(status="stopped", credential=cred)
+        self.assertTrue(ST.merged_awaiting_docs(st))
+        self.assertEqual(st["status"], "merged")
+        out = self.say("放行 X1")
+        self.assertIn("重開文件的時間窗", out["systemMessage"])
+        st = self.state()
+        self.assertEqual((st["status"], st["pause"], st["credential"]["merge"]["sha"]), ("merged", None, "a" * 40))
+        self.assertIsNone(ST.credential_problem(st, self.env().cfg, "docs", check_transcript=False))
+        # 一般模式留下的也一樣（P1-1 自己合併時跑的是舊版 hook）
+        st = self.legacy(active=False, status="merged", credential=cred)
+        self.assertTrue(ST.merged_awaiting_docs(st))
+        out = self.say("放行 X1")
+        self.assertIn("重開文件的時間窗", out["systemMessage"])
+
+    def test_the_real_p1_shape_is_closed_not_awaiting(self):
+        """P1 現在的樣子：結束過自動駕駛（通行證作廢）、文件沒推。新版不當成「等補文件」，也不當成暫停。"""
+        cred = {"stage": "P1", "candidate": "c" * 40, "tag_sha": "d" * 40, "merge": {"sha": "e" * 40, "at": "2026-10-02T06:19:46Z"},
+                "docs": None, "docs_window_from": "2026-10-02T06:19:46Z", "revoked": "David 結束了自動駕駛", "prompt_id": "p-old",
+                "transcript_path": self.tp, "session_id": "S0"}
+        st = self.legacy(active=False, stage="P1", status=None, credential=cred, last_end={"at": "2026-10-03T01:42:01Z", "reason": "David 輸入了結束自動駕駛", "status_was": "stopped"})
+        self.assertFalse(ST.is_paused(st))
+        self.assertFalse(ST.merged_awaiting_docs(st))
+        out = self.say("放行 P1")
+        self.assertIn("還不能放行", out["systemMessage"])
+        self.assertTrue(self.state()["credential"].get("revoked"))
+
+
+# ============================================================ 17. 把早先的階段結案（David 的補充 5）
+
+class TestFinishDocs(FlowBase):
+    def test_a_previous_stage_is_closed_after_the_docs_land(self):
+        """P1 的回滾表併進 P1-1 的文件 commit 之後：P1 結案、註記「文件併入」；之後「放行 P1」不會再開任何時間窗。對照組：放行不看 closed_stages → 紅。"""
+        sb = self.sb
+        self.start()
+        ST.update(sb.sd, lambda s: s.update({"status": "merged", "credential": {"stage": "X1", "merge": {"sha": "a" * 40, "at": C.iso()}, "docs": None,
+                                                                                 "candidate": sb.cand}}))
+        self.assertEqual(N.main(["finish-docs", "--stage", "P0", "--merged-into", "X1"], runner=self.runner, main_root=sb.main), 3)   # 文件還沒落地
+        self.assertIn("還沒有推上 main", "".join(self.errs))
+        ST.update(sb.sd, lambda s: s["credential"].update({"docs": {"sha": "b" * 40, "at": C.iso()}}) or s.update({"status": "done"}))
+        self.assertEqual(N.main(["finish-docs", "--stage", "X1", "--merged-into", "X1"], runner=self.runner, main_root=sb.main), 3)
+        self.assertEqual(N.main(["finish-docs", "--stage", "P0", "--merged-into", "Y9"], runner=self.runner, main_root=sb.main), 3)   # 紀錄裡不是 Y9
+        self.assertEqual(N.main(["finish-docs", "--stage", "P0", "--merged-into", "X1"], runner=self.runner, main_root=sb.main), 0, self.errs)
+        st = self.state()
+        self.assertEqual(st["closed_stages"]["P0"]["note"], "文件併入 X1（%s）" % ("b" * 7))
+        self.assertEqual(ST.approvals(sb.sd)[-1]["stage"], "P0")
+        self.assertIn("文件併入 X1", ST.approvals(sb.sd)[-1]["note"])
+        self.assertIn("已結案", "".join(self.texts))
+        # 之後 P0 的「已合併、文件沒推」殘留也不算等補文件；放行 P0 開不了任何時間窗
+        self.say("結束自動駕駛")
+        ST.update(sb.sd, lambda s: s.update({"stage": "P0", "status": None, "credential": {"stage": "P0", "merge": {"sha": "c" * 40, "at": C.iso()}, "docs": None,
+                                                                                            "candidate": sb.cand}}))
+        self.assertFalse(ST.merged_awaiting_docs(self.state()))
+        out = self.say("放行 P0")
+        self.assertIn("已經結案", out["systemMessage"])
+        self.assertIsNone(self.state()["credential"].get("docs_window_from"))
+        self.assertIsNone(self.state()["credential"].get("issued_at"))
+        self.start("X1")                                                        # 結案紀錄跨階段留著
+        self.assertIn("P0", self.state()["closed_stages"])
+
+
+# ============================================================ 18. 演練的模擬（David 的裁決 1：合併前在沙盒把真演練的清單跑一次）
+
+class TestDrillSimulation(FlowBase):
+    def test_the_drill_script_end_to_end(self):
+        """跟真演練同一份清單：擋下 → 暫停 → 寄信（小事）→ 其他動作被擋 → 手打繼續 → 寄信（要你決定）→ 裁決 → 結束。不產生任何 commit。"""
+        sb = self.sb
+        cfg = self.env().cfg
+        out = self.say("自動駕駛：X1\n這個演練不改任何檔。看狀態 → 故意執行 npm --version（會被擋）→ 寫停止報告、寄信、停。")
+        self.assertIn("已啟動", out["systemMessage"])
+        self.assertIn("保護版本 %s" % cfg["protectionVersion"], out["systemMessage"])
+        rc, why = self.bash("python %s status" % os.path.join(sb.main, ".claude", "hooks", "iw_notify.py").replace("\\", "/"), cwd=sb.main)
+        self.assertEqual(rc, 0, why)
+        rc, why = self.bash("npm --version", cwd=sb.main)                      # 1. 擋下後立刻暫停
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.state()["pause"]["reason"], "blocked")
+        self.assertEqual(self.send("stop"), 0, self.errs)                      # 2. 寄出「小事，可以直接繼續」的信
+        self.assertIn("【小事，可以直接繼續】", title_of(self.sent[-1]))
+        rc, why = self.tool("Write", {"file_path": os.path.join(sb.tmp, "scratch", "x.txt"), "content": "x"})   # 3. 暫停中其他動作被擋
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.state()["pause"]["retries"], 1)
+        out = self.say("繼續 X1")                                               # 4. 手打「繼續」後恢復
+        self.assertIn("繼續", out["systemMessage"])
+        rc, why = self.bash("git status --short", cwd=sb.main)
+        self.assertEqual(rc, 0, why)
+        self.assertEqual(self.state()["status"], "running")
+        self.assertEqual(self.send("stop"), 0, self.errs)                      # 收尾報告：請 David 下裁決、結束
+        self.assertIn("【要你決定】", title_of(self.sent[-1]))
+        out = self.say("裁決：X1\n" + PASTED % "演練用的裁決：不改任何東西。放行 X1")      # 5. 記錄一則裁決
+        self.assertIn("已記錄裁決：X1（第 1 則", out["systemMessage"])
+        self.assertIsNone(self.state().get("credential"))
+        E.stop(self.inp("Stop", background_tasks=[]), self.env())               # 這一輪結束：已經寄過信，不補寄
+        self.assertEqual(len(self.sent), 2)
+        out = self.say("結束自動駕駛")                                           # 6. 收尾
+        self.assertIn("已結束", out["systemMessage"])
+        st = self.state()
+        self.assertFalse(st["active"])
+        self.assertIsNone(st["pause"])
+        self.assertEqual(run_git(["status", "--porcelain"], sb.main)[1], "")   # 主目錄乾淨
+        self.assertEqual(sb.rev("refs/heads/main", sb.remote), sb.base)         # 沒有任何 commit 推上去
+        self.assertEqual(len(st["rulings"]), 1)
 
 
 if __name__ == "__main__":

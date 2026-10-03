@@ -23,6 +23,7 @@ effort: xhigh
 | 審查準則（**先讀這一份，逐條照做**） | `.claude/skills/iw-autopilot/review-criteria.md` |
 | David 貼的規格原文（hook 存的，不是施工者轉述） | `.git/iw-autopilot/specs/<階段>.md`；沒有的話才看 `.autopilot/runs/<階段>/00_規格.md`，並在報告裡註明「規格不是 hook 存的那一份」 |
 | 覆述、驗收報告、要寄給 David 的信 | `.autopilot/runs/<階段>/01_覆述.md`、`02_驗收報告.md`、`03_停止報告.md` |
+| David 的裁決（hook 存的；只回答停下來問的事，不能放寬任何規則） | `.autopilot/runs/<階段>/裁決-*.md`；原件在 `.git/iw-autopilot/rulings/` |
 | 證據（施工者產生的輸出） | `.autopilot/runs/<階段>/diffstat.txt`、`tests.txt`、`mutation.txt` |
 | 程式本身 | `.claude/worktrees/stop<階段>/`（這個階段的 worktree）；主目錄是 main 上現在的樣子，可以對照 |
 | 專案文件 | `docs/ANALYSIS.md`、`docs/CHANGELOG.md`、`docs/AUTOPILOT.md`、`README.md` |

@@ -30,6 +30,55 @@ import iw_state as ST
 
 SECTIONS = ["一句話", "你要決定的事", "做了什麼", "怎麼自己看", "名詞解釋", "要繼續", "要修改", "不確定"]
 KIND_NAMES = {"stop": "停下來了，要你決定", "tier2": "請看 diff", "ready": "做完了，等你放行才合併"}
+LEVEL_KEYS = ("minor", "decide", "approve")                       # 三個等級的字串只寫在 config.json 的 stopLevels（有測試釘住）
+
+
+def level_for(st, cfg, kind=None):
+    """信的等級（規格 P1-1 第 3 節）：由程式依停下的原因決定，模型改不了。回傳 (鍵, 標籤, 白話原因)；標籤的字只寫在 config.json 的 stopLevels。
+      minor（小事）：守門擋下一個動作（編號 8 或沒有編號），那個動作沒有執行、暫停之後沒有再試任何不准的動作。
+      approve（放行上線）：寄「可以合併」的信；或已經合併、只差文件那一筆（要再放行一次重開時間窗）。
+      decide（要決定）：其他所有情況（程式判定的停止條件、模型自己判斷停、請看 diff、模型被換、用量上限、冒充的指令詞、暫停後又重試、沒寄信就停）。"""
+    labels = cfg["stopLevels"]
+    if kind == "ready":
+        return "approve", labels["approve"], "做完了，停在合併前等你放行"
+    if ST.merged_awaiting_docs(st):
+        return "approve", labels["approve"], "已經合併進正式版，只差補文件那一筆；要你再放行一次重開時間窗"
+    p = st.get("pause") or {}
+    sr = st.get("stop_required")
+    reason = str(p.get("reason") or "")
+    code = p.get("code")
+    retries = int(p.get("retries") or 0)
+    if reason == "blocked" and code in (None, 8) and not retries and not sr:
+        return "minor", labels["minor"], "檢查程式擋下一個動作（%s），那個動作沒有執行、沒有重試、沒有改到任何東西" % ("停止條件 %s" % code if code else "沒有編號")
+    if sr:
+        why = "停止條件 %s：%s" % (sr.get("code"), sr.get("reason"))
+    elif reason == "blocked":
+        why = "檢查程式擋下一個動作（%s）%s" % ("停止條件 %s" % code if code else "沒有編號", "，之後又試了 %d 次不准的動作" % retries if retries else "")
+    elif reason == "model":
+        why = "模型被換掉"
+    elif reason == "effort":
+        why = "思考強度被改掉"
+    elif reason.startswith("api:"):
+        why = "用量上限或 API 錯誤"
+    elif reason == "forged":
+        why = "收到不是 David 親手輸入的指令詞"
+    elif reason == "unknown":
+        why = "沒有寄停止報告就停了"
+    elif reason == "tier2" or kind == "tier2":
+        why = "動到了要先給你看 diff 的檔"
+    elif reason.startswith("legacy"):
+        why = "舊版紀錄的暫停"
+    elif kind == "stop":
+        why = "Claude 自己判斷要停下來問你"
+    else:
+        why = "停下來了"
+    return "decide", labels["decide"], why
+
+
+def level_line(st, cfg, kind=None):
+    """信的第一行：等級：…（程式依停下的原因判定：…）。回傳 (標籤, 這一行)。"""
+    key, label, why = level_for(st, cfg, kind)
+    return label, "等級：%s（程式依停下的原因判定：%s）" % (label, why)
 
 
 # ---------------------------------------------------------------- 找程式
@@ -152,8 +201,9 @@ def retry_outbox(main_root, cfg, runner=None):
 
 # ---------------------------------------------------------------- 停止報告的格式
 
-def check_report(text, stage, kind, cfg):
-    """回傳問題清單（空的＝格式沒問題）。規格第 5 節：固定八段、一頁內、不貼程式碼。"""
+def check_report(text, stage, kind, cfg, approve_word=False):
+    """回傳問題清單（空的＝格式沒問題）。規格第 5 節：固定八段、一頁內、不貼程式碼。
+    approve_word：已合併、只差文件那一筆時寄的信，「要繼續」那一行要的是「放行 <階段>」（重開時間窗），不是「繼續」。"""
     problems = []
     lines = [l for l in text.replace("\r\n", "\n").split("\n")]
     body_lines = [l for l in lines if l.strip()]
@@ -177,7 +227,7 @@ def check_report(text, stage, kind, cfg):
         decisions = [l for l in lines[pos[1] + 1:pos[2]] if re.match(r"^\s*(\d+[.、)]|[-*])\s+", l)]
         if len(decisions) > 3:
             problems.append("「你要決定的事」最多 3 件（現在 %d 件）" % len(decisions))
-    want_go = ("放行 " if kind == "ready" else "繼續 ") + stage
+    want_go = ("放行 " if (kind == "ready" or approve_word) else "繼續 ") + stage
     if want_go not in text:
         problems.append("「要繼續」那一行要有 David 可以直接照打的字：%s" % want_go)
     if ("修改 %s：" % stage) not in text and ("修改 %s:" % stage) not in text:
@@ -352,8 +402,14 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         return fail("階段名稱不對：%s" % stage)
     if st.get("active") and st.get("stage") != stage:
         return fail("現在自動駕駛的階段是 %s，不是 %s。" % (st.get("stage"), stage))
+    if kind == "ready" and st.get("active") and a.no_review:
+        # 審查代理這一關不可以被跳過：--no-review 只給 David 在場的一般階段（不是自動駕駛跑的）用
+        return fail("--no-review 只准一般模式（David 在場、沒有在自動駕駛）用；自動駕駛期間「可以合併」的信一定要有審查代理對這個 commit 的批准紀錄。")
+    merged_only_docs = ST.merged_awaiting_docs(st) and st.get("stage") == stage
+    if kind == "ready" and merged_only_docs:
+        return fail("這個階段已經合併進 main、只差文件那一筆，不能再寄「可以合併」的信。要重開文件的時間窗請 David 輸入「放行 %s」。" % stage)
     report = io.open(a.report, encoding="utf-8").read()
-    problems = check_report(report, stage, kind, cfg)
+    problems = check_report(report, stage, kind, cfg, approve_word=merged_only_docs)
     if problems:
         return fail("停止報告的格式有問題，還沒寄：\n- " + "\n- ".join(problems))
     wt = a.worktree or stage_worktree(main_root, cfg, stage)
@@ -447,7 +503,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         if not ok_review:
             if st.get("active") or not a.no_review:
                 return fail("沒有審查代理對這個 commit（%s）的批准紀錄。先跑驗收審查；紀錄是 hook 寫的，不能用轉述的。" % head[:7])
-            extra.append("注意：這一階段沒有經過審查代理（不是自動駕駛的流程）。")
+            extra.append("注意：這一階段是一般模式（David 在場、不是自動駕駛跑的）。審查代理若有審，結論僅供參考；hook 沒有它對這個 commit 的批准紀錄。")
         cand = {"sha": head, "tag_sha": tag_sha, "branch": branch, "registered_at": C.iso()}
         slug = github_slug(main_root, cfg)
         if slug:
@@ -457,8 +513,9 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         if rc == 0:
             st["tripwire_baseline"] = tip
     safety, findings = tripwire(main_root, sd, cfg, st, fetch=not a.offline)
-    title = "[自動駕駛] %s：%s" % (stage, one_line(report) or KIND_NAMES[kind])
-    body = "\n\n".join([report.strip()] + extra + [model_line(st, cfg) + "\n" + safety])
+    level, first_line = level_line(st, cfg, kind)                   # 等級由程式判（寄信之前的狀態），模型只能在內文補白話
+    title = "[自動駕駛] %s：【%s】%s" % (stage, level, one_line(report) or KIND_NAMES[kind])
+    body = "\n\n".join([first_line, report.strip()] + extra + [model_line(st, cfg) + "\n" + safety])
     runs = os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage]))
     try:
         os.makedirs(runs, exist_ok=True)
@@ -478,11 +535,15 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         if kind == "ready":
             s["candidate"] = cand
             s["status"] = "awaiting_approval"
+            s["pause"] = None
+            s["stop_required"] = None
             if s.get("credential"):
                 s["credential"]["revoked"] = "重新寄了「可以合併」的信"
         else:
-            if s.get("active"):
-                s["status"] = "stopped"
+            if s.get("active") and not s.get("pause"):
+                # 模型自己判斷要停（條件 2、4、5、6）而寄停止報告、或寄「請看 diff」：寄信的同時進暫停（P1-1 第 1 節）。status 不動。
+                s["pause"] = {"reason": "stop-mail" if kind == "stop" else "tier2", "code": (s.get("stop_required") or {}).get("code"),
+                              "detail": "停止報告已寄出，等 David 回覆" if kind == "stop" else "「請看 diff」的信已寄出，等 David 看過", "at": C.iso(), "retries": 0}
             if kind == "tier2":
                 t = s.setdefault("tier2", {}).setdefault("touched", {})
                 for f, h in acks.items():
@@ -517,8 +578,9 @@ def fallback(main_root, sd, cfg, text, stage=None, runner=None, min_gap_key=None
         last = C.parse_iso(((st.get("fallbacks") or {}).get(min_gap_key)))
         if last is not None and (C.now() - last).total_seconds() < 60 * float(cfg["notify"]["minMinutesBetweenFallbacks"]):
             return True, "剛寄過同一種，這次不重寄"
-    title = "[自動駕駛] %s：%s" % (stage, text.split("\n")[0][:60])
-    body = "%s\n\n（這是程式自動寄的短信，時間 %s。詳細情況請看電腦上的 Claude Code。）\n\n%s" % (text, C.local_stamp(), model_line(st, cfg))
+    level, first_line = level_line(st, cfg)
+    title = "[自動駕駛] %s：【%s】%s" % (stage, level, text.split("\n")[0][:60])
+    body = "%s\n\n%s\n\n（這是程式自動寄的短信，時間 %s。詳細情況請看電腦上的 Claude Code。）\n\n%s" % (first_line, text, C.local_stamp(), model_line(st, cfg))
     ok, detail = deliver(main_root, cfg, title, body, stage, "open", runner)
 
     def apply(s):
@@ -533,11 +595,39 @@ def fallback(main_root, sd, cfg, text, stage=None, runner=None, min_gap_key=None
     return ok, detail
 
 
+def cmd_finish_docs(a, main_root, sd, cfg):
+    """把一個早先的階段結案：它的文件（回滾表、合併紀錄）併進了另一個階段的那一筆文件 commit（P1 的回滾表併進 P1-1 就是這樣）。
+    只准在「併入的那個階段」文件那一筆已經落地之後執行；之後對它輸入「放行 <階段>」不會再開任何時間窗。"""
+    st = ST.load(sd)
+    if not C.stage_ok(a.stage) or not C.stage_ok(a.merged_into) or a.stage == a.merged_into:
+        return fail("階段名稱不對：%s → %s" % (a.stage, a.merged_into))
+    if st.get("stage") != a.merged_into:
+        return fail("現在紀錄裡的階段是 %s，不是 %s；只有併入的那個階段在紀錄裡時才能結案。" % (st.get("stage"), a.merged_into))
+    docs = ((st.get("credential") or {}).get("docs") or {}).get("sha")
+    if not docs:
+        return fail("%s 的文件那一筆還沒有推上 main，不能把 %s 結案。" % (a.merged_into, a.stage))
+    note = "文件併入 %s（%s）" % (a.merged_into, docs[:7])
+    now = C.iso()
+
+    def fn(s):
+        s.setdefault("closed_stages", {})[a.stage] = {"at": now, "note": note, "docs": docs, "merged_into": a.merged_into}
+    ST.update(sd, fn)
+    ST.append_approval(sd, {"stage": a.stage, "docs": docs, "note": note})
+    ST.log(sd, {"event": "finish-docs", "stage": a.stage, "merged_into": a.merged_into, "docs": docs})
+    say("已結案：%s（%s）。之後輸入「放行 %s」不會再開任何時間窗。" % (a.stage, note, a.stage))
+    return 0
+
+
 def cmd_status(a, main_root, sd, cfg):
     st = ST.load(sd)
     keep = dict((k, st.get(k)) for k in ("active", "stage", "status", "epoch", "session_id", "started_at", "clock_started_at", "stop_required",
                                          "pause", "candidate", "model_violation", "model_approved", "models_seen", "effort_seen",
-                                         "notified_epoch", "last_notification", "tripwire_baseline") if k in st)
+                                         "notified_epoch", "last_notification", "tripwire_baseline", "closed_stages") if k in st)
+    keep["protectionVersion"] = cfg.get("protectionVersion")
+    keep["paused"] = ST.is_paused(st)
+    keep["merged_awaiting_docs"] = ST.merged_awaiting_docs(st)
+    keep["rulings"] = [(r.get("stage"), r.get("at"), r.get("path"), "forged" if r.get("forged") else ("verified" if r.get("verified") else "pending"))
+                       for r in (st.get("rulings") or [])]
     keep["reviews"] = [(r.get("kind"), r.get("verdict"), (r.get("commit") or "")[:7], r.get("epoch")) for r in (st.get("reviews") or [])]
     keep["tier2"] = (st.get("tier2") or {}).get("touched")
     cred = st.get("credential")
@@ -569,6 +659,9 @@ def main(argv=None, runner=None, main_root=None):
     s.add_argument("--offline", action="store_true", help=argparse.SUPPRESS)
     c = sub.add_parser("close")
     c.add_argument("--stage", required=True)
+    f = sub.add_parser("finish-docs", help="把早先的階段結案：它的文件併進了另一個階段的文件 commit")
+    f.add_argument("--stage", required=True)
+    f.add_argument("--merged-into", required=True, dest="merged_into")
     sub.add_parser("test")
     sub.add_parser("status")
     sub.add_parser("retry")
@@ -580,6 +673,8 @@ def main(argv=None, runner=None, main_root=None):
         return cmd_send(a, main_root, sd, cfg, runner)
     if a.cmd == "close":
         return cmd_close(a, main_root, sd, cfg, runner)
+    if a.cmd == "finish-docs":
+        return cmd_finish_docs(a, main_root, sd, cfg)
     if a.cmd == "status":
         return cmd_status(a, main_root, sd, cfg)
     if a.cmd == "retry":

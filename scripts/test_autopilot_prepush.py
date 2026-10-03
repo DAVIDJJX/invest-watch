@@ -562,6 +562,62 @@ class TestPrePush(unittest.TestCase):
         self.assertEqual(io.open(p, encoding="utf-8").read(), INST.SHIM)
         os.remove(p + ".before-iw")
 
+    def test_a_revert_pushed_from_the_terminal_is_blocked_unless_no_verify(self):
+        """David 的補充 6：回滾表的 `git revert -m 1 … && git push`。第二道對「沒有通行證的 main 推送」對誰都擋——連 David 的終端機也擋。
+        退回 P1 本身時 revert 會把邏輯檔一起拿掉、入口自動放行（test_the_shim_lets_everything_through_when_the_logic_file_is_gone）；
+        退回 P1-1 這類「保護檔還在」的合併，David 要用 `git push --no-verify`（git 根本不叫 hook）。"""
+        sb = self.sb
+        mw = sb.merge_worktree()
+        merge = sb.rev("HEAD", mw)
+        sb.land(merge, mw)
+        run_git(["merge", "-q", "--ff-only", "origin/main"], sb.main)
+        run_git(["revert", "-m", "1", "--no-edit", merge], sb.main)
+        rc, err = sb.push(sb.main, ["origin", "HEAD:main"], claude=False)       # 終端機（不是 Claude Code）：照樣擋
+        self.assertNotEqual(rc, 0)
+        self.assertIn("放行", err)
+        self.assertEqual(sb.rev("refs/heads/main", sb.remote), merge)
+        rc, err = sb.push(sb.main, ["--no-verify", "origin", "HEAD:main"], claude=False)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sb.rev("refs/heads/main", sb.remote), sb.rev("HEAD"))
+
+    def test_a_reopened_docs_window_is_bound_to_the_stage_and_the_merge(self):
+        """P1-1 第 6 節：David 再放行一次重開的時間窗，只能用在同一個階段、同一個合併 commit。對照組：第二道不看通行證的階段或合併 → 紅。"""
+        sb = self.sb
+        mw = sb.merge_worktree()
+        merge = sb.rev("HEAD", mw)
+        sb.land(merge, mw)
+        old = C.iso(C.now() - datetime.timedelta(hours=2))                       # 合併是兩小時前的事；時間窗是剛剛重開的
+        sb.credential(merge={"sha": merge, "at": old}, docs_window_from=C.iso(C.now()))
+        sb.write("README.md", "row\n", mw)
+        docs = sb.commit("docs: merge record", mw)
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw)
+        self.assertTrue(ok, msgs)                                                  # 同階段、同合併：可以
+        sb.credential(merge={"sha": merge, "at": old}, docs_window_from=C.iso(C.now()), stage="Y9")
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw)
+        self.assertFalse(ok)                                                       # 別的階段
+        self.assertIn("別的階段", " ".join(msgs))
+        sb.credential(merge={"sha": "f" * 40, "at": old}, docs_window_from=C.iso(C.now()))
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw)
+        self.assertFalse(ok)                                                       # 通行證記的合併不存在：這筆不是合併、也不是那個合併後的文件
+        sb.credential(merge={"sha": merge, "at": old})                             # 沒有重開（docs_window_from 空）：照合併時間算，過期
+        ok, msgs = sb.check(sb.lines(docs, remote_sha=merge), repo=mw)
+        self.assertFalse(ok)
+        self.assertIn("分鐘", " ".join(msgs))
+        # 別的合併：通行證綁的是 merge，但 main 上之後又有另一個合併（別的階段的）上去了；文件那一筆接在那個合併後面 → 擋
+        sb.write("js/app.js", "// another stage\n", sb.wt)
+        other = sb.commit("another stage", sb.wt)
+        run_git(["checkout", "-q", "--detach", merge], mw)
+        run_git(["merge", "-q", "--no-ff", "-m", "Merge another stage", other], mw)
+        merge2 = sb.rev("HEAD", mw)
+        sb.land(merge2, mw)
+        sb.write("README.md", "row for the first merge\n", mw)
+        docs2 = sb.commit("docs: first merge record", mw)
+        sb.credential(merge={"sha": merge, "at": old}, docs_window_from=C.iso(C.now()))
+        ok, msgs = sb.check(sb.lines(docs2, remote_sha=merge2), repo=mw)
+        self.assertFalse(ok)
+        self.assertIn("不是資料更新", " ".join(msgs))
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+
     def test_installer_keeps_the_main_checkout_clean_before_the_merge(self):
         """P1 合併之前，main 上的 .gitignore 還沒有「.autopilot/」：安裝時寫進這台電腦的 .git/info/exclude，
         自動駕駛在主目錄建報告資料夾才不會讓 git status 變髒（筆電排程要求主目錄乾淨）。"""
