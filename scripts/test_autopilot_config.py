@@ -280,6 +280,38 @@ class TestDocsAndSkill(unittest.TestCase):
                      "Bash(%s --version)" % env["python"], "Bash(python --version)", "Bash(py --list)", "Bash(command -v *)"):
             self.assertIn(rule, allow, rule)
 
+    def test_skill_and_config_agree_on_the_test_environment_and_the_merge_steps(self):
+        """P1-1 第 5 節：SKILL.md 補上測試環境那一段，值要跟 config.json 的 testEnv 一致（兩邊只能一起改）；合併固定分兩個指令。
+        對照組：改掉 config 裡的 Python 版本而不改 SKILL → 這一條會紅。"""
+        env = CFG["testEnv"]
+        text = read(".claude/skills/iw-autopilot/SKILL.md")
+        for must in (env["python"], env["browserEnv"], "Chrome", ".autopilot/local-env.txt", "分成兩個指令", "暫停", "裁決：", "等級"):
+            self.assertIn(must, text, must)
+        self.assertIn(env["browser"], text)                                                # 瀏覽器的路徑也要一致（Edge 只准以「不要用」出現）
+        self.assertNotIn("msedge", text.lower())
+        self.assertNotRegex(text, r"(?m)^\s*python3? 腳本")                           # 第一條改成 py -3.12
+        for m in re.finditer(r"\[([^\]]+\.md)\]\(([^)]+\.md)\)", text):                # SKILL.md 連到的同資料夾檔要在
+            self.assertTrue(os.path.exists(os.path.join(ROOT, ".claude", "skills", "iw-autopilot", m.group(2))), m.group(2))
+
+    def test_stop_levels_and_the_protection_version_are_written_once(self):
+        """P1-1 第 3 節：三個等級的字串只寫在 config.json；hook 不另外寫死；說明文件照它寫。對照組：hook 裡寫死標籤 → 紅。"""
+        levels = CFG["stopLevels"]
+        self.assertEqual(sorted(levels), ["about", "approve", "decide", "minor"])
+        labels = [levels[k] for k in ("minor", "decide", "approve")]
+        self.assertEqual(len(set(labels)), 3)
+        for path in sorted(glob.glob(os.path.join(ROOT, ".claude", "hooks", "*.py"))):
+            text = io.open(path, encoding="utf-8").read()
+            for label in labels:                                                     # 當成字串常數寫死（"…"）才算；句子裡提到不算
+                self.assertNotIn('"%s"' % label, text, "%s 裡寫死了等級「%s」（應該從 config.json 的 stopLevels 讀）" % (os.path.basename(path), label))
+                self.assertNotIn("【%s】" % label, text, os.path.basename(path))
+        self.assertEqual(CFG["protectionVersion"], "P1-1")
+        guide = read("docs/AUTOPILOT.md")
+        for must in labels + ["裁決：", "暫停", "P1-1", "先退", "--no-verify"]:
+            self.assertIn(must, guide, must)
+        skill = read(".claude/skills/iw-autopilot/SKILL.md")
+        for label in labels:
+            self.assertIn(label, skill, label)
+
     def test_report_template_has_the_eight_sections_in_order(self):
         import iw_notify as N
         text = read(".claude/skills/iw-autopilot/report-template.md")

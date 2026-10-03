@@ -117,7 +117,10 @@ GIT_DASH_C_OK = set(["core.quotepath", "color.ui", "advice.detachedhead", "core.
 # 會替我送訊息、排程、或開別的工作階段的工具：內容裡出現放行詞就擋（永遠有效）
 MESSAGING_TOOLS = re.compile(r"^(CronCreate|ScheduleWakeup|SendMessage|RemoteTrigger|PushNotification|"
                              r"mcp__scheduled-tasks__.*|mcp__ccd_session_mgmt__send_message|mcp__ccd_session__spawn_task)$")
-APPROVAL_WORDS = ("放行", "自動駕駛")
+APPROVAL_WORDS = ("放行", "自動駕駛", "裁決")
+
+# 暫停（或停在合併前）期間，除了讀檔與搜尋之外還准用的工具：都不會動到任何檔。清單寫死、越窄越好（test_pause_allowed_list_is_narrow）。
+PAUSE_TOOLS = ("Skill", "ToolSearch", "TodoWrite", "SubagentHandback")
 _SQUEEZE = re.compile("[\\s" + "".join(chr(c) for c in (0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x3000, 0x00A0, 0x00AD)) + "]+")
 
 _SELF_RE = re.compile(r"(^|/)\.claude/(settings(\.local)?\.json|hooks|agents|skills|autopilot)(/|$)")
@@ -244,7 +247,7 @@ class Ctx(object):
     def __init__(self, main_root, state, cfg, allow, git, inp, home=None, now=None):
         self.main_root = main_root
         self.main_key = C.key(main_root)
-        self.state = state or {}
+        self.state = ST.normalize(dict(state)) if state else {}     # 舊版（P1）寫的 paused／stopped 也看得懂
         self.cfg = cfg
         self.allow = allow
         self.git = git
@@ -455,7 +458,7 @@ def _autopilot_gate(tool, ti, ctx):
             raise Block("模型被換成「%s」，自動駕駛已暫停（已寄信）。要用它繼續，請 David 輸入「放行模型」；"
                         "或等額度恢復後輸入「繼續 %s」。" % (model, st.get("stage")), 9)
         if effort is not None and effort != need_effort:
-            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）" % (effort, need_effort)))
+            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）" % (effort, need_effort), 9, True))
             raise Block("思考強度被改成「%s」（規定是 %s），自動駕駛已暫停（已寄信）。請 David 用思考強度選單（Ctrl+Shift+E）改回 %s，再輸入「繼續 %s」。"
                         % (effort, need_effort, effort_label, st.get("stage")), 9)
         if st.get("status") == "pending":                           # 「繼續／修改」之後的第一個動作：模型與強度都對，接著做
@@ -463,27 +466,29 @@ def _autopilot_gate(tool, ti, ctx):
 
     reason = stop_reason(ctx)
     if reason and not _is_wrapup(tool, ti, ctx):
+        if ST.is_paused(st):
+            ctx.effects.append(("pause_retry",))                    # 暫停中又試了不准的動作：記下來（信的等級不再是最輕的那一級）
         raise Block(reason + "\n現在只能做三件事：寫停止報告（.autopilot/runs/%s/）、執行寄信的指令、唯讀地查看。" % ctx.stage,
-                    (st.get("stop_required") or {}).get("code"))
+                    (st.get("stop_required") or st.get("pause") or {}).get("code"))
     ctx.effects.append(("heartbeat", effort, model))
 
 
 def stop_reason(ctx):
-    """現在是不是「該停下來」的狀態。是就回原因。"""
+    """現在是不是「該停下來」的狀態。是就回原因。
+    暫停（pause）與程式判定的停止條件（stop_required）只有 David 手打的指令能解除；停在合併前（awaiting_approval）只認「放行／修改」。
+    done（文件那一筆已經推上去）不鎖：收 worktree、刪分支、關信照常做，被擋就是一般的暫停（David 的裁決：認「繼續」）。"""
     st, cfg = ctx.state, ctx.cfg
+    stage = st.get("stage")
     sr = st.get("stop_required")
     if sr:
-        return "已經碰到停止條件 %s：%s" % (sr.get("code"), sr.get("reason"))
+        return "已經碰到停止條件 %s：%s。要 David 輸入「繼續 %s」才接著做。" % (sr.get("code"), sr.get("reason"), stage)
+    p = st.get("pause")
+    if p:
+        word = "放行" if ST.merged_awaiting_docs(st) else "繼續"
+        return "自動駕駛暫停中（%s）。要 David 輸入「%s %s」才接著做。" % (p.get("detail") or p.get("reason") or "原因見信", word, stage)
     status = st.get("status")
-    if status == "paused":
-        p = st.get("pause") or {}
-        return "自動駕駛暫停中（%s）。要 David 輸入「繼續 %s」才接著做。" % (p.get("detail") or p.get("reason") or "原因見信", st.get("stage"))
-    if status == "stopped":
-        return "停止報告已經寄出，等 David 回覆（「繼續 %s」或「修改 %s：＿＿」）。" % (st.get("stage"), st.get("stage"))
     if status == "awaiting_approval":
-        return "已經停在合併前，等 David 輸入「放行 %s」或「修改 %s：＿＿」。" % (st.get("stage"), st.get("stage"))
-    if status == "done":
-        return "這個階段已經收尾完成。"
+        return "已經停在合併前，等 David 輸入「放行 %s」或「修改 %s：＿＿」。" % (stage, stage)
     t0 = C.parse_iso(st.get("clock_started_at"))
     if t0 is not None and (ctx.now - t0).total_seconds() > 3600.0 * float(cfg.get("maxHours", 8)):
         ctx.effects.append(("stop_required", 9, "超過時間上限 %s 小時" % cfg.get("maxHours", 8)))
@@ -503,19 +508,32 @@ def _notify_command(argv, cwd, ctx):
     return False
 
 
+def _runs_key(ctx):
+    """這個階段的報告資料夾（.autopilot/runs/<階段>/）：暫停期間唯一准寫的地方。"""
+    return ctx.main_key + "/.autopilot/runs/" + (ctx.stage or "").lower()
+
+
 def _is_wrapup(tool, ti, ctx):
-    if tool in ("SendUserFile", "ToolSearch", "TodoWrite", "TaskStop", "TaskOutput", "Skill", "SubagentHandback",
-                "mcp__ccd_session__mark_chapter", "WebFetch", "WebSearch"):
+    """暫停（或停在合併前）期間唯一准做的事（規格 P1-1 第 1 節：讀檔與搜尋、寫報告、寄信；清單越窄越好）：
+      * 讀檔與搜尋：Read／Grep／Glob（不經過 hook）
+      * 寫報告：Write／Edit 只准寫 .autopilot/runs/<階段>/（暫存資料夾、.autopilot/ 其他地方都不准）
+      * 寄信：主目錄那一支 iw_notify.py（send／status／retry／close）
+      * 唯讀地查看：唯讀程式與 git 的唯讀子指令——不准 git -c、不准會寫檔的選項（--output、sed -i、sort -o…）、不准 tee、不准 heredoc；
+        輸出若轉向，只准到 .autopilot/runs/<階段>/；用 ;、&&、管線串在後面的寫入指令一樣擋
+      * Skill、ToolSearch、TodoWrite、SubagentHandback（都不動任何檔）
+    其他一律擋。"""
+    if tool in PAUSE_TOOLS:
         return True
+    runs = _runs_key(ctx)
     if tool in ("Write", "Edit"):
         k = C.key(str(ti.get("file_path") or ""), ctx.cwd)
-        return k is not None and (C.is_under(k, ctx.main_key + "/.autopilot") or (ctx.scratch_key and C.is_under(k, ctx.scratch_key)))
+        return k is not None and C.is_under(k, runs)
     if tool == "Bash":
         try:
             parsed = S.parse_bash(str(ti.get("command") or ""), {"HOME": ctx.home})
         except S.ParseError:
             return False
-        if parsed.complex:
+        if parsed.complex or parsed.heredocs:
             return False
         cwd = ctx.cwd
         for c in parsed.cmds:
@@ -531,13 +549,17 @@ def _is_wrapup(tool, ti, ctx):
                 if len(argv) < 2 or c.words[1].opaque:
                     return False
                 cwd = C.norm(argv[1], cwd) or cwd
-            if _notify_command(argv, cwd, ctx):
-                continue
-            for op, w in c.redirs:
+            for op, w in c.redirs:                                  # 輸出只能轉向到報告資料夾（寄信那一支也一樣）
+                if op in ("<<<",):
+                    return False
                 if ">" in op and w.text not in ("/dev/null",) and not re.match(r"^[0-9]+$", w.text):
                     k = C.key(w.text, cwd) if not w.opaque else None
-                    if k is None or not (C.is_under(k, ctx.main_key + "/.autopilot") or (ctx.scratch_key and C.is_under(k, ctx.scratch_key))):
+                    if k is None or not C.is_under(k, runs):
                         return False
+            if _notify_command(argv, cwd, ctx):
+                continue
+            if p == "git" and _git_sub(argv)[3]:                   # git -c：臨時改設定，暫停中不准
+                return False
             if not _is_readonly(p, c.words, "bash"):
                 return False
         return True
@@ -1442,6 +1464,11 @@ def _git(words, cwd, ctx, auto):
         raise Block("看不出這個 git 指令是在哪個資料夾執行（前面的 cd 或 -C 含有變數）。請寫完整路徑。", 8 if auto else 1)
     if info is None or not info.get("ours"):
         if auto and sub not in READONLY_GIT and sub not in ("init",):
+            if not os.path.isdir(cdir):
+                # 2026-10-02 實戰：「git worktree add … && cd …-merge && git merge …」寫在同一段——守門在執行前就把整段看完，
+                # 那時候資料夾還不存在，看不出它是不是這個倉庫。維持從嚴（擋），但把原因與正確做法說清楚。
+                raise Block("這個資料夾還不存在：%s。檢查程式在執行前就把整段指令看完，所以「建立 worktree」與「進去執行 git」要分成兩個指令："
+                            "先單獨執行 git worktree add …，確認資料夾在了，再用第二個指令進去合併或 commit。" % cdir, 8)
             raise Block("自動駕駛期間 git 只用在這個專案的倉庫上（%s 不是）。" % cdir, 8)
         return
     in_main = info.get("is_main_checkout")

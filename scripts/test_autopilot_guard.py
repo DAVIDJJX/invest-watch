@@ -63,11 +63,14 @@ class FakeGit(object):
         self.changed = []
         self.blobs = {}                      # HEAD 上每個檔的內容編號
         self.merging = None                  # 合併用的 worktree 裡正在合併的 commit
+        self.missing = set()                 # 還不存在的資料夾（真的 git 查不到會回 None）
         self.asked = []
 
     def info(self, cdir):
         k = C.key(cdir) if cdir else None
         if k is None:
+            return None
+        if any(C.is_under(k, m) for m in self.missing):
             return None
         table = [
             (C.key(MERGE_WT), {"ours": True, "toplevel": C.key(MERGE_WT), "branch": None, "head": TIP, "is_main_checkout": False}),
@@ -1574,6 +1577,95 @@ class TestVersionQueriesAndTheFixedTestEnvironment(Base):
         self.blocked(self.bash("echo '{}' > ../../../.git/iw-autopilot/state.json", cwd=WT))
         self.blocked(self.bash("cd ../../../.git && echo '{}' > iw-autopilot/state.json", cwd=WT))
         self.blocked(self.bash("echo x > \"$D/skills/iw-autopilot/SKILL.md\"", cwd=MAIN))
+
+
+class TestStructuralPauseInTheGuard(Base):
+    """P1-1 第 1 節：暫停（pause）由 hook 寫；守門看到它就只准那一張窄清單，其他一律擋、並回 pause_retry 的效果。"""
+
+    RUNS = MAIN + "/.autopilot/runs/X1"
+    NOTIFY = "python " + MAIN + "/.claude/hooks/iw_notify.py"
+
+    def paused(self, **kw):
+        return self.state(pause=dict({"reason": "blocked", "code": 8, "detail": "x", "at": C.iso(NOW), "retries": 0}, **kw))
+
+    def test_everything_outside_the_narrow_list_is_blocked_and_counted_as_a_retry(self):
+        """對照組：_is_wrapup 放寬任何一項 → 這一條會紅；拿掉 pause_retry → 最後的斷言會紅。"""
+        st = self.paused()
+        for cmd in ("python scripts/x.py", "git add -- js/app.js", "git commit -m x", "git push origin feat/stopX1", "npm --version",
+                    "git diff --output=" + self.RUNS + "/d.txt", "git log --output=" + self.RUNS + "/l.txt -1",
+                    "git -c core.quotepath=false log -1", "git config user.name x", "git log -1 | tee " + self.RUNS + "/l.txt",
+                    "echo x > " + SCRATCH + "/x.txt", "echo x > js/app.js", "echo x > " + MAIN + "/.autopilot/outbox/x.md",
+                    "git status; echo x > js/app.js", "git status && npm install", "cat README.md | sort -o " + self.RUNS + "/s.txt",
+                    "sed -i s/a/b/ README.md", "cat <<EOF > " + self.RUNS + "/x.md\nhi\nEOF", "bash <<< 'ls'", "mkdir -p " + self.RUNS + "/sub",
+                    "cp README.md " + self.RUNS + "/r.md", "curl -s http://127.0.0.1:8766/", "python .claude/hooks/iw_notify.py status",
+                    self.NOTIFY + " send --stage X1 --kind stop --report x.md > " + SCRATCH + "/out.txt",
+                    "python D:/Fake/elsewhere/iw_notify.py send"):
+            block, effects = self.bash(cmd, state=st)
+            self.assertIsNotNone(block, cmd)
+            self.assertIn(("pause_retry",), effects, cmd)
+        for tool, ti in (("Write", {"file_path": SCRATCH + "/x.py", "content": "x"}),
+                         ("Write", {"file_path": MAIN + "/.autopilot/outbox/x.md", "content": "x"}),
+                         ("Write", {"file_path": MAIN + "/.autopilot/runs/Y2/x.md", "content": "x"}),
+                         ("Edit", {"file_path": WT + "/js/app.js"}),
+                         ("WebFetch", {"url": "https://code.claude.com/docs/en/hooks"}), ("WebSearch", {"query": "x"}),
+                         ("SendUserFile", {"files": ["x"]}), ("TaskStop", {"task_id": "x"}), ("mcp__ccd_session__mark_chapter", {"title": "x"}),
+                         ("mcp__Claude_Browser__navigate", {"url": "http://127.0.0.1:8766/"}),
+                         ("Agent", {"subagent_type": "iw-reviewer", "prompt": "REVIEW-KIND: acceptance\nSTAGE: X1\nCOMMIT: none\n"})):
+            block, effects = self.run_tool(tool, ti, state=st)
+            self.assertIsNotNone(block, tool)
+            self.assertIn(("pause_retry",), effects, tool)
+        for cmd in ("git status --short", "git log --oneline -3", "git diff --stat origin/main...HEAD", "cat docs/CHANGELOG.md | head -5",
+                    "ls -la " + self.RUNS, "git log -3 > " + self.RUNS + "/log.txt", "grep -n x README.md", "cd " + WT + " && git status",
+                    self.NOTIFY + " status", self.NOTIFY + " send --stage X1 --kind stop --report " + self.RUNS + "/03_停止報告.md",
+                    "PY=python; \"$PY\" " + MAIN + "/.claude/hooks/iw_notify.py retry"):
+            block, effects = self.bash(cmd, state=st)
+            self.assertIsNone(block, "%s → %s" % (cmd, block.reason if block else ""))
+            self.assertNotIn(("pause_retry",), effects, cmd)
+        for tool, ti in (("Write", {"file_path": self.RUNS + "/03_停止報告.md", "content": "x"}),
+                         ("Edit", {"file_path": self.RUNS.replace("/", "\\") + "\\02_驗收報告.md"}),
+                         ("Skill", {"skill": "iw-autopilot"}), ("ToolSearch", {"query": "x"}), ("TodoWrite", {"todos": []}),
+                         ("SubagentHandback", {"message": "x"})):
+            block, effects = self.run_tool(tool, ti, state=st)
+            self.assertIsNone(block, "%s → %s" % (tool, block.reason if block else ""))
+        self.assertEqual(sorted(G.PAUSE_TOOLS), ["Skill", "SubagentHandback", "TodoWrite", "ToolSearch"])
+
+    def test_the_block_message_names_the_word_that_unpauses(self):
+        block = self.blocked(self.bash("python scripts/x.py", state=self.paused()), code=8)
+        self.assertIn("繼續 X1", block.reason)
+        merged = self.with_credential(self.paused(status="merged"), merge={"sha": "f" * 40, "at": C.iso(NOW)})
+        block = self.blocked(self.bash("python scripts/x.py", state=merged), code=8)
+        self.assertIn("放行 X1", block.reason)                                  # 已合併、等補文件：認的是「放行」
+        block = self.blocked(self.bash("python scripts/x.py", state=self.state(stop_required={"code": 3, "reason": "x", "at": C.iso(NOW)})), code=3)
+        self.assertIn("停止條件 3", block.reason)
+
+    def test_legacy_statuses_still_lock(self):
+        for st in (self.state(status="stopped"), self.state(status="paused", pause={"reason": "model", "detail": "x"})):
+            self.blocked(self.bash("python scripts/x.py", state=st))
+            self.allowed(self.bash("git status --short", state=st))
+
+    def test_done_does_not_lock_but_blocks_are_still_blocks(self):
+        """David 的裁決 3：done 之後收尾照常；清單以外照樣擋（hook 那邊會把它記成一般的暫停）。"""
+        st = self.state(status="done")
+        for cmd in ("git worktree remove .claude/worktrees/stopX1-merge", "git branch -d feat/stopX1", "git push origin --delete feat/stopX1",
+                    self.NOTIFY + " close --stage X1"):
+            self.allowed(self.bash(cmd, state=st, cwd=MAIN), msg=cmd)
+        self.blocked(self.bash("npm --version", state=st, cwd=MAIN), code=8)
+
+    def test_a_folder_that_does_not_exist_yet_gets_a_clear_message(self):
+        """2026-10-02：「git worktree add … && cd …-merge && git merge …」寫在同一段被擋。維持從嚴，但訊息要說清楚原因與做法。
+        對照組：把這段訊息拿掉（退回舊訊息）→ 這一條會紅。"""
+        nowhere = MAIN + "/.claude/worktrees/stopX1-merge-notyet"                                   # 跟 2026-10-02 一樣：合併用的 worktree 還沒建
+        self.git.missing.add(C.key(nowhere))
+        block = self.blocked(self.bash("cd " + nowhere + " && git merge --no-ff --no-commit feat/stopX1", state=self.state()), code=8)
+        self.assertIn("還不存在", block.reason)
+        self.assertIn("分成兩個指令", block.reason)
+        self.assertIn("git worktree add", block.reason)
+        block = self.blocked(self.bash("git worktree add --detach " + nowhere + " origin/main && cd " + nowhere + " && git merge --no-ff feat/stopX1",
+                                       state=self.state(), cwd=MAIN), code=8)
+        self.assertIn("分成兩個指令", block.reason)
+        self.allowed(self.bash("git worktree add --detach " + nowhere + " origin/main", state=self.state(), cwd=MAIN))   # 第一個指令：單獨建
+        self.allowed(self.bash("cd " + nowhere + " && git status", state=self.state()))              # 唯讀的照舊放行
+        self.allowed(self.bash("cd " + nowhere + " && git merge --no-ff feat/stopX1"))              # 一般模式照舊（git 自己會失敗）
 
 
 if __name__ == "__main__":

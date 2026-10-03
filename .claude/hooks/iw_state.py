@@ -18,11 +18,44 @@ import time
 
 import iw_common as C
 
-STATUSES = ("pending", "running", "paused", "stopped", "awaiting_approval", "approved", "merged", "done")
+# status 只記流程走到哪。「暫停」是另一個欄位（pause），有它＝暫停中；舊版（P1）用 paused／stopped 兩個 status 表示，讀進來時換掉（normalize）。
+STATUSES = ("pending", "running", "awaiting_approval", "approved", "merged", "done")
+LEGACY_PAUSE_STATUSES = ("paused", "stopped")
 
 
 def default_state():
     return {"version": 1, "active": False, "stage": None, "status": None}
+
+
+def is_paused(st):
+    """暫停中：hook 記了 pause（守門擋下、寄了停止報告、模型被換、用量上限、冒充的指令詞…）或程式判定的停止條件成立。"""
+    return bool(st.get("pause")) or bool(st.get("stop_required"))
+
+
+def merged_awaiting_docs(st):
+    """合併已經推上 main、只差文件那一筆——不管中間停過沒有、時間窗過了沒有。
+    這個狀態只認 David 的「放行 <階段>」（重開一次性的文件時間窗）。結案過的階段（closed_stages）不算。"""
+    cred = st.get("credential") or {}
+    if not cred.get("merge") or cred.get("docs") or cred.get("revoked"):
+        return False
+    if cred.get("stage") != st.get("stage"):
+        return False
+    return st.get("stage") not in (st.get("closed_stages") or {})
+
+
+def normalize(st):
+    """舊版 hook（P1）寫的狀態檔：status 可能是 paused／stopped、pause 欄位可能沒有。換成新的寫法（只改記憶體裡的，存檔時才落地）。"""
+    status = st.get("status")
+    if status in LEGACY_PAUSE_STATUSES:
+        if not st.get("pause"):
+            st["pause"] = {"reason": "legacy:" + status, "code": None, "at": st.get("clock_started_at"), "retries": 0,
+                           "detail": "停止報告已經寄出（舊版紀錄）" if status == "stopped" else "暫停（舊版紀錄）"}
+        st["status"] = "merged" if merged_awaiting_docs(st) else "running"
+    p = st.get("pause")
+    if isinstance(p, dict):
+        p.setdefault("retries", 0)
+        p.setdefault("code", None)
+    return st
 
 
 def state_file(sd):
@@ -38,7 +71,7 @@ def load(sd):
         st = json.load(fh)
     if not isinstance(st, dict) or "active" not in st:
         raise ValueError("state.json 的內容不對")
-    return st
+    return normalize(st)
 
 
 def save(sd, st):
@@ -133,6 +166,16 @@ def save_spec(sd, stage, text):
     d = os.path.join(sd, "specs")
     os.makedirs(d, exist_ok=True)
     p = os.path.join(d, stage + ".md")
+    with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    return p
+
+
+def save_ruling(sd, stage, text, stamp):
+    """David 的裁決原件（hook 存的，跟規格一樣放在狀態資料夾；給人看的副本另外放 .autopilot/runs/<階段>/）。"""
+    d = os.path.join(sd, "rulings")
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "%s-%s.md" % (stage, stamp))
     with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     return p
@@ -261,7 +304,7 @@ def parse_command(prompt):
     """看一則訊息是不是你的指令詞。回傳 dict(kind=…, stage=…, rest=…) 或 None。
 
     整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛
-    第一行相符：      自動駕駛：<階段>（下面是規格）、修改 <階段>：＿＿
+    第一行相符：      自動駕駛：<階段>（下面是規格）、修改 <階段>：＿＿、裁決：<階段>（下面是 Cowork 寫的內容）
     為什麼不能用「訊息裡有這幾個字就算」：規格本身就寫著「放行 P1」；代理回報、背景工作通知也會經過同一個 hook（外面包著標籤）。"""
     t = clean_prompt(prompt)
     if not t or t.startswith("<"):
@@ -275,6 +318,9 @@ def parse_command(prompt):
     m = re.match(r"^修改\s+(\S+?)\s*" + colon + r"(.*)$", first)
     if m:
         return {"kind": "revise", "stage": m.group(1), "rest": (m.group(2) + ("\n" + rest if rest else "")).strip()}
+    m = re.match(r"^裁決\s*" + colon + r"\s*(\S+)$", first)
+    if m:
+        return {"kind": "ruling", "stage": m.group(1), "rest": rest.strip("\n")}
     if "\n" in t:
         return None
     m = re.match(r"^放行\s+(\S+)$", t)
@@ -332,7 +378,7 @@ def near_miss(prompt, stage=None):
     first = lines[0]
     colon = "[:" + chr(0xFF1A) + "]"
     shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("approve_model", r"^放行\s*模型"),
-              ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛")]
+              ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛"), ("ruling", r"^裁決\s*" + colon + r"?\s*[A-Za-z0-9]")]
     if stage:
         end = r"(?![A-Za-z0-9._-])"                                 # 階段名稱要完整（P1 不可以對到 P10）；後面接中文字沒關係
         shapes += [("resume", r"^繼續\s*" + re.escape(stage) + end), ("revise", r"^修改\s*" + re.escape(stage) + end)]
@@ -395,12 +441,12 @@ def issue_credential(st, cfg, inp, now=None):
     now = now or C.now()
     cand = st.get("candidate") or {}
     import datetime
-    again = st.get("status") == "merged"                           # 合併已經推上去、只差文件那一筆：再放行一次＝重開文件的時間窗
+    again = merged_awaiting_docs(st)                                # 合併已經推上去、只差文件那一筆：再放行一次＝重開文件的時間窗（停過也一樣）
     old = st.get("credential") or {}
     st["credential"] = {
         "stage": st.get("stage"),
-        "candidate": cand.get("sha"),
-        "tag_sha": cand.get("tag_sha"),
+        "candidate": cand.get("sha") or (old.get("candidate") if again else None),
+        "tag_sha": cand.get("tag_sha") or (old.get("tag_sha") if again else None),
         "issued_at": C.iso(now),
         "expires_at": C.iso(now + datetime.timedelta(hours=float(cfg.get("credentialHours", 24)))),
         "prompt_id": inp.get("prompt_id"),
