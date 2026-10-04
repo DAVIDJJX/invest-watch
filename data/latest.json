@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-04T14:20:06+08:00",
- "updatedAtText": "2026-10-04 14:20",
+ "updatedAt": "2026-10-04T15:05:39+08:00",
+ "updatedAtText": "2026-10-04 15:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -72,7 +72,7 @@
     4305.0,
     4304.0
    ],
-   "fetchedAt": "2026-10-04T13:43:25+08:00",
+   "fetchedAt": "2026-10-04T15:05:34+08:00",
    "error": null,
    "buy": 4253.0,
    "sell": 4304.0,
@@ -80,11 +80,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-04T13:43:25+08:00",
-   "lastSuccessAt": "2026-10-04T13:43:25+08:00",
+   "lastAttemptAt": "2026-10-04T15:05:34+08:00",
+   "lastSuccessAt": "2026-10-04T15:05:34+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-04T13:05:00+08:00",
-   "nextDueAt": "2026-10-04T15:05:00+08:00"
+   "lastDueAt": "2026-10-04T15:05:00+08:00",
+   "nextDueAt": "2026-10-05T09:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -145,7 +145,7 @@
     906.4,
     906.9
    ],
-   "fetchedAt": "2026-10-04T13:43:27+08:00",
+   "fetchedAt": "2026-10-04T15:05:36+08:00",
    "error": null,
    "buy": 897.25,
    "sell": 906.9,
@@ -153,11 +153,11 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-04T13:43:27+08:00",
-   "lastSuccessAt": "2026-10-04T13:43:27+08:00",
+   "lastAttemptAt": "2026-10-04T15:05:36+08:00",
+   "lastSuccessAt": "2026-10-04T15:05:36+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-04T13:05:00+08:00",
-   "nextDueAt": "2026-10-04T15:05:00+08:00"
+   "lastDueAt": "2026-10-04T15:05:00+08:00",
+   "nextDueAt": "2026-10-05T09:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -240,14 +240,14 @@
    ],
    "date": "2026-10-02",
    "historyNote": null,
-   "fetchedAt": "2026-10-04T13:43:30+08:00",
+   "fetchedAt": "2026-10-04T15:05:39+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-04T13:43:30+08:00",
-   "lastSuccessAt": "2026-10-04T13:43:30+08:00",
+   "lastAttemptAt": "2026-10-04T15:05:39+08:00",
+   "lastSuccessAt": "2026-10-04T15:05:39+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-04T13:05:00+08:00",
-   "nextDueAt": "2026-10-04T15:05:00+08:00"
+   "lastDueAt": "2026-10-04T15:05:00+08:00",
+   "nextDueAt": "2026-10-05T10:05:00+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -1044,19 +1044,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 45,
    "nextDueAt": "2026-10-04T16:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-04T13:43:30+08:00",
+   "runAt": "2026-10-04T15:05:39+08:00",
    "slot": "light",
    "mode": "full",
    "ok": 3,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 36,
-   "nextDueAt": "2026-10-04T15:05:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-10-05T09:00:00+08:00",
    "status": "ok"
   }
  }
