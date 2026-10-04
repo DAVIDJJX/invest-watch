@@ -6,14 +6,19 @@ iw_notify.py — 自動駕駛的通知信、停止報告、事後偵測。
 用的是這台電腦上已經登入的 gh；這裡不存、也不處理任何密碼或權杖。
 
 指令（由 Claude 在停下來的時候執行；hook 也會直接呼叫裡面的函式）：
-  python iw_notify.py send  --stage <階段> --kind stop|tier2|ready --report <報告檔> [--worktree <路徑>] [--no-review]
+  python iw_notify.py send  --stage <階段> --kind stop|tier2|ready --report <報告檔> [--worktree <路徑>]
   python iw_notify.py close --stage <階段>          放行並合併完之後，把那一封的 issue 留言「已放行」並關掉
   python iw_notify.py test                          寄一封測試信
   python iw_notify.py status                        看現在的狀態（唯讀）
   python iw_notify.py retry                         把之前沒寄出去的再寄一次
+  python iw_notify.py pr open|edit|request-review --stage <階段> [--title …] [--body-file …]   PR 唯三的寫入（P2；文字先過隱私掃描）
+  python iw_notify.py verify --stage <階段> [--commit …] [--wait]                            驗收機這個 commit 綠不綠（唯讀）
+  python iw_notify.py review-status --stage <階段> [--wait]                                 外部審查（Codex）完成了沒（唯讀）
 
 「可以合併」（ready）那一種信寄出之前，程式自己會檢查：標籤在不在、分支推了沒、有沒有動到不能動的檔、
-要先給 David 看 diff 的檔看過了沒、審查代理批准了沒（紀錄是 hook 寫的，不是 Claude 轉述的）。任何一項不過就不寄。
+要先給 David 看 diff 的檔看過了沒、審查代理批准了沒（紀錄是 hook 寫的，不是 Claude 轉述的）。
+P2 之後多四件（關卡）：驗收機對這個 commit 綠、外部審查完成（Codex，或 David 手打免除）、Codex 的每條意見都有回覆、重大意見沒有被判不採納；
+本機的測試數要跟驗收機一致。任何一項不過就不寄；沒有任何跳過的選項（P1-1 的 --no-review 已拿掉）。一般模式也一樣。
 """
 import argparse
 import hashlib
@@ -26,9 +31,10 @@ import sys
 import time
 
 import iw_common as C
+import iw_review as R
 import iw_state as ST
 
-SECTIONS = ["一句話", "你要決定的事", "做了什麼", "怎麼自己看", "名詞解釋", "要繼續", "要修改", "不確定"]
+SECTIONS =["一句話", "你要決定的事", "做了什麼", "怎麼自己看", "名詞解釋", "要繼續", "要修改", "不確定"]
 KIND_NAMES = {"stop": "停下來了，要你決定", "tier2": "請看 diff", "ready": "做完了，等你放行才合併"}
 LEVEL_KEYS = ("minor", "decide", "approve")                       # 三個等級的字串只寫在 config.json 的 stopLevels（有測試釘住）
 
@@ -402,10 +408,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         return fail("階段名稱不對：%s" % stage)
     if st.get("active") and st.get("stage") != stage:
         return fail("現在自動駕駛的階段是 %s，不是 %s。" % (st.get("stage"), stage))
-    if kind == "ready" and st.get("active") and a.no_review:
-        # 審查代理這一關不可以被跳過：--no-review 只給 David 在場的一般階段（不是自動駕駛跑的）用
-        return fail("--no-review 只准一般模式（David 在場、沒有在自動駕駛）用；自動駕駛期間「可以合併」的信一定要有審查代理對這個 commit 的批准紀錄。")
-    merged_only_docs = ST.merged_awaiting_docs(st) and st.get("stage") == stage
+    merged_only_docs =ST.merged_awaiting_docs(st) and st.get("stage") == stage
     if kind == "ready" and merged_only_docs:
         return fail("這個階段已經合併進 main、只差文件那一筆，不能再寄「可以合併」的信。要重開文件的時間窗請 David 輸入「放行 %s」。" % stage)
     report = io.open(a.report, encoding="utf-8").read()
@@ -422,10 +425,15 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             return fail("連不上 GitHub，沒辦法確認正式版（main）現在的位置，先不寄「可以合併」的信。等網路恢復再寄一次。")
     extra, cand = [], None
     acks = {}
+    waived, head_for_lines = False, None
+    t1 = sf = []
+    runs_dir = os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage]))
     has_wt = os.path.isdir(wt)
     if kind in ("ready", "tier2") and not has_wt:
         return fail("找不到這個階段的 worktree：%s" % wt)
     if has_wt:
+        rc, head_for_lines = C.git(["rev-parse", "HEAD"], wt)
+        head_for_lines = head_for_lines.strip() if rc == 0 else None
         t1, sf, t2, _all = tier_files(wt, cfg, base)
         if kind == "ready":
             if st.get("active"):
@@ -495,19 +503,54 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         if rc != 0:
             return fail("標籤 %s 不在這個分支的歷史裡。" % tag)
         rc, branch = C.git(["rev-parse", "--abbrev-ref", "HEAD"], wt)
+        if cfg.get("verify") and cfg.get("externalReview"):
+            foreign = R.foreign_commit_check(main_root, sd, cfg, stage, fetch=not a.offline)   # P2：有人動了 PR 的分支？先看這個，訊息才說得清楚
+            if foreign:
+                return fail("%s。不能寄「可以合併」的信；請改寄 --kind stop（等級「要你決定」），等 David 看過 PR。" % foreign)
         rc2, remote_head = C.git(["rev-parse", "-q", "--verify", "refs/remotes/%s/%s" % (cfg["remote"], branch)], wt)
         if rc != 0 or rc2 != 0 or remote_head != head:
             return fail("分支 %s 還沒推上去（或推上去的不是現在這個 commit）。David 要能在 GitHub 上看到才行。" % branch)
         ok_review = [r for r in (st.get("reviews") or []) if r.get("kind") == "acceptance" and r.get("verdict") == "APPROVE"
                      and r.get("commit") == head and r.get("stage") == stage and r.get("model_ok", True)]
         if not ok_review:
-            if st.get("active") or not a.no_review:
-                return fail("沒有審查代理對這個 commit（%s）的批准紀錄。先跑驗收審查；紀錄是 hook 寫的，不能用轉述的。" % head[:7])
-            extra.append("注意：這一階段是一般模式（David 在場、不是自動駕駛跑的）。審查代理若有審，結論僅供參考；hook 沒有它對這個 commit 的批准紀錄。")
+            return fail("沒有審查代理對這個 commit（%s）的批准紀錄。先跑驗收審查；紀錄是 hook 寫的，不能用轉述的（一般模式也一樣，沒有跳過的選項）。" % head[:7])
+        if not st.get("active"):
+            extra.append("注意：這一階段是一般模式（David 在場、不是自動駕駛跑的）；審查代理對這個 commit 的批准是 hook 記的。")
+        # ---- 關卡（P2 第 3 節）：同一個 commit，驗收機綠、外部審查完成（Codex 或 David 免除）、每條意見有回覆、重大意見沒被判不採納；數字以驗收機為準
+        if cfg.get("verify") and cfg.get("externalReview"):
+            vs = R.verify_status(main_root, sd, cfg, stage, head)
+            ext = R.external_status(main_root, sd, cfg, stage, head, st)
+            waived = ext.get("mode") == "waived"
+            _GATE_CACHE[(stage, head)] = (vs, ext)
+            if not waived:
+                if not vs.get("green"):
+                    return fail("驗收機%s（%s）。不能寄「可以合併」的信：等驗收機綠了再寄；查不到也算不綠。" % ("還在跑" if vs.get("pending") else "不綠", vs.get("why")))
+                if not ext.get("complete"):
+                    mark_external_incomplete(sd, stage, head, ext)
+                    return fail("外部審查還沒完成（%s）。程式已經記下「外部審查未完成」。請改寄 --kind stop（等級會是「要你決定」），信裡給 David 兩個選項："
+                                "等（Codex 審完或額度恢復之後手打「繼續 %s」）、或手打「免外部審查 %s」。%s"
+                                % (ext.get("why"), stage, stage,
+                                   "這一段改到保護系統本身（第一層或自動駕駛自己的檔）：信裡要寫明這一點，並說等 Codex 比較妥當。" if (t1 or sf) else ""))
+                rows = R.parse_responses(os.path.join(runs_dir, cfg["externalReview"]["responsesFile"]))
+                missing, rejected = R.responses_problems(ext.get("findings") or [], rows)
+                if missing:
+                    return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。每一條都要在 .autopilot/runs/%s/%s 的表裡寫「採納並修」或「不採納」加理由。"
+                                % (len(missing), "、".join(str(x) for x in missing), stage, cfg["externalReview"]["responsesFile"]))
+                if rejected:
+                    return fail("有重大意見（P0／P1）被判「不採納」：%s。不能寄「可以合併」的信；請改寄 --kind stop（等級「要你決定」），由 David 與 Cowork 裁決。"
+                                % "、".join("留言 %s（%s）" % (f.get("id"), f.get("path") or "?") for f in rejected))
+            else:
+                if not vs.get("green"):                                     # 免除只免外部審查：驗收機照樣要綠
+                    return fail("David 免了外部審查，但驗收機%s（%s）。免除不包括驗收機，不能寄。" % ("還在跑" if vs.get("pending") else "不綠", vs.get("why")))
+            local_ran = local_test_count(os.path.join(runs_dir, "tests.txt"))
+            if local_ran is not None and local_ran != vs.get("ran"):
+                return fail("本機的測試條數（%s，tests.txt）跟驗收機的（%s）對不上。數字以驗收機為準，對不上是「要你決定」：請改寄 --kind stop。" % (local_ran, vs.get("ran")))
         cand = {"sha": head, "tag_sha": tag_sha, "branch": branch, "registered_at": C.iso()}
         slug = github_slug(main_root, cfg)
         if slug:
             extra.append("改了哪些檔（GitHub）：https://github.com/%s/compare/%s...%s" % (slug, cfg["mainBranch"], branch))
+    extra.append(gate_lines(main_root, sd, cfg, stage, head_for_lines, kind))
+    extra = [x for x in extra if x]
     if not st.get("tripwire_baseline"):
         rc, tip = C.git(["rev-parse", "-q", "--verify", "refs/remotes/%s/%s" % (cfg["remote"], cfg["mainBranch"])], main_root)
         if rc == 0:
@@ -539,6 +582,10 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             s["stop_required"] = None
             if s.get("credential"):
                 s["credential"]["revoked"] = "重新寄了「可以合併」的信"
+            if waived:
+                ws = s.setdefault("waived_stages", [])
+                if not ws or ws[-1] != stage:
+                    ws.append(stage)
         else:
             if s.get("active") and not s.get("pause"):
                 # 模型自己判斷要停（條件 2、4、5、6）而寄停止報告、或寄「請看 diff」：寄信的同時進暫停（P1-1 第 1 節）。status 不動。
@@ -555,6 +602,232 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         return 0
     say("信沒有寄出去：%s\n這件事要照實寫進給 David 的回覆裡。現在請結束這一輪。" % detail)
     return 1
+
+
+# ---------------------------------------------------------------- 關卡（P2）：驗收機、外部審查、PR 的三種寫入
+
+_GATE_CACHE = {}                               # (階段, commit) → (驗收機狀態, 外部審查狀態)：同一次寄信不重查
+
+
+def local_test_count(path):
+    """本機 tests.txt 裡「Ran N tests」的 N（最後一個）。沒有檔回 None。"""
+    try:
+        text = io.open(path, encoding="utf-8", errors="replace").read()
+    except Exception:                                              # noqa: B902
+        return None
+    found = re.findall(r"^Ran (\d+) tests?", text, re.M)
+    return int(found[-1]) if found else None
+
+
+def mark_external_incomplete(sd, stage, head, ext):
+    """程式記下「外部審查未完成」：David 手打「免外部審查 <階段>」的前提。"""
+    rec = {"stage": stage, "sha": head, "status": "incomplete", "why": (ext or {}).get("why"), "pr": (ext or {}).get("pr_url"), "at": C.iso()}
+
+    def fn(s):
+        s["external_review"] = rec
+    ST.update(sd, fn)
+    ST.log(sd, {"event": "external-incomplete", "stage": stage, "sha": (head or "")[:12], "why": rec["why"]})
+    return rec
+
+
+def verify_gate_problem(main_root, sd, cfg, stage, sha, now=None):
+    """放行時再查一次驗收機（P2 第 3 節）。綠回 None；不綠或查不到回原因。設定裡沒有驗收機（舊版）就不查。"""
+    if not (cfg.get("verify") and cfg.get("externalReview")):
+        return None
+    try:
+        vs = R.verify_status(main_root, sd, cfg, stage, sha, now=now)
+    except Exception as e:                                         # noqa: B902
+        return "查驗收機時出錯（%r）" % (e,)
+    return None if vs.get("green") else vs.get("why")
+
+
+def gate_lines(main_root, sd, cfg, stage, head, kind):
+    """停止信固定多兩行（P2 第 3 節）：「驗收機：…」「外部審查（GPT）：…」。程式寫，Claude 改不了。"""
+    if not (cfg.get("verify") and cfg.get("externalReview")):
+        return ""
+    if not head:
+        return "驗收機：沒有紀錄（這個階段還沒有 worktree 或 commit）\n外部審查（GPT）：沒有紀錄"
+    vs, ext = _GATE_CACHE.get((stage, head)) or (None, None)
+    st = ST.load(sd)
+    try:
+        if vs is None:
+            vs = R.verify_status(main_root, sd, cfg, stage, head)
+        if ext is None:
+            ext = R.external_status(main_root, sd, cfg, stage, head, st)
+    except Exception as e:                                         # noqa: B902
+        return "驗收機：查不到（%r）\n外部審查（GPT）：查不到" % (e,)
+    rows = R.parse_responses(os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage, cfg["externalReview"]["responsesFile"]])))
+    lines = [R.gate_line_verify(vs), R.gate_line_external(ext, rows)]
+    ws = st.get("waived_stages") or []
+    if ext.get("mode") == "waived" and ws and ws[-1] != stage:
+        lines.append("提醒：連續兩個階段（%s、%s）都免了外部審查，請太太檢查 Codex 的設定。" % (ws[-1], stage))
+    return "\n".join(lines)
+
+
+_PR_LOCAL = (re.compile(r"(?i)[a-z]:[\\/]+users[\\/]+(?!fake\b)[a-z0-9_.-]+"), re.compile(r"(?i)[a-z]:[\\/]+claude_use"))
+_PR_TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+_PR_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def pr_text_problems(main_root, title, body):
+    """PR 的標題與內文要過隱私掃描才送出（公開倉庫的 PR 人人看得到）。掃描器讀不到就當成沒過（寧可擋）。"""
+    text = "%s\n%s" % (title or "", body or "")
+    problems = []
+    if not (title or "").strip():
+        problems.append("標題是空的")
+    if any(rx.search(text) for rx in _PR_LOCAL):
+        problems.append("有本機的絕對路徑")
+    if _PR_TOKEN.search(text):
+        problems.append("有像權杖的字串")
+    for m in _PR_MAIL.findall(text):
+        if not (m.endswith(("@example.com", "@example.invalid", "@github.com")) or "noreply" in m or m.startswith("git@")):
+            problems.append("有電子郵件地址")
+            break
+    if "<pasted_content" in text or "pasted_content>" in text:
+        problems.append("內文含貼上的區塊標籤（規格原文不放進 PR）")
+    try:
+        import importlib.util
+        p = os.path.join(main_root, "scripts", "test_analysis_guards.py")
+        spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        hits = list(mod.privacy_hits(text)) + list(mod.profile_key_hits(text)) + list(mod.fxplan_key_hits(text))
+        if hits:
+            problems.append("隱私掃描命中：%s" % "、".join(str(h) for h in hits)[:120])
+    except Exception as e:                                         # noqa: B902
+        problems.append("隱私掃描器讀不到（%r）" % (e,))
+    return problems
+
+
+def cmd_pr(a, main_root, sd, cfg):
+    """PR 唯三的寫入：open（開）、edit（改標題與內文）、request-review（留言剛好是 @codex review）。其他對 PR 的寫入守門一律擋。"""
+    ext = cfg.get("externalReview") or {}
+    stage = a.stage
+    if not C.stage_ok(stage):
+        return fail("階段名稱不對：%s" % stage)
+    if not ext:
+        return fail("設定裡沒有外部審查（externalReview）。")
+    st = ST.load(sd)
+    if st.get("active") and st.get("stage") != stage:
+        return fail("現在自動駕駛的階段是 %s，不是 %s。" % (st.get("stage"), stage))
+    branch = cfg["branchPrefix"] + stage
+    slug = R.slug(main_root, cfg)
+    if not slug:
+        return fail("看不出這個倉庫在 GitHub 的名字。")
+    wt = stage_worktree(main_root, cfg, stage)
+    rc, head = C.git(["rev-parse", "HEAD"], wt) if os.path.isdir(wt) else (1, "")
+    head = head.strip() if rc == 0 else None
+    if a.action == "request-review":
+        body = ext["trigger"]
+        pr, err = R.find_pr(main_root, cfg, branch)
+        if pr is None:
+            return fail("找不到這個分支的 PR：%s" % err)
+        rc, out = R.gh(["pr", "comment", str(pr["number"]), "-R", slug, "--body", body])
+        if rc != 0:
+            return fail("留言沒有送出：%s" % out)
+
+        def fn(s):
+            s["external_review"] = {"stage": stage, "status": "requested", "pr": pr.get("url"), "sha": head, "at": C.iso()}
+        ST.update(sd, fn)
+        ST.log(sd, {"event": "pr", "action": "request-review", "stage": stage, "pr": pr.get("number")})
+        say("已在 PR #%s 留言「%s」（%s）。" % (pr["number"], body, pr.get("url")))
+        return 0
+    title = (a.title or "").strip()
+    try:
+        body = io.open(a.body_file, encoding="utf-8").read() if a.body_file else ""
+    except Exception as e:                                         # noqa: B902
+        return fail("讀不到內文的檔：%r" % (e,))
+    problems = pr_text_problems(main_root, title, body)
+    if problems:
+        return fail("PR 的文字沒過隱私掃描，沒有送出：\n- " + "\n- ".join(problems))
+    if a.action == "open":
+        rc, out = R.gh(["pr", "create", "-R", slug, "--base", cfg["mainBranch"], "--head", branch, "--title", title, "--body", body], timeout=60)
+        if rc != 0:
+            return fail("開 PR 沒有成功：%s" % out)
+        url = out.strip().split("\n")[-1] if out.strip() else ""
+
+        def fn(s):
+            s.setdefault("pull_requests", {})[stage] = {"url": url, "branch": branch, "opened_at": C.iso(), "sha": head}
+        ST.update(sd, fn)
+        ST.log(sd, {"event": "pr", "action": "open", "stage": stage, "url": url})
+        say("已開 PR：%s（%s → %s）。" % (url or "（gh 沒有印網址）", branch, cfg["mainBranch"]))
+        return 0
+    pr, err = R.find_pr(main_root, cfg, branch)
+    if pr is None:
+        return fail("找不到這個分支的 PR：%s" % err)
+    rc, out = R.gh(["pr", "edit", str(pr["number"]), "-R", slug, "--title", title, "--body", body], timeout=60)
+    if rc != 0:
+        return fail("改 PR 沒有成功：%s" % out)
+    ST.log(sd, {"event": "pr", "action": "edit", "stage": stage, "pr": pr.get("number")})
+    say("已改 PR #%s 的標題與內文。" % pr["number"])
+    return 0
+
+
+def _head_of_stage(main_root, cfg, stage, commit=None):
+    if commit:
+        return commit
+    wt = stage_worktree(main_root, cfg, stage)
+    rc, head = C.git(["rev-parse", "HEAD"], wt) if os.path.isdir(wt) else (1, "")
+    return head.strip() if rc == 0 else None
+
+
+def cmd_verify(a, main_root, sd, cfg):
+    """驗收機對這個 commit 綠不綠（唯讀）。--wait：每 pollSeconds 查一次，直到有結果或超過 timeoutMinutes。結束碼 0 綠、1 紅或查不到、2 等不到。"""
+    if not C.stage_ok(a.stage):
+        return fail("階段名稱不對：%s" % a.stage)
+    v = cfg.get("verify") or {}
+    if not v:
+        return fail("設定裡沒有驗收機（verify）。")
+    head = _head_of_stage(main_root, cfg, a.stage, a.commit)
+    if not head:
+        return fail("看不出要查哪個 commit（沒有 worktree，也沒有 --commit）。")
+    foreign = R.foreign_commit_check(main_root, sd, cfg, a.stage)
+    if foreign:
+        return fail(foreign + "。停下來：寫停止報告、寄 --kind stop，等 David 看過 PR。")
+    deadline = time.time() + 60.0 * float(v.get("timeoutMinutes", 40)) if a.wait else 0
+    while True:
+        vs = R.verify_status(main_root, sd, cfg, a.stage, head)
+        if vs.get("green") or not vs.get("pending") or time.time() >= deadline:
+            break
+        say("驗收機還在跑（%s），%d 秒後再查…" % (vs.get("url") or "", int(v.get("pollSeconds", 60))))
+        time.sleep(float(v.get("pollSeconds", 60)))
+    import json
+    say(json.dumps({"commit": head, "green": vs.get("green"), "pending": vs.get("pending"), "why": vs.get("why"), "url": vs.get("url"),
+                    "ran": vs.get("ran"), "verifier_changed": vs.get("verifier_changed")}, ensure_ascii=False, indent=1))
+    if vs.get("green"):
+        return 0
+    return 2 if vs.get("pending") else 1
+
+
+def cmd_review_status(a, main_root, sd, cfg):
+    """外部審查（Codex）完成了沒（唯讀）。--wait：等到完成或超過 externalReview.timeoutMinutes；逾時就記下「外部審查未完成」。"""
+    if not C.stage_ok(a.stage):
+        return fail("階段名稱不對：%s" % a.stage)
+    ext_cfg = cfg.get("externalReview") or {}
+    if not ext_cfg:
+        return fail("設定裡沒有外部審查（externalReview）。")
+    head = _head_of_stage(main_root, cfg, a.stage, a.commit)
+    if not head:
+        return fail("看不出要查哪個 commit（沒有 worktree，也沒有 --commit）。")
+    foreign = R.foreign_commit_check(main_root, sd, cfg, a.stage)
+    if foreign:
+        return fail(foreign + "。停下來：寫停止報告、寄 --kind stop，等 David 看過 PR。")
+    deadline = time.time() + 60.0 * float(ext_cfg.get("timeoutMinutes", 60)) if a.wait else 0
+    while True:
+        st = ST.load(sd)
+        ext = R.external_status(main_root, sd, cfg, a.stage, head, st)
+        if ext.get("complete") or time.time() >= deadline:
+            break
+        say("Codex 還沒審完（%s），%d 秒後再查…" % (ext.get("why"), int((cfg.get("verify") or {}).get("pollSeconds", 60))))
+        time.sleep(float((cfg.get("verify") or {}).get("pollSeconds", 60)))
+    if not ext.get("complete") and (a.wait or a.mark_incomplete):
+        mark_external_incomplete(sd, a.stage, head, ext)
+        say("已記下「外部審查未完成」（%s）。David 可以手打「免外部審查 %s」，或等 Codex 審完再「繼續 %s」。" % (ext.get("why"), a.stage, a.stage))
+    import json
+    say(json.dumps({"commit": head, "mode": ext.get("mode"), "complete": ext.get("complete"), "why": ext.get("why"), "pr": ext.get("pr_url"),
+                    "findings": ext.get("findings"), "major": len(ext.get("major") or []), "others": ext.get("others"), "reviews": ext.get("reviews")},
+                   ensure_ascii=False, indent=1))
+    return 0 if ext.get("complete") else 1
 
 
 def cmd_close(a, main_root, sd, cfg, runner=None):
@@ -630,6 +903,12 @@ def cmd_status(a, main_root, sd, cfg):
                        for r in (st.get("rulings") or [])]
     keep["reviews"] = [(r.get("kind"), r.get("verdict"), (r.get("commit") or "")[:7], r.get("epoch")) for r in (st.get("reviews") or [])]
     keep["tier2"] = (st.get("tier2") or {}).get("touched")
+    keep["retries"] = (st.get("pause") or {}).get("retries") if st.get("pause") else None      # 暫停中又被擋了幾次（P2 第 7 節：要印出來）
+    keep["external_review"] = st.get("external_review")
+    keep["waived_stages"] = st.get("waived_stages")
+    w = st.get("external_waiver")
+    if w:
+        keep["external_waiver"] = dict((k, w.get(k)) for k in ("stage", "sha", "issued_at", "expires_at", "revoked"))
     cred = st.get("credential")
     if cred:
         keep["credential"] = dict((k, cred.get(k)) for k in ("stage", "candidate", "issued_at", "expires_at", "merge", "docs", "revoked"))
@@ -655,10 +934,23 @@ def main(argv=None, runner=None, main_root=None):
     s.add_argument("--kind", required=True, choices=["stop", "tier2", "ready"])
     s.add_argument("--report", required=True)
     s.add_argument("--worktree")
-    s.add_argument("--no-review", action="store_true", help="不是自動駕駛的流程（David 在場的一般階段）才可以用")
     s.add_argument("--offline", action="store_true", help=argparse.SUPPRESS)
     c = sub.add_parser("close")
     c.add_argument("--stage", required=True)
+    p = sub.add_parser("pr", help="PR 唯三的寫入（P2）：open、edit、request-review；文字先過隱私掃描")
+    p.add_argument("action", choices=["open", "edit", "request-review"])
+    p.add_argument("--stage", required=True)
+    p.add_argument("--title")
+    p.add_argument("--body-file", dest="body_file")
+    v = sub.add_parser("verify", help="驗收機對這個 commit 綠不綠（唯讀）")
+    v.add_argument("--stage", required=True)
+    v.add_argument("--commit")
+    v.add_argument("--wait", action="store_true")
+    r = sub.add_parser("review-status", help="外部審查（Codex）完成了沒（唯讀）")
+    r.add_argument("--stage", required=True)
+    r.add_argument("--commit")
+    r.add_argument("--wait", action="store_true")
+    r.add_argument("--mark-incomplete", action="store_true", dest="mark_incomplete", help="沒完成就記下「外部審查未完成」（免外部審查的前提）")
     f = sub.add_parser("finish-docs", help="把早先的階段結案：它的文件併進了另一個階段的文件 commit")
     f.add_argument("--stage", required=True)
     f.add_argument("--merged-into", required=True, dest="merged_into")
@@ -675,6 +967,12 @@ def main(argv=None, runner=None, main_root=None):
         return cmd_close(a, main_root, sd, cfg, runner)
     if a.cmd == "finish-docs":
         return cmd_finish_docs(a, main_root, sd, cfg)
+    if a.cmd == "pr":
+        return cmd_pr(a, main_root, sd, cfg)
+    if a.cmd == "verify":
+        return cmd_verify(a, main_root, sd, cfg)
+    if a.cmd == "review-status":
+        return cmd_review_status(a, main_root, sd, cfg)
     if a.cmd == "status":
         return cmd_status(a, main_root, sd, cfg)
     if a.cmd == "retry":

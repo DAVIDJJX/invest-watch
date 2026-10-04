@@ -785,6 +785,60 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-10-04 · 停點 P2 第三方審核（GPT）（標籤 `stopP2`；等 David 放行後合併）
+
+P1-1 的報告把「14 個檔」寫成「24 個檔」：審查代理跑在同一個工作階段、用同一個模型、看的是 Claude 整理的報告，測試數字也是 Claude 自己回報的。這一個停點加兩個施工方改不了的第三方——**驗收機**（GitHub 的電腦從實際的 commit 重跑全套測試、三種掃描、突變對照，封鎖對外連線並記下每一個請求，結果綁 commit）與**外部審查員**（OpenAI Codex 讀 PR 的實際 diff、只標 P0／P1）——並把「可以合併」那一關改成程式查四件：驗收機綠、外部審查完成、每條意見有回覆、重大意見沒被判不採納。一般模式也適用；P1-1 時一般模式可以跳過審查代理的那個選項拿掉了。給 David 的白話說明在 `docs/AUTOPILOT.md`「第三方審核」。排程、雲端的更新流程、資料檔、前端一個字沒改；對資料來源的請求 0、台銀 0。
+
+本階段使用模型：claude-fable-5-1／思考強度：xhigh（一般模式，hook 不檢查強度，照工作階段的選單寫）／中途是否切換：否。
+
+**先講六件要請你過目的事**（覆述沒寫到、裁決之後才定、或施工時多發現的）
+
+1. **備援改成手打「免外部審查 <階段>」**（David 的裁決一）：GitHub Models 已於 2026-07-30 全面退役，規格裡「用 GitHub Models 的免費 GPT 當備援」做不成。改成第八句指令詞：只在程式已記「外部審查未完成」時有效、一次性、綁 commit、24 小時失效、有新 commit 或「修改」就作廢；只免外部審查。
+2. **驗收機的封鎖分三層、第一層用另一個使用者**：直接把執行機的所有對外連線封掉會弄斷它自己跟 GitHub 的連線（紀錄傳不回去、工作可能被判失聯），所以 iptables 只擋另一個使用者（`iwtest`）的對外封包，測試在那個使用者底下跑；再加 Chrome 的名稱解析規則與 Python 的 socket 兩層。拿不到 sudo 時照樣跑，結果寫「封鎖層級 2／3」（裁決三）。
+3. **突變清單搬進倉庫**（`scripts/mutations/`，裁決四）：P1 的 108 個與 P1-1 的 38 個原本在本機的 `.autopilot/runs/`，驗收機跑不到；搬進來、去掉本機路徑、加 P2 的 Q 系列。已知例外只有 M105，寫在 `known_survivors.json`，驗收機只認 main 上的那一份。另外加一條測試：每個錨點在現在的程式裡剛好出現一次（錨點跟著程式漂掉會紅）。
+4. **「驗收機本身有改」用 git 比 blob**，不信 CI 自己說的：hook 比分支上的 `verify.yml`、`scripts/verify_ci.py`、`scripts/mutations/run_mutations.py`、`known_survivors.json` 跟 origin/main 的 blob；不同＝這種綠不算（main 上還沒有驗收程式的 P2 這一次除外）。再加上 Claude Code 的權杖沒有 `workflow` 範圍（改 `verify.yml` 一個字推送就被 GitHub 拒收；由 David 在網頁貼），施工的一方改不到驗收機。
+5. **一般模式也記審查代理的結論**：P1-1 時 hook 只在自動駕駛中記；現在 David 在場的階段呼叫審查代理，hook 也記（標 `attended`），寄「可以合併」的信一律要有 hook 記的批准。
+6. **PR 的寫入只有一道門**：`iw_notify.py pr open／edit／request-review`（文字先過隱私掃描；留言內容寫死 `@codex review`）。`gh pr`／`gh issue` 的任何寫入、`gh api` 的寫入與 graphql（resolve、刪、隱藏留言都在這裡）兩種模式都擋；暫停中連 `iw_notify.py pr` 也不准。PR 分支上出現不是自己推的 commit：推送前的檢查擋下、自動駕駛中立刻暫停（要你決定）。
+
+**改了什麼**
+
+| 檔案 | 內容 |
+|---|---|
+| `.github/workflows/verify.yml`（David 在 GitHub 網頁貼進分支） | 驗收機的流程：推 `feat/**`、`stop*` 標籤、手動才跑；`contents: read`；三個 job（全套測試＋掃描＋封鎖、突變分 6 片、合併判定與結果檔） |
+| `scripts/verify_ci.py`（新） | 驗收機的邏輯：取 main 上的驗收程式、三層封鎖、跑全套（結果 JSON）、收集對外請求、跟 main 比（測試數、被刪改的測試與突變、動到的保護範圍檔、驗收機本身有沒有改）、跑一片突變、判定紅綠、結果檔過隱私掃描、job summary |
+| `scripts/mutations/run_mutations.py`、`autopilot_mutations.py`、`known_survivors.json`（新） | 突變對照的執行器（分片、錨點核對）、146＋32 個定義、已知例外 |
+| `AGENTS.md`（新） | 給 Codex 的審查準則公開版（`## Code Review Rules`；繁體中文；只審不改） |
+| `.claude/hooks/iw_review.py`（新） | 讀驗收機的 run 與結果檔、讀 Codex 的 review 與意見、核對 `03_第三方審查.md` 的回覆、免外部審查的有效性、信裡那兩行 |
+| `.claude/hooks/iw_notify.py` | 關卡（驗收機綠、外部審查完成或免除、每條意見有回覆、沒有重大意見被判不採納、本機測試數＝驗收機）；拿掉跳過審查的選項；`pr`／`verify`／`review-status` 三個子指令；信多兩行；`status` 印 retries 與外部審查的狀態 |
+| `.claude/hooks/iw_events.py` | 認「免外部審查 <階段>」（只在記了未完成之後；事後核對是人打的；「修改」與冒充都作廢）；放行時再查一次驗收機；一般模式記審查代理的結論；守門紀錄寫 retries |
+| `.claude/hooks/iw_guard.py` | `gh pr`／`gh issue` 的寫入兩種模式都擋；自動駕駛期間 `gh run download` 只准下到報告資料夾；暫停中不准 `iw_notify.py pr` |
+| `.claude/hooks/iw_prepush.py` | 合併前再查一次驗收機（查不到就擋）；feat 分支的遠端頭要是自己推過的（不是就擋、自動駕駛中暫停並寄信） |
+| `.claude/hooks/iw_state.py` | 指令詞 `免外部審查 <階段>`；寫法差一點的提示 |
+| `.claude/autopilot/config.json`、`allowlist.json` | `protectionVersion: "P2"`；`verify`、`externalReview` 兩段；第一層加 `AGENTS.md`、`scripts/verify_ci.py`、`scripts/mutations/**`；`gh pr view／list／diff／checks／status`、`gh run download` 進自動駕駛的清單 |
+| `.claude/skills/iw-autopilot/SKILL.md`、新檔 `pr-steps.md`、`review-criteria.md`、`report-template.md` | 第 4b 步「第三方」、第 7 步的關卡四件；PR 流程、回覆表的格式、未完成與不採納怎麼辦；審驗收多查三條；信多兩行 |
+| `scripts/test_verify_ci.py`（新）、`scripts/test_autopilot_flow.py`（＋14 條）、`_guard.py`（＋2 條）、`_prepush.py`（＋2 條）、`_config.py`（＋6 條） | 見下面 |
+| `docs/AUTOPILOT.md`、`docs/CHANGELOG.md`、`README.md` | 「第三方審核」一節（含太太與 David 的步驟、互動限制、Run failed、ruleset 的結論）、八句話、出問題的時候多四列、退回順序；進度 |
+
+沒有動的：`.claude/settings.json`、`scripts/autopilot_install.py`、`.gitignore`、`update-data.yml` 與兩個 probe workflow、`data/`、`scripts/update_local.ps1`、`scripts/net_policy.py`、`scripts/sensitive_terms_hmac.json`、任何前端檔。
+
+**怎麼驗的**
+
+- 本機全套與突變、驗收機自己跑自己、Codex 審 P2 的 PR、紅燈演練、workflow 權限實測：數字與連結見 `.autopilot/runs/P2/02_驗收報告.md`（合併紀錄會補到這裡）。
+- 新測試釘住的事：
+  - 關卡：驗收機紅／還在跑／沒紀錄／結果檔綁錯 commit／結果檔標紅／查不到 → ready 不寄；分支改了驗收機本身的綠不算（main 上有驗收程式之後）；外部審查未完成（沒有 review、review 針對舊 commit、只有別人的留言、找不到 PR）→ 不寄且記下「未完成」；Codex 的意見每條要有回覆、P0／P1 判不採納擋下、沒標等級的當 P1、別人的與舊 commit 的不算；本機測試數跟驗收機對不上不寄；停止信與 ready 信都有程式寫的兩行；放行時再查一次驗收機（紅或查不到不開通行證）；合併前第二道再查一次（真的 git push）。
+  - 免外部審查：要先有「未完成」的紀錄；貼上的不算；綁 commit（新 commit 作廢）、過期、「修改」作廢、冒充的鎖住；不是放行；免除之後驗收機照樣要綠；連續兩個階段提醒。
+  - 一般模式：`--no-review` 不存在（argparse 直接拒絕）；一般模式呼叫審查代理也記、ready 要它的批准。
+  - 守門：`gh pr`／`gh issue` 的寫入、`gh api` 寫入與 graphql 兩種模式都擋；唯讀放行；`iw_notify.py pr` 放行但暫停中不准；`gh run download` 只准到報告資料夾。
+  - 第二道：feat 分支出現不是自己推的 commit → 擋、暫停、記 `foreign_commit`；遠端頭是自己推過的照常。
+  - retries：守門紀錄每一筆擋下寫出當時的 retries；`status` 暫停中印 retries。
+  - 驗收機（純函式）：台銀紅、資料來源與 GitHub 紅、未知主機紅、Chrome 噪音只列、被擋的 IP 只列；測試數或突變數變少紅、沒解釋的存活突變紅、錨點錯誤紅、結果檔含不該公開的字串紅、Python 層沒生效紅、系統層拿不到不紅但寫層級；靜態計數與被刪改的測試；netlog／iptables／Python 紀錄的解析；sitecustomize 真的擋得住對外、放得過 loopback；取驗收程式時 main 的版本蓋過分支的、第一次用分支的並標示；突變清單的錨點剛好出現一次。
+- 突變對照：P1 的 108 個與 P1-1 的 38 個重跑（錨點隨程式更新：M18、M105／M108 照舊），加 P2 的 Q01～Q32。結果見驗收報告。
+
+**怎麼退回**
+
+- 合併後：`git revert -m 1 <P2 的合併 commit> && git push --no-verify`（請 David 在主目錄的終端機下；`--no-verify` 是給你的，Claude 用會被擋）。退回後保護回到 P1-1 的版本：沒有驗收機與 Codex 的關卡、沒有「免外部審查」、一般模式又有跳過審查的選項；`verify.yml`、`AGENTS.md`、`scripts/verify_ci.py`、`scripts/mutations/` 消失。Codex 在 GitHub 那一側的設定不受影響（要關請太太在 Codex 的設定裡關）；排程、workflow、資料檔不受影響。P2 合併之後要退回 P1-1，得先退這一筆。
+- 標籤 `stopP2` 打在分支上的最後一個 commit（`git log --oneline stopP2 -1` 可查）。
+
 ## 2026-10-03 · 停點 P1-1 自動駕駛收尾（標籤 `stopP1-1`；2026-10-03 合併 823a409）
 
 **合併紀錄（2026-10-03）**

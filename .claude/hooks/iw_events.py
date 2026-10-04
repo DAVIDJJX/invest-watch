@@ -15,6 +15,7 @@ iw_events.py — 各個 hook 事件要做的事（讀狀態 → 判斷或紀錄 
   sessionstart   開工作階段：檢查保護檔有沒有被動過；壓縮對話後提醒目前的狀態
   sessionend     工作階段結束：自動駕駛進行中就寄信
 """
+import datetime
 import io
 import json
 import os
@@ -76,8 +77,8 @@ def pretool(inp, env):
     st = ST.load(env.sd)
     is_mine = mine(st, inp)
     tool = inp.get("tool_name") or ""
-    if is_mine and tool == "SubagentHandback" and inp.get("agent_type") == env.cfg["reviewer"]["agentType"]:
-        record_review_text(env, str((inp.get("tool_input") or {}).get("message") or ""), "handback")
+    if tool == "SubagentHandback" and inp.get("agent_type") == env.cfg["reviewer"]["agentType"] and (is_mine or st.get("review_pending")):
+        record_review_text(env, str((inp.get("tool_input") or {}).get("message") or ""), "handback")      # 一般模式的審查也記（P2）
         st = ST.load(env.sd)
     if st.get("cmd_checks"):
         verify_commands(env)
@@ -101,11 +102,19 @@ def pretool(inp, env):
         effects = list(effects) + [("pause", "blocked", block.reason[:200], block.code, False)]
     if effects:
         apply_effects(env, effects, inp)
+    ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+    if block is None and tool == "Agent" and not is_mine and ti.get("subagent_type") == env.cfg["reviewer"]["agentType"]:
+        # P2：一般模式（David 在場、沒有自動駕駛）也記審查代理的結論——「可以合併」的信沒有跳過審查的選項了，一般模式也要有 hook 記的批准
+        head = G._review_header(str(ti.get("prompt") or ""))
+        p = st.get("review_pending")
+        if (p is None or p.get("attended")) and not mine(st, inp) and head is not None:
+            apply_effects(env, [("review_begin", dict(head, attended=True))], inp)
     if block is not None or is_mine:
-        ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+        st_after = ST.load(env.sd)
+        retries_now = (st_after.get("pause") or {}).get("retries") if st_after.get("pause") else None    # P2 第 7 節：每一筆擋下寫出當時的 retries
         ST.log(env.sd, {"event": "pretool", "tool": tool, "what": str(ti.get("command") or ti.get("file_path") or ti.get("subagent_type") or "")[:300],
                         "blocked": bool(block), "code": block.code if block else None, "reason": block.reason[:200] if block else None,
-                        "agent": inp.get("agent_type")})
+                        "agent": inp.get("agent_type"), "retries": retries_now})
     if block is not None:
         C.err(block.reason)
         return 2
@@ -132,6 +141,8 @@ def verify_commands(env):
             if c.get("kind") == "approve":
                 ST.append_approval(env.sd, {"stage": c.get("stage"), "candidate": c.get("candidate"), "tag_sha": c.get("tag_sha"),
                                             "prompt_id": c.get("prompt_id")})
+            elif c.get("kind") == "waive":
+                ST.append_approval(env.sd, {"stage": c.get("stage"), "waiver": c.get("sha"), "prompt_id": c.get("prompt_id")})
             continue
         forged.append(dict(c, why="對話紀錄顯示這一則訊息不是人打的" if not human else "對話紀錄裡那一則訊息的內容對不上"))
     now = C.iso(env.t())
@@ -153,6 +164,8 @@ def verify_commands(env):
             s["model_approved"] = []
             if s.get("credential"):
                 s["credential"]["revoked"] = "收到不是 David 親手輸入的指令詞"
+            if s.get("external_waiver"):
+                s["external_waiver"]["revoked"] = "收到不是 David 親手輸入的指令詞"
     st2 = ST.update(env.sd, fn)
     for r in (st2.get("rulings") or []):
         if r.get("forged") and not r.get("forged_marked"):
@@ -327,7 +340,7 @@ def finalize_review(env, models=None, resolved=None):
                 st["stop_required"] = {"code": 9, "reason": "審查代理用的模型不是 %s（是 %s）" % (need, "、".join(ms)), "at": C.iso(env.t())}
         rec = {"kind": p.get("kind"), "stage": p.get("stage"), "commit": None if want in ("none", "尚無") else want, "verdict": verdict,
                "epoch": p.get("epoch"), "at": C.iso(env.t()), "models": ms, "model_ok": model_ok if model_ok is not None else True,
-               "report_source": p.get("report_source")}
+               "report_source": p.get("report_source"), "attended": bool(p.get("attended"))}
         rec["round"] = 1 + len([r for r in (st.get("reviews") or []) if r.get("kind") == rec["kind"] and r.get("epoch") == rec["epoch"]])
         st.setdefault("reviews", []).append(rec)
         st["review_pending"] = None
@@ -476,6 +489,7 @@ NEAR_MISS_HOW = {
     "revise": ("沒有當成修改指令", "第一行請手打「修改 <階段>：要改什麼」"),
     "end": ("沒有結束", "請手打「結束自動駕駛」，整則訊息只有這一句"),
     "ruling": ("沒有當成裁決", "第一行請手打「裁決：<階段>」，Cowork 寫的內容貼在下面"),
+    "waive": ("沒有免外部審查", "請手打「免外部審查 <階段>」，整則訊息只有這一句"),
 }
 NEAR_MISS_WHERE = {"pasted": "指令詞在貼上的區塊裡", "line": "指令詞不在第一行，或前後還有別的字", "shape": "寫法跟指令詞差一點"}
 
@@ -668,6 +682,33 @@ def prompt(inp, env):
                              "它不是「繼續」「放行」「修改」「結束自動駕駛」：狀態沒變、暫停沒有解除、沒有通行證；它也不能放寬鐵則、保護檔清單或允許清單。"
                              % (stage, rel, orig)))
 
+    if kind == "waive":
+        # 免外部審查（P2 裁決一）：只在程式已記「外部審查未完成」時有效；一次性、綁階段與 commit、24 小時失效；有新 commit 或「修改」就作廢。
+        # 只免外部審查：驗收機要綠、審查代理要批准、合併仍要另外手打「放行」。事後跟放行一樣核對是不是人打的（verify_commands）。
+        inc = st.get("external_review") or {}
+        ext_cfg = cfg.get("externalReview") or {}
+        if not inc or inc.get("stage") != stage:
+            return _out(system="（自動駕駛）免外部審查沒有生效：程式沒有記錄階段 %s 的「外部審查未完成」。只有 Codex 逾時或不能用、程式記下未完成之後，這句話才有作用。" % stage,
+                        context="David 輸入了「免外部審查 %s」，但 hook 沒有這個階段「外部審查未完成」的紀錄，所以沒有生效、什麼都沒變。請告訴他。" % stage)
+        if inc.get("status") != "incomplete":
+            return _out(system="（自動駕駛）免外部審查沒有生效：階段 %s 的外部審查狀態是「%s」，不是「未完成」。" % (stage, inc.get("status")),
+                        context="David 輸入了「免外部審查 %s」，但外部審查的狀態是 %s（不是未完成），沒有生效。請告訴他。" % (stage, inc.get("status")))
+        sha = inc.get("sha")
+        hours = float(ext_cfg.get("waiverHours", 24))
+
+        def fn(s):
+            s["external_waiver"] = {"stage": stage, "sha": sha, "issued_at": now, "expires_at": C.iso(env.t() + datetime.timedelta(hours=hours)),
+                                    "prompt_id": inp.get("prompt_id"), "transcript_path": inp.get("transcript_path"), "session_id": inp.get("session_id")}
+            s["external_review"] = dict(inc, status="waived", waived_at=now)
+        ST.update(env.sd, fn)
+        remember(sha=sha)
+        ST.log(env.sd, {"event": "waive", "stage": stage, "sha": (sha or "")[:12]})
+        return _out(system=("已免外部審查：%s（綁定 commit %s；%d 小時內有效、一次性；有新 commit 或輸入「修改」就作廢）。"
+                            "只免外部審查：驗收機要綠、審查代理要批准、合併仍要你手打「放行 %s」。信、CHANGELOG 與回滾表都會寫「本階段未經外部審查（David 親手免除）」。"
+                            % (stage, (sha or "?")[:7], int(hours), stage)),
+                    context=("David 親手輸入了「免外部審查 %s」：hook 記下了免除（綁 commit %s）。現在可以重新執行寄「可以合併」信的指令；"
+                             "驗收機與審查代理那兩關照樣要過。停止報告、CHANGELOG 與回滾表那一列都要寫明「本階段未經外部審查（David 親手免除）」。" % (stage, (sha or "?")[:7])))
+
     # 以下三種都要對得上現在的階段
     if st.get("stage") != stage:
         return _out(system="（自動駕駛）這句話指的是階段「%s」，但現在紀錄裡的階段是「%s」，沒有作用。" % (stage, st.get("stage") or "（沒有）"),
@@ -727,6 +768,8 @@ def prompt(inp, env):
             s["candidate"] = None
             if s.get("credential"):
                 s["credential"]["revoked"] = "David 輸入了修改"
+            if s.get("external_waiver"):
+                s["external_waiver"]["revoked"] = "David 輸入了修改"
             s["clock_started_at"] = now
             s["epoch"] = int(s.get("epoch") or 0) + 1
             s["session_id"] = inp.get("session_id")
@@ -759,6 +802,12 @@ def prompt(inp, env):
         if rc != 0 or rc2 != 0:
             return _out(system="（自動駕駛）還不能放行 %s：標籤 %s 不在，或不在要合併的那個 commit 的歷史裡。" % (stage, tag),
                         context="David 輸入了「放行 %s」，但標籤 %s 檢查沒過，通行證沒有開。請查清楚再回報他。" % (stage, tag))
+        if cfg.get("verify") and cfg.get("externalReview") and not reopen:
+            # P2 第 3 節：發通行證時再查一次驗收機（合併前第二道還會再查一次）。查不到（例如 GitHub 連不上）就擋，不能當成通過。
+            problem = N.verify_gate_problem(env.main_root, env.sd, cfg, stage, sha, env.t())
+            if problem:
+                return _out(system="（自動駕駛）還不能放行 %s：放行前再查一次驗收機，結果是「%s」。驗收機綠了再放行一次；查不到也算不綠。" % (stage, problem),
+                            context="David 輸入了「放行 %s」，但放行前再查一次驗收機沒過（%s），通行證沒有開。請告訴他；不要自己想辦法繞過。" % (stage, problem))
 
         def fn(s):
             ST.issue_credential(s, cfg, inp, env.t())

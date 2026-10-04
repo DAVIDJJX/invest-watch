@@ -44,7 +44,11 @@ GIT_NEVER = set("""send-pack http-push receive-pack upload-pack upload-archive h
 remote-ftp remote-ftps remote-ext remote-fd daemon shell subtree svn p4 cvsserver imap-send send-email instaweb http-backend
 credential credential-manager credential-store credential-cache submodule bisect difftool mergetool maintenance""".split())
 
-READONLY_PROGRAMS = set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
+# gh 對 PR／issue 的寫入（P2）：PR 的寫入只准經過主目錄那支 iw_notify.py pr（開、改標題內文、留言剛好是 @codex review）；其他一律擋，兩種模式都是
+GH_PR_WRITES = set("create edit comment review close reopen ready merge lock unlock update-branch".split())
+GH_ISSUE_WRITES = set("create comment close reopen edit delete lock unlock pin unpin transfer develop".split())
+
+READONLY_PROGRAMS =set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
 test [ [[ echo printf true false : pwd basename dirname realpath which type date sort uniq cut tr awk sed find du df sleep wait cd pushd popd
 export set exit return jq yq nl base64 column tac rev fold expand unexpand paste join comm cksum sha512sum b2sum hexdump zcat bzcat xzcat
 tree printenv id whoami uname hostname nproc seq expr""".split())
@@ -557,6 +561,8 @@ def _is_wrapup(tool, ti, ctx):
                     if k is None or not C.is_under(k, runs):
                         return False
             if _notify_command(argv, cwd, ctx):
+                if "pr" in argv[1:]:                                # 暫停中不開 PR、不改 PR、不留言（那不是「寫報告、寄信、唯讀查看」）
+                    return False
                 continue
             if p == "git" and _git_sub(argv)[3]:                   # git -c：臨時改設定，暫停中不准
                 return False
@@ -1754,7 +1760,12 @@ def _gh(argv, ctx, auto, cwd=None):
         if sub2 in ("token", "refresh", "login", "logout", "setup-git", "switch") or "-t" in argv or "--show-token" in argv:
             raise Block("讀或改 GitHub 的登入憑證，不允許。", 3)
     if sub == "pr" and sub2 == "merge":
-        raise Block("停止條件 1：用 gh 合併 PR＝合併進 main，要 David 放行（而且這個專案不走 PR）。", 1)
+        raise Block("停止條件 1：用 gh 合併 PR＝合併進 main，要 David 放行（而且合併一律在本機做，不用 GitHub 的合併按鈕）。", 1)
+    if sub == "pr" and sub2 in GH_PR_WRITES:
+        raise Block("gh pr %s 會寫 PR（開、改、留言、審查、關閉…）。PR 的寫入只准經過主目錄那支 iw_notify.py pr（開 PR、改標題與內文、留言剛好是 @codex review），"
+                    "不准直接下；Codex 的審查與留言也不准 resolve、刪除、隱藏或駁回（P2）。" % sub2, 1)
+    if sub == "issue" and sub2 in GH_ISSUE_WRITES:
+        raise Block("gh issue %s 會寫 issue；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。" % sub2, 1)
     if sub == "api":
         method = None
         for i, a in enumerate(argv):
@@ -1801,8 +1812,12 @@ def _gh(argv, ctx, auto, cwd=None):
     allowed = ctx.allow["programs"]["ghAllowed"]
     ok = any(pos[:len(pat)] == pat for pat in allowed) or pos[:2] == ["workflow", "run"]      # workflow run 下面另外看是不是通知那一個
     if not ok:
-        raise Block("自動駕駛期間 gh 只能：觸發通知（workflow run notify.yml）、唯讀地看執行紀錄、看登入狀態。「gh %s」不在清單裡（停止條件 8）。"
+        raise Block("自動駕駛期間 gh 只能：觸發通知（workflow run notify.yml）、唯讀地看執行紀錄與 PR、看登入狀態。「gh %s」不在清單裡（停止條件 8）。"
                     % " ".join(pos[:3]), 8)
+    if pos[:2] == ["run", "download"]:
+        dirs = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-D", "--dir")] + [a.split("=", 1)[1] for a in argv if a.startswith("--dir=")]
+        if not dirs or any(not C.is_under(C.key(d, cwd), _runs_key(ctx)) for d in dirs):
+            raise Block("自動駕駛期間 gh run download 只能下載到這個階段的報告資料夾（%s/%s/），要用 -D 指定。" % (ctx.cfg["runsDir"], ctx.stage), 8)
     repo = None
     for i, a in enumerate(argv):
         if a in ("-R", "--repo") and i + 1 < len(argv):

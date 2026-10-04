@@ -56,6 +56,42 @@ def run_git(args, cwd, env=None, check=True):
     return p.returncode, out, err
 
 
+BOT_LOGIN = "chatgpt-codex-connector[bot]"
+FAKE_GH_ENV = "IW_TEST_FAKE_GH"
+
+
+def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
+                    comments=None, others=None, ran=830):
+    """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
+    沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。"""
+    run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
+           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": 1, "created_at": "2026-10-04T00:00:00Z"}
+    result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [],
+              "tests": {"ran": ran, "defined": ran, "passed": ran, "failed": [], "errors": [], "skipped": []}, "egress": {"bot_hits": 0}, "schema": 1}
+    reviews = []
+    if codex:
+        reviews.append({"id": 1, "user": {"login": BOT_LOGIN}, "state": "COMMENTED", "commit_id": review_commit,
+                        "body": "Codex Review: Didn't find any major issues.", "submitted_at": "2026-10-04T00:10:00Z"})
+    for login in (others or []):
+        reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
+                        "submitted_at": "2026-10-04T00:11:00Z"})
+    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "head": {"sha": "{sha}"}, "title": "x"}] if pr else []
+    return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": [run] if runs else []})},
+            {"match": "run download", "rc": 0, "text": json.dumps(result)},
+            {"match": "pulls?head=", "rc": 0, "text": json.dumps(prs)},
+            {"match": "/pulls/7/reviews", "rc": 0, "text": json.dumps(reviews)},
+            {"match": "/pulls/7/comments", "rc": 0, "text": json.dumps(comments or [])},
+            {"match": "pr comment", "rc": 0, "text": "https://example.invalid/pull/7#issuecomment-1"},
+            {"match": "pr create", "rc": 0, "text": "https://example.invalid/pull/7"},
+            {"match": "pr edit", "rc": 0, "text": ""}]
+
+
+def write_fake_gh(path, entries):
+    with io.open(path, "w", encoding="utf-8") as fh:
+        json.dump(entries, fh, ensure_ascii=False)
+    return path
+
+
 class Sandbox(object):
     """暫存資料夾裡的一個假遠端＋假主目錄（main）＋功能分支的 worktree。"""
 
@@ -67,6 +103,8 @@ class Sandbox(object):
         self.remote = os.path.join(self.tmp, "remote.git")
         self.main = os.path.join(self.tmp, "main")
         self.wt = os.path.join(self.main, ".claude", "worktrees", "stopX1")
+        self.fake_gh = write_fake_gh(os.path.join(self.tmp, "fake-gh.json"), fake_gh_entries())      # P2：驗收機與 Codex 的假回答（預設全綠）
+        os.environ[FAKE_GH_ENV] = self.fake_gh
         run_git(["init", "-q", "--bare", "-b", "main", self.remote], self.tmp)
         run_git(["init", "-q", "-b", "main", self.main], self.tmp)
         for k, v in (("core.autocrlf", "false"), ("commit.gpgsign", "false"), ("core.quotepath", "false")):
@@ -75,6 +113,8 @@ class Sandbox(object):
         self.write("docs/CHANGELOG.md", "changelog\n")
         self.write("js/app.js", "// app\n")
         self.write(".gitignore", ".autopilot/\n.claude/worktrees/\n" if tracked else ".claude/\n.autopilot/\n")
+        os.makedirs(os.path.join(self.main, "scripts"), exist_ok=True)
+        shutil.copyfile(os.path.join(ROOT, "scripts", "test_analysis_guards.py"), os.path.join(self.main, "scripts", "test_analysis_guards.py"))   # PR 文字的隱私掃描要用
         if tracked:
             self.copy_protection()
         for f in C.load_json(os.path.join(ROOT, ".claude", "autopilot", "config.json"))["goldJob"]["files"]:
@@ -637,6 +677,64 @@ class TestPrePush(unittest.TestCase):
         INST.ensure_local_ignore(repo, quiet=True)                                    # 再跑一次不會重複加
         self.assertEqual(io.open(p, encoding="utf-8").read(), before)
         self.assertEqual(before.count(INST.LOCAL_IGNORE + "\n"), 1)
+
+    # ---- P2：合併前再查一次驗收機；feat 分支上出現不是自己推的 commit
+    def test_the_merge_is_blocked_when_the_verifier_is_red_or_unreachable(self):
+        """P2 第 3 節：有通行證、形狀也對，但驗收機紅、還在跑、沒有紀錄、查不到——都擋。對照組：拿掉 verify_gate → 這一條會紅。"""
+        sb = self.sb
+        for entries, want in ((fake_gh_entries(green=False), "紅"), (fake_gh_entries(pending=True), "還在跑"), (fake_gh_entries(runs=False), "沒有這個 commit"),
+                              (fake_gh_entries(result_commit="0" * 40), "綁的 commit"), ([], "查不到")):
+            sb.reset()
+            sb.credential()
+            write_fake_gh(sb.fake_gh, entries)
+            mw = sb.merge_worktree()
+            rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+            self.assertNotEqual(rc, 0, want)
+            self.assertIn("合併前再查一次驗收機", err, want)
+            self.assertIn(want, err)
+            self.assertEqual(sb.rev("refs/heads/main", sb.remote), sb.base)
+        sb.reset()
+        sb.credential()
+        write_fake_gh(sb.fake_gh, fake_gh_entries())                                             # 綠：照常通過
+        mw = sb.merge_worktree()
+        rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+        self.assertEqual(rc, 0, err)
+
+    def test_a_foreign_commit_on_the_branch_blocks_the_next_push_and_pauses_autopilot(self):
+        """P2 第 2 節：PR 分支上出現不是自己推的 commit（Codex 或別的帳號推的）→ 下一次推被擋、自動駕駛中立刻暫停（要你決定）。
+        對照組：拿掉 foreign_ok 那一道 → 這一條會紅。"""
+        sb = self.sb
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)                                       # 前面的測試可能動過 worktree 與遠端的這個分支
+        run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False)
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: ST.update(sb.sd, lambda s: s.update({"active": False, "pause": None})))
+        rc, err = sb.push(sb.wt, ["origin", "feat/stopX1"], claude=True)                        # 第一次推：記下來
+        self.assertEqual(rc, 0, err)
+        st = ST.load(sb.sd)
+        self.assertEqual(st["branch_pushes"]["refs/heads/feat/stopX1"], [sb.cand])
+        other = os.path.join(sb.tmp, "other-clone")
+        shutil.rmtree(other, ignore_errors=True)
+        run_git(["clone", "-q", sb.remote, other], sb.tmp)
+        run_git(["checkout", "-q", "feat/stopX1"], other)
+        sb.write("js/app.js", "// someone else\n", other)
+        foreign = sb.commit("drive-by", other)
+        run_git(["push", "-q", "--no-verify", "origin", "feat/stopX1"], other)                     # 別人繞過本機的 hook 推上去
+        run_git(["fetch", "-q", "origin"], sb.wt)
+        run_git(["merge", "-q", "--no-edit", "origin/feat/stopX1"], sb.wt)                           # 本機把它接進來（落後時 git 自己就先拒收，pre-push 看不到）
+        sb.write("js/app.js", "// app v3\n", sb.wt)
+        mine = sb.commit("feat: more", sb.wt)
+        ST.update(sb.sd, lambda s: s.update({"active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 1}))
+        rc, err = sb.push(sb.wt, ["origin", "feat/stopX1"], claude=True)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("不是你推的 commit", err)
+        self.assertIn(foreign[:7], err)
+        st = ST.load(sb.sd)
+        self.assertEqual(st["pause"]["reason"], "foreign-commit")                                # 自動駕駛中：暫停（等級會是「要你決定」）
+        self.assertEqual(st["foreign_commit"]["sha"], foreign)
+        self.assertEqual(sb.rev("refs/heads/feat/stopX1", sb.remote), foreign)                   # 沒有覆蓋別人的 commit
+        ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (mine, sb.cand)])    # 遠端頭是自己推過的：放行
+        self.assertTrue(ok, msgs)
 
 
 if __name__ == "__main__":

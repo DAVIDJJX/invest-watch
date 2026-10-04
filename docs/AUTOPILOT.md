@@ -35,7 +35,7 @@
 4. 去做你的事。跑的時候電腦要插電、不能睡著。
 5. 收到信之後回到 Claude Code，照信最後兩行輸入就好。
 
-## 你的七句話
+## 你的八句話
 
 都要是**整則訊息**剛好是這句話（或第一行是這句話）。在別的句子中間提到不算——Cowork 的規格裡常常寫著「放行 P1」這幾個字，如果「有提到就算」，貼規格就等於放行了。
 
@@ -48,10 +48,11 @@
 | `放行模型` | 同意用被換上的那個模型繼續（見「模型與思考強度」） |
 | `結束自動駕駛` | 解除自動駕駛。合併仍然要你放行 |
 | `裁決：<階段>`＋下面貼 Cowork 寫的內容 | 記錄你的裁決——回答 Claude 停下來問的事（規格怎麼解讀、選哪個做法）。它只是紀錄：不解除暫停、不放行、不改任何規則，裡面寫「放行」或「可以改保護檔」也沒有用（2026-10-03 加的，P1-1） |
+| `免外部審查 <階段>` | Codex 逾時或不能用、程式已經記下「外部審查未完成」時才有作用：這一次不等 Codex。一次性、綁定當時的 commit、24 小時內有效；有新 commit 或你輸入「修改」就作廢。**只免外部審查**：驗收機要綠、審查代理要批准、合併仍要你另外打「放行」。信、CHANGELOG 與回滾表會寫「本階段未經外部審查（David 親手免除）」（2026-10-04 加的，P2） |
 
 每一句，程式都會在 Claude 做下一個動作之前回頭查對話紀錄：這句話是不是你親手打的。不是的話——有東西冒充你——自動駕駛立刻暫停、通行證作廢、寄信給你。
 
-**寫法差一點的時候會有提示，不會靜悄悄沒反應。** 訊息裡有長得像這七句話的東西、但格式不被接受——整段用貼的、指令不在第一行、前後多了別的字、`放行P1` 少了空白——畫面會出現一行「（自動駕駛）沒有啟動／沒有放行／…：原因。正確的打法」。這一行只是提示：不啟動、不放行、不改任何狀態；照它說的重新打一次就好。你不是要下指令的話，不用理會。代理回報、背景工作通知這類機器送來的訊息不會觸發提示。（2026-10-02 第一次實戰就是整段貼上、畫面沒有任何反應，所以加了這個。）
+**寫法差一點的時候會有提示，不會靜悄悄沒反應。** 訊息裡有長得像這八句話的東西、但格式不被接受——整段用貼的、指令不在第一行、前後多了別的字、`放行P1` 少了空白——畫面會出現一行「（自動駕駛）沒有啟動／沒有放行／…：原因。正確的打法」。這一行只是提示：不啟動、不放行、不改任何狀態；照它說的重新打一次就好。你不是要下指令的話，不用理會。代理回報、背景工作通知這類機器送來的訊息不會觸發提示。（2026-10-02 第一次實戰就是整段貼上、畫面沒有任何反應，所以加了這個。）
 
 ## 什麼時候會停下來寄信
 
@@ -110,6 +111,52 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 
 信開在私人倉庫 `invest-data` 的 issue 裡，只有你看得到。你放行、合併完成之後，那個 issue 會被留言「已放行」並關掉。
 
+P2 之後每封信還多兩行，也是程式加的：
+
+- `驗收機：綠／紅／沒有紀錄（執行紀錄的連結）`
+- `外部審查（GPT）：Codex／免除／未完成；重大 n 條；採納 n、不採納 n（PR 的連結）`
+
+## 第三方審核：驗收機與 Codex（2026-10-04 加的，P2）
+
+P1-1 的報告把「14 個檔」寫成「24 個檔」。審查代理跑在同一個工作階段、用同一個模型、看的是 Claude 整理給它的報告，測試數字也是 Claude 自己回報的。P2 加兩個**施工的一方改不了**的第三方；每個階段的線變成：
+
+施工 → 驗收機 → GPT 外部審查 → iw-reviewer → 你放行
+
+**驗收機**是 GitHub 的電腦（GitHub Actions）。Claude 每次把分支推上 GitHub，它就從**實際的那個 commit** 重跑全套測試、隱私掃描、擋字串、docs 大小上限、突變對照（把保護改壞一處、測試要紅），而且跑測試時把對外連線封起來、記下每一個對外請求——對臺灣銀行的請求出現任何一次就紅，「台銀 0」由它證明。它會跟正式版比：測試數與突變數不准變少，被刪或被改的測試逐條列出，動到保護範圍的檔也列出來。結果是一份綁定 commit 的檔（artifact），Claude 的報告數字要取自它、旁邊附本機的數字；對不上就是「要你決定」。
+
+- 判定一律用正式版（main）上的驗收程式。分支改了驗收程式，CI 的綠不算，程式會標「驗收機本身有改」（P2 自己是第一次建立，例外）。
+- 它的設定檔 `.github/workflows/verify.yml` 由你在 GitHub 網頁上貼進分支（下面有步驟）。Claude Code 的 GitHub 權杖沒有 `workflow` 這個範圖：它改這個檔一個字再推，GitHub 會直接拒收。所以施工的一方改不到驗收機。
+- 紅＝GitHub 會寄你一封「Run failed」的信。那代表驗收機抓到問題；自動駕駛另外會寄白話的信。
+- 它只讀（`contents: read`）、沒有任何密鑰、不推任何東西、不寫 issue 或 PR；只在推 `feat/` 分支與 `stop` 標籤時跑，**main 有推送時不跑**，所以黃金排程與資料更新一個字不用改、也不會被它擋。
+
+**外部審查員**是 OpenAI 的 Codex 程式碼審查，用太太的 ChatGPT Pro 方案。Claude 本機全綠之後開一個 PR（`feat/<階段>` → `main`），Codex 自動讀 PR 的實際改動、只挑重大問題（P0／P1），用繁體中文寫意見（審查準則的公開版在倉庫根目錄的 `AGENTS.md`）。Claude 要逐條回覆「採納並修」或「不採納＋理由」，寫在它自己的報告資料夾（`03_第三方審查.md`），**不在 PR 上回覆、不爭論、不 resolve、不刪、不隱藏**——程式擋著。
+
+- 只認「Codex 的機器人帳號、針對 PR 最新那個 commit」發出的 review；公開倉庫誰都能留言，別人的留言一律忽略、在信裡列出。Codex 沒找到問題時也會發一則 review（實例是「Didn't find any major issues」）；「沒留言」永遠不算通過。
+- 合併方式不變：你放行之後 Claude 照舊在本機 `--no-ff` 合併、推上 main，PR 會自動變成已合併。**不用 GitHub 網頁上的合併按鈕**。
+- Codex 的用量是獨立的一類（Code Review usage），不吃太太平常用的 Codex 額度（官方定價頁）。
+- PR 的標題與內文只寫改了什麼、不放規格原文，程式先過隱私掃描才送出（公開倉庫的 PR 人人看得到）。
+- Codex 的 GitHub 連結只裝在 `invest-watch`，絕不裝到 `invest-data`；誰都不叫它改程式（不用 `@codex fix`、不開雲端任務）。
+
+**關卡（程式擋，不靠約定）**：寄「要你放行上線」的信之前，程式查同一個 commit 四件事——驗收機綠、外部審查完成（Codex，或你免除）、Codex 的每條意見都有回覆、沒有 P0／P1 被判不採納；缺一件信就寄不出去。重大意見被判不採納的，改寄「要你決定」給你與 Cowork 裁決。你放行時、合併前，程式各再查一次驗收機；查不到（例如 GitHub 連不上）就擋，不當成通過。自動駕駛與一般模式都一樣，沒有任何跳過審查的選項（P1-1 時一般模式有的那個選項已經拿掉）。
+
+**Codex 不能用時（額度用完、設定被關、等 60 分鐘沒審）**：程式記下「外部審查未完成」，Claude 寄「要你決定」的信，給你兩個選項——等（之後打「繼續 <階段>」，重新請 Codex 審）、或打「免外部審查 <階段>」。原本規格要用 GitHub Models 的免費 GPT 當備援，但 GitHub Models 已於 2026-07-30 退役，沒有免費、不用密鑰的備援可用，所以改成這一句。連續兩個階段都免除，信裡會提醒請太太檢查 Codex 的設定。
+
+### 太太與你要動手的地方
+
+**太太（她自己的裝置、她自己登入 ChatGPT；誰都不把密碼告訴對方）**
+
+1. 打開 <https://app.chatgpt.com/settings/code-review>（Codex 的設定 → Code review）。
+2. 連結 GitHub：跳出 GitHub 的授權畫面時，**由你在那個畫面登入你自己的 GitHub** 並授權（Codex 要求連結的 GitHub 帳號對倉庫有 push 或 admin 權限；OAuth 畫面是 GitHub 的，你在那裡登入不算使用她的 ChatGPT 帳號）。安裝 Codex 的 GitHub App 時選 **Only select repositories → 只勾 `invest-watch`**；絕不勾 `invest-data`、絕不選 All repositories。這樣行不通的話先停下來說，再考慮把她的 GitHub 加成協作者。
+3. 回到 Code review 的設定：在倉庫清單選 `invest-watch` → 開 **Code review**，把 **Automatic review** 打開。不要開任何「可以修改程式」的選項。
+4. 做完之後，你在她的瀏覽器登出 GitHub（右上角頭像 → Sign out）。
+
+**你**
+
+1. 等 Claude 把分支 `feat/stopP2` 第一次推上去、把 `verify.yml` 的草稿給你之後：到 GitHub 網頁 → 分支切到 `feat/stopP2` → 「Add file」→「Create new file」→ 檔名 `.github/workflows/verify.yml` → 貼上草稿 → 「Commit changes」直接提交到 `feat/stopP2`。不要替 Claude Code 的權杖加 `workflow` 範圍。
+2. **互動限制**（防止陌生人在公開 PR 上叫 Codex 做事）：Codex 第一次審完 P2 的 PR 之後，倉庫 Settings → Moderation options → Interaction limits → 「Limit to repository collaborators」→ 6 個月（最長）。Claude 再留一次 `@codex review`：機器人照樣能審就保留，並在這裡記到期日、到期前續設；被擋到就取消，改靠另外三道（只認機器人、留言只准 `@codex review`、分支出現別人的 commit 就暫停）。
+3. 收到 GitHub 的「Run failed」信＝驗收機抓到問題；看自動駕駛那封白話的信就好。
+4. 選配、P2 沒做：正式版的伺服器端保護規則（ruleset）。可以在 main 上設「不准直接推、要 PR」，bypass 清單放你（repository admin）；風險是雲端的資料更新流程用 `GITHUB_TOKEN` 直接推 main、黃金排程用你的身分推 main，設錯一次就是「每 30 分鐘的資料更新全部被擋」。要做的話先用 evaluate 模式確認兩條推送都放行，另外開一個階段。
+
 ## 三道保護
 
 1. **動作執行前的檢查。** Claude 每次要執行指令、改檔、叫子代理之前，Claude Code 會先把「它打算做什麼」交給一支檢查程式；檢查程式說不行，動作就不會發生。它會把一長串指令拆開逐段看，`cd … &&`、`sh -c '…'`、用 PowerShell 包一層都一樣。看不懂的寫法一律擋。
@@ -135,7 +182,7 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 ## 自動駕駛期間不能碰的檔
 
 **第一層：動不得。** 要動就停下來問你。
-`.github/workflows/`（雲端的更新流程）、`data/schedule.json`、`data/assets.json`、`scripts/update_local.ps1`、`scripts/publish.py`、`scripts/net_policy.py`（可以連哪些主機）、`scripts/sensitive_terms_hmac.json`、`.gitignore`，以及自動駕駛自己的檔。
+`.github/workflows/`（雲端的更新流程與驗收機）、`data/schedule.json`、`data/assets.json`、`scripts/update_local.ps1`、`scripts/publish.py`、`scripts/net_policy.py`（可以連哪些主機）、`scripts/sensitive_terms_hmac.json`、`.gitignore`、驗收機的程式 `scripts/verify_ci.py`、突變清單與已知例外 `scripts/mutations/`、給 Codex 的審查準則 `AGENTS.md`，以及自動駕駛自己的檔。
 
 **第二層：可以改，但改了就要停下來寄 diff 給你看；你輸入「繼續」之前不能推、也不能寄「可以合併」的信。**
 `scripts/fetch_data.py`、`scripts/merge_latest.py`、守門測試 `scripts/test_analysis_guards.py`、處理 PAT 或私人資料的檔：`js/storage.js`、`js/fxplan.js`、`js/concentration.js`、設定頁（`settings.html`、`js/settings.js`），以及 `js/lock.js`、`js/portfolio.js`、`js/records.js`、`records.html`。
@@ -190,11 +237,15 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 | 信的標題開頭是【小事，可以直接繼續】 | 檢查程式擋下了一個動作、什麼都沒改。看一眼，輸入 `繼續 <階段>` |
 | 信說「已經合併、只差補文件」或「時間窗過了」 | 輸入 `放行 <階段>`：重開一次補文件的時間窗（只准改 README 與 CHANGELOG 各一筆）。這時輸入「繼續」「修改」都沒有作用 |
 | 想把 Cowork 的回答正式交給 Claude | 第一行手打 `裁決：<階段>`，下面貼 Cowork 寫的內容。它會存在 `.autopilot/runs/<階段>/`；要接著做還是得另外輸入「繼續」或「放行」 |
+| 收到 GitHub 的「Run failed」信 | 驗收機抓到問題（測試紅、台銀出現、測試數變少、突變沒紅…）。看自動駕駛寄的白話信；Claude 修好重推，驗收機會再跑一次 |
+| 信說「外部審查未完成」（Codex 逾時、額度用完、設定被關） | 等得起就等：之後輸入 `繼續 <階段>`，Claude 會再請 Codex 審。等不起就輸入 `免外部審查 <階段>`（只免外部審查，驗收機與審查代理照樣要過），信與紀錄會寫「本階段未經外部審查（David 親手免除）」 |
+| 信說「分支上出現不是我推的 commit」 | 有人（Codex？別的帳號？）動了 PR 的分支。到 GitHub 看那個 PR 多了什麼；確認沒事再輸入 `繼續 <階段>`，不要自己合併它 |
+| 信說「本機數字跟驗收機對不上」 | Claude 本機跑的測試數跟 GitHub 上跑的不一樣（環境不同、或哪一邊少跑了）。把信轉給 Cowork 看一下 |
 | Claude 說每個動作都被「檢查程式出錯」擋下 | 檢查程式自己壞了。用記事本建立 `invest-watch\.claude\settings.local.json`，內容 `{"disableAllHooks": true}`，然後開新的工作階段請 Claude 修；修好把那個檔刪掉 |
 | 筆電排程推不上去（`scripts/update_local.log` 出現 pre-push 的字樣） | 執行 `py -3.12 scripts/autopilot_install.py --uninstall` 先拿掉第二道，再把紀錄轉給 Cowork |
 | 你自己要在終端機手動推程式 | `git push --no-verify`（Claude 用這個旗標會被擋） |
 | 狀態怪怪的，想重來 | 輸入「結束自動駕駛」；還是不行就刪掉 `invest-watch\.git\iw-autopilot\state.json` |
-| 整套不要了 | 後合併的先退，順序照 README 的回滾表。先退 P1-1：`git revert -m 1 <P1-1 的合併 commit> && git push --no-verify`（推送前的檢查對沒有通行證的 main 推送對誰都擋、連你的終端機也擋，所以要加 `--no-verify`；Claude 加這個會被擋）。再退 P1：先 `py -3.12 scripts/autopilot_install.py --uninstall`，再 `git revert -m 1 80e6ad6 && git push`（退回 P1 會把檢查程式一起拿掉，入口自動放行，所以這一步不用 `--no-verify`） |
+| 整套不要了 | 後合併的先退，順序照 README 的回滾表。最後合併的是 P2：`git revert -m 1 <P2 的合併 commit> && git push --no-verify`（退回後驗收機、Codex 的關卡、「免外部審查」都消失，保護回到 P1-1；Codex 在 GitHub 那一側的設定不受影響，要關請太太在 Codex 的設定裡關）。再退 P1-1：`git revert -m 1 <P1-1 的合併 commit> && git push --no-verify`（推送前的檢查對沒有通行證的 main 推送對誰都擋、連你的終端機也擋，所以要加 `--no-verify`；Claude 加這個會被擋）。再退 P1：先 `py -3.12 scripts/autopilot_install.py --uninstall`，再 `git revert -m 1 80e6ad6 && git push`（退回 P1 會把檢查程式一起拿掉，入口自動放行，所以這一步不用 `--no-verify`） |
 | 換到 MacBook | clone 之後執行一次 `python3 scripts/autopilot_install.py`；工作階段一樣開在 `invest-watch` |
 
 ## 名詞解釋
@@ -214,7 +265,9 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 | `.claude/autopilot/` | 常數與清單（模型、時間上限、動不得的檔、允許的工具與程式） | 會 |
 | `.claude/skills/iw-autopilot/` | Claude 照著做的流程（`SKILL.md`）、合併與收尾的步驟（`merge-steps.md`）、停止報告模板、審查準則 | 會 |
 | `.claude/agents/iw-reviewer.md` | 審查代理 | 會 |
-| `.git/iw-autopilot/` | 通行證、狀態（含暫停的原因）、審查紀錄、你貼的規格原文、你裁決的原件、每次檢查的紀錄 | 不會（在 `.git` 裡） |
+| `.github/workflows/verify.yml`、`scripts/verify_ci.py`、`scripts/mutations/` | 驗收機（P2）：流程檔（你貼的）、驗收程式、突變清單與已知例外 | 會 |
+| `AGENTS.md` | 給 Codex 的審查準則（公開版） | 會 |
+| `.git/iw-autopilot/` | 通行證、狀態（含暫停的原因、免外部審查）、審查紀錄、你貼的規格原文、你裁決的原件、每次檢查的紀錄 | 不會（在 `.git` 裡） |
 | `.git/hooks/pre-push` | 第二道的入口（安裝腳本裝的） | 不會 |
 | `.autopilot/runs/<階段>/` | 覆述、驗收報告、審查意見、寄出的信的存檔、完整技術報告 | 不會 |
 | `.claude/worktrees/` | 施工用的 worktree | 不會 |
@@ -226,7 +279,7 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 | 事件（Claude Code 的 hook） | 做什麼 |
 |---|---|
 | `PreToolUse` | 第一道保護：`.claude/hooks/iw_guard.py`。讀檔與搜尋不經過它。自動駕駛期間擋下任何動作，同時把流程記成暫停（`state.json` 的 `pause`） |
-| `UserPromptSubmit` | 認你的七句話；只有這裡會開通行證、重開文件的時間窗、記錄裁決 |
+| `UserPromptSubmit` | 認你的八句話；只有這裡會開通行證、重開文件的時間窗、記錄裁決、記下免外部審查（放行時再查一次驗收機） |
 | `PermissionRequest` | 自動駕駛期間，要跳「等你按批准」的視窗時一律代為拒絕（停止條件 8） |
 | `PostToolUse`（Agent）、`SubagentStop` | 記審查代理的結論與它實際用的模型 |
 | `Stop`、`StopFailure`、`Notification`、`SessionEnd` | 後援信 |
@@ -236,9 +289,11 @@ P1 第一次實戰時，Claude 的一個動作被檢查程式擋下，但程式�
 
 hook 的指令都寫成「任何失敗都以結束碼 2 結束」。原因：官方文件說只有結束碼 2 會擋，找不到腳本、程式當掉、逾時預設都是放行。
 
-測試：`scripts/test_autopilot_*.py`（守門、推送前的檢查、流程、設定一致性、指令解析），全部離線。
+測試：`scripts/test_autopilot_*.py`（守門、推送前的檢查、流程、設定一致性、指令解析）與 `scripts/test_verify_ci.py`（驗收機的判定、比對、封鎖），全部離線；驗收機與 Codex 的回答在測試裡用一個 JSON 檔替身（`IW_TEST_FAKE_GH`），不連 GitHub。
 
-**保護的版本**：`.claude/autopilot/config.json` 的 `protectionVersion`（現在是 P1-1）。合併進 main、主目錄快轉之後新版就直接生效——hook 每個動作都新開一個程序讀主目錄的檔，不用安裝、不用重開；只有 `.claude/settings.json`（hook 掛在哪些事件）要開新的工作階段才生效。`py -3.12 .claude/hooks/iw_notify.py status` 會印版本；`py -3.12 scripts/autopilot_install.py --check` 看入口與保護檔在不在（這台電腦請一律用 `py -3.12`，不要用 `python`——見下面的測試環境）。
+**驗收機怎麼封鎖對外連線**（三層，結果檔會寫實際生效幾層）：另一個使用者＋iptables（只擋那個使用者的對外封包，執行機自己跟 GitHub 的連線不受影響）、Chrome 的名稱解析規則（所有名稱都查不到、同時記下它查過什麼）、Python 的 socket（任何對外的名稱解析與連線都拒絕並記下）。少了第一層照樣跑，但結果寫「封鎖層級 2／3」。Chrome 自己的背景連線（更新、安全瀏覽）列出來、不算紅；名單在 main 上的驗收程式裡。
+
+**保護的版本**：`.claude/autopilot/config.json` 的 `protectionVersion`（現在是 P2）。合併進 main、主目錄快轉之後新版就直接生效——hook 每個動作都新開一個程序讀主目錄的檔，不用安裝、不用重開；只有 `.claude/settings.json`（hook 掛在哪些事件）要開新的工作階段才生效。`py -3.12 .claude/hooks/iw_notify.py status` 會印版本；`py -3.12 scripts/autopilot_install.py --check` 看入口與保護檔在不在（這台電腦請一律用 `py -3.12`，不要用 `python`——見下面的測試環境）。
 
 **合併固定分兩個指令**：先單獨建合併用的 worktree，確認在了，再用第二個指令進去合併（2026-10-02 兩步寫在同一段被擋——檢查程式在執行前就把整段看完，那時候資料夾還不存在）。合併推上去之後**立刻**推文件那一筆；中途停了或 60 分鐘過了，狀態維持「已合併、等補文件」，你再輸入一次「放行 <階段>」就重開一次性的時間窗。早先階段的文件併進這一筆時（P1 的回滾表併進 P1-1），用 `iw_notify.py finish-docs --stage P1 --merged-into P1-1` 把早先的階段結案，之後「放行 P1」不會再開任何時間窗。
 

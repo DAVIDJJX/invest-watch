@@ -72,7 +72,10 @@ def autopilot_files():
             files.append(rel_base + "/" + n)
     files += ["docs/AUTOPILOT.md", "docs/notify-workflow.example.yml", "scripts/autopilot_install.py"]
     files += sorted("scripts/" + os.path.basename(p) for p in glob.glob(os.path.join(HERE, "test_autopilot_*.py")))
-    return sorted(set(files))
+    # P2：驗收機、突變清單、給 Codex 的說明也是公開的保護檔
+    files += ["AGENTS.md", "scripts/verify_ci.py", "scripts/test_verify_ci.py"]
+    files += sorted("scripts/mutations/" + os.path.basename(p) for p in glob.glob(os.path.join(HERE, "mutations", "*.*")))
+    return sorted(set(f for f in files if os.path.exists(os.path.join(ROOT, *f.split("/")))))
 
 
 class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
@@ -308,9 +311,9 @@ class TestDocsAndSkill(unittest.TestCase):
             for label in labels:                                                     # 當成字串常數寫死（"…"）才算；句子裡提到不算
                 self.assertNotIn('"%s"' % label, text, "%s 裡寫死了等級「%s」（應該從 config.json 的 stopLevels 讀）" % (os.path.basename(path), label))
                 self.assertNotIn("【%s】" % label, text, os.path.basename(path))
-        self.assertEqual(CFG["protectionVersion"], "P1-1")
+        self.assertEqual(CFG["protectionVersion"], "P2")
         guide = read("docs/AUTOPILOT.md")
-        for must in labels + ["裁決：", "暫停", "P1-1", "先退", "--no-verify"]:
+        for must in labels + ["裁決：", "暫停", "P1-1", "P2", "先退", "--no-verify"]:
             self.assertIn(must, guide, must)
         skill = read(".claude/skills/iw-autopilot/SKILL.md")
         for label in labels:
@@ -413,7 +416,91 @@ class TestNewFilesHaveNoPrivateInformation(unittest.TestCase):
         self.assertIn(".claude/skills/iw-autopilot/review-criteria.md", self.files)
         self.assertIn("docs/AUTOPILOT.md", self.files)
         self.assertIn("scripts/test_autopilot_config.py", self.files)
+        self.assertIn("AGENTS.md", self.files)
+        self.assertIn("scripts/verify_ci.py", self.files)
+        self.assertIn("scripts/mutations/autopilot_mutations.py", self.files)
         self.assertTrue(G.privacy_hits("持有 " + "1,000 股"))                    # 掃描器本身抓得到東西
+
+
+class TestThirdPartyGate(unittest.TestCase):
+    """P2：驗收機與外部審查的設定、保護清單、文件、突變清單都要在、而且互相一致。"""
+
+    def test_config_has_the_gate_and_the_lists_point_at_real_files(self):
+        v, e = CFG["verify"], CFG["externalReview"]
+        self.assertEqual((v["workflow"], v["artifact"]), ("verify.yml", "verify-result"))
+        self.assertEqual(sorted(v["files"]), [".github/workflows/verify.yml", "scripts/mutations/known_survivors.json", "scripts/mutations/run_mutations.py",
+                                              "scripts/verify_ci.py"])
+        for f in v["files"]:
+            if f.startswith(".github/"):
+                continue                                           # verify.yml 由 David 在 GitHub 網頁上貼進分支；本機的副本在合併前不一定有
+            self.assertTrue(os.path.exists(os.path.join(ROOT, *f.split("/"))), f)
+        self.assertEqual(e["botLogin"], "chatgpt-codex-connector[bot]")
+        self.assertEqual(e["trigger"], "@codex review")
+        self.assertEqual((e["timeoutMinutes"], e["waiverHours"], e["responsesFile"]), (60, 24, "03_第三方審查.md"))
+        self.assertEqual(re.compile(e["severityPattern"]).search("**[P1]** x").group(1), "1")
+        for must in ("AGENTS.md", "scripts/verify_ci.py", "scripts/mutations/**"):
+            self.assertIn(must, CFG["tier1"]["paths"])
+        for pat in (["pr", "view"], ["pr", "list"], ["pr", "diff"], ["pr", "checks"], ["run", "download"]):
+            self.assertIn(pat, ALLOW["programs"]["ghAllowed"])
+        for pat in (["pr", "create"], ["pr", "comment"], ["pr", "edit"], ["pr", "review"], ["api"]):
+            self.assertNotIn(pat, ALLOW["programs"]["ghAllowed"])
+        self.assertEqual(CFG["protectionVersion"], "P2")
+
+    def test_the_no_review_flag_is_gone(self):
+        import iw_notify as N
+        with self.assertRaises(SystemExit):
+            N.main(["send", "--stage", "X1", "--kind", "ready", "--report", "x.md", "--no-review"], main_root=ROOT)
+        for rel in (".claude/skills/iw-autopilot/SKILL.md", ".claude/skills/iw-autopilot/pr-steps.md", ".claude/skills/iw-autopilot/merge-steps.md"):
+            self.assertNotIn("no-review", read(rel), rel)
+
+    def test_agents_md_is_public_safe_and_has_the_review_rules(self):
+        text = read("AGENTS.md")
+        for must in ("## Code Review Rules", "繁體中文", "P0", "P1", "只做程式碼審查", "scripts/net_policy.py", "scripts/verify_ci.py", "scripts/mutations/"):
+            self.assertIn(must, text, must)
+        self.assertLess(len(text.encode("utf-8")), 32 * 1024)                    # Codex 合併 AGENTS.md 的上限是 32 KiB
+        self.assertEqual(G.judgement_hits(text), [])                                # 不出現投資判斷用語
+
+    def test_docs_and_skill_cover_the_third_party(self):
+        skill = read(".claude/skills/iw-autopilot/SKILL.md")
+        for must in ("驗收機", "@codex review", "免外部審查", "pr-steps.md", "03_第三方審查.md"):
+            self.assertIn(must, skill, must)
+        steps = read(".claude/skills/iw-autopilot/pr-steps.md")
+        self.assertLess(len(steps), 6000)
+        for must in ("iw_notify.py pr open", "request-review", "verify --stage", "review-status", "免外部審查", "不採納", "resolve", "03_第三方審查.md"):
+            self.assertIn(must, steps, must)
+        guide = read("docs/AUTOPILOT.md")
+        for must in ("驗收機", "Codex", "免外部審查 <階段>", "AGENTS.md", "scripts/verify_ci.py", "scripts/mutations/", "互動限制", "Run failed",
+                     "@codex review", "本階段未經外部審查", "八句話"):
+            self.assertIn(must, guide, must)
+        criteria = read(".claude/skills/iw-autopilot/review-criteria.md")
+        for must in ("驗收機", "外部審查（GPT）", "03_第三方審查.md"):
+            self.assertIn(must, criteria, must)
+        self.assertIn("驗收機", read(".claude/skills/iw-autopilot/report-template.md"))
+
+    def test_mutation_list_lives_in_the_repo_and_its_anchors_hold(self):
+        """突變清單搬進倉庫（驗收機才跑得到）：每個錨點在現在的程式裡剛好出現一次；已知例外都是真的編號；有 P2 的 Q 系列。"""
+        sys.path.insert(0, os.path.join(HERE, "mutations"))
+        import run_mutations as RM
+        defs, baselines = RM.load_defs(RM.DEFAULT_DEFS)
+        self.assertEqual(RM.check_anchors(ROOT, defs), [])
+        ids = [m[0] for m in defs]
+        self.assertEqual(len(ids), len(set(ids)))
+        self.assertTrue(set(RM.load_known(RM.DEFAULT_KNOWN)) <= set(ids))
+        self.assertTrue(any(i.startswith("Q") for i in ids))
+        self.assertIn("verify", [b[0] for b in baselines])
+
+    def test_the_verify_workflow_when_present_is_read_only_and_never_runs_on_main(self):
+        """verify.yml 由 David 貼進分支；本機的副本（有的話）要符合：只讀、不觸發於 main、沒有 secret、沒有 models 權限（GitHub Models 已退役）。"""
+        p = os.path.join(ROOT, ".github", "workflows", "verify.yml")
+        if not os.path.exists(p):
+            self.skipTest("verify.yml 還沒貼進這個分支（由 David 在 GitHub 網頁上貼）")
+        text = read(".github/workflows/verify.yml")
+        self.assertRegex(text, r"(?m)^permissions:\n  contents: read\n")
+        for bad in ("models:", "secrets.", "pull_request_target", "contents: write"):
+            self.assertNotIn(bad, text, bad)
+        self.assertIn('branches: ["feat/**"]', text)
+        self.assertNotRegex(text, r"(?m)^\s*-\s*main\s*$")
+        self.assertIn("verify_ci.py extract-verifier", text)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,906 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實際的 commit 重跑全套測試、三種掃描、突變對照，
+封鎖對外連線並記錄每一個對外請求，跟 main 比，寫一份機器可讀、綁定 commit 的結果檔。
+
+工作流程 .github/workflows/verify.yml 只做固定的幾步，邏輯都在這裡；每一步是這個檔的一個子指令：
+  extract-verifier  從 origin/main 取驗收程式到一個資料夾（main 上還沒有＝P2 第一次：用分支的，結果標 verifier_source=branch）
+  lockdown          封鎖對外連線：另一個使用者＋iptables（第 1 層）、瀏覽器的名稱解析規則（第 2 層）、Python 的 socket（第 3 層）
+  run-tests         用封鎖中的環境跑全套測試（子程序）→ tests.json、tests-verbose.txt
+  unlock            收集對外請求的紀錄（Python 層的名稱、瀏覽器的名稱、iptables 擋下的 IP）→ egress.json；還原規則
+  compare           跟 main 比：測試數、被刪改的測試、突變數、被刪改的突變、動到的保護範圖檔、驗收機本身有沒有改 → compare.json
+  mutations         跑一片突變（執行器與例外清單用 main 的，定義用分支的）→ mut-*.json
+  collect           合併、判定紅綠、結果檔過隱私掃描、寫 job summary → verify-result.json；紅＝非零結束
+
+判定規則（David 2026-10-04 的裁決）：台銀與資料來源網域出現→紅；未知主機→紅；Chrome 自己的背景連線→列出、不紅（名單在下面，算保護範圍）；
+測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅；沒有系統層的封鎖→不紅，但結果寫「封鎖層級 2／3」。
+分支改了驗收機本身（verify.yml、這個檔、突變執行器、例外清單）→ 結果標 verifier_changed，判定照 main 的版本做；寄「可以合併」那一關不認這種綠。
+
+只用標準函式庫；離線測試在 scripts/test_verify_ci.py（判定、比對、解析、掃描都是純函式）。
+"""
+import argparse
+import ast
+import glob
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+VERIFIER_FILES = [".github/workflows/verify.yml", "scripts/verify_ci.py", "scripts/mutations/run_mutations.py", "scripts/mutations/known_survivors.json"]
+# 判定時還要用到的 main 上的檔（白名單、保護範圍清單、隱私掃描器、main 的突變定義）
+EXTRA_FROM_MAIN = {"scripts/net_policy.py": "net_policy.py", ".claude/autopilot/config.json": "config.json",
+                   "scripts/test_analysis_guards.py": "test_analysis_guards.py", "scripts/mutations/autopilot_mutations.py": "main_autopilot_mutations.py"}
+DEST_NAMES = {".github/workflows/verify.yml": "verify.yml", "scripts/verify_ci.py": "verify_ci.py",
+              "scripts/mutations/run_mutations.py": "run_mutations.py", "scripts/mutations/known_survivors.json": "known_survivors.json"}
+
+BOT_HOST_PARTS = ("bot.com.tw",)
+# Chrome 自己的背景連線（更新、安全瀏覽、字型…）：列出來、不算紅。這份名單在 main 上才算數（算保護範圖）。
+BROWSER_NOISE = [r"(^|\.)google\.com$", r"(^|\.)googleapis\.com$", r"(^|\.)gstatic\.com$", r"(^|\.)gvt1\.com$", r"(^|\.)gvt2\.com$",
+                 r"(^|\.)googleusercontent\.com$", r"(^|\.)doubleclick\.net$", r"(^|\.)chromium\.org$", r"(^|\.)google-analytics\.com$",
+                 r"(^|\.)googlezip\.net$"]
+GITHUB_HOSTS = [r"(^|\.)github\.com$", r"(^|\.)githubusercontent\.com$", r"(^|\.)githubassets\.com$", r"(^|\.)github\.io$"]
+LOOPBACK_RE = re.compile(r"^(127\.|::1$|localhost$|localhost\.|0\.0\.0\.0$|::$|lockdown-selftest\.invalid$)")
+IPTABLES_PREFIX = "IWEGRESS "
+TEST_USER = "iwtest"
+
+SITECUSTOMIZE = r'''# iw-verify：第 3 層封鎖。所有 Python 程序（含測試開的子程序）一啟動就載入；記下每一個對外的名稱與連線，然後拒絕。
+import io, json, os, socket, time
+_LOG = os.environ.get("IW_EGRESS_LOG")
+def _ok(host):
+    h = str(host or "").strip().lower().rstrip(".")
+    return (h == "" or h.startswith("127.") or h in ("::1", "localhost", "0.0.0.0", "::", "localhost.localdomain") or h.endswith(".localhost"))
+def _log(kind, target):
+    if not _LOG:
+        return
+    try:
+        with io.open(_LOG, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"t": time.time(), "pid": os.getpid(), "kind": kind, "target": str(target)[:200]}) + "\n")
+    except Exception:
+        pass
+_gai = socket.getaddrinfo
+def _getaddrinfo(host, *a, **k):
+    if not _ok(host):
+        _log("dns", host)
+        raise socket.gaierror(-2, "iw-verify: outbound blocked (%s)" % host)
+    return _gai(host, *a, **k)
+socket.getaddrinfo = _getaddrinfo
+def _check_addr(addr):
+    if isinstance(addr, tuple) and addr and not _ok(addr[0]):
+        _log("connect", "%s:%s" % (addr[0], addr[1] if len(addr) > 1 else ""))
+        raise OSError("iw-verify: outbound blocked (%s)" % (addr[0],))
+_connect, _connect_ex = socket.socket.connect, socket.socket.connect_ex
+def _c(self, addr):
+    _check_addr(addr)
+    return _connect(self, addr)
+def _cx(self, addr):
+    _check_addr(addr)
+    return _connect_ex(self, addr)
+socket.socket.connect, socket.socket.connect_ex = _c, _cx
+'''
+
+CHROME_WRAPPER = '''#!/bin/sh
+# iw-verify：第 2 層封鎖。所有名稱解析一律失敗（MAP * ~NOTFOUND），同時把 Chrome 查過的名稱記進 netlog。
+exec "%(chrome)s" --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1" \\
+  --log-net-log="%(egress)s/chrome-netlog-$$.json" --net-log-capture-mode=Default "$@"
+'''
+
+
+# ---------------------------------------------------------------- 小工具
+
+def run(cmd, cwd=None, timeout=120, env=None, inp=None):
+    try:
+        p = subprocess.run(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout, env=env, input=inp)
+        return p.returncode, p.stdout.decode("utf-8", "replace")
+    except Exception as e:                                          # noqa: B902
+        return 99, "執行失敗：%r" % (e,)
+
+
+def sudo(cmd, timeout=120):
+    return run(["sudo", "-n"] + list(cmd), timeout=timeout)
+
+
+def git(repo, args, timeout=60):
+    p = subprocess.run(["git"] + list(args), cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+    return p.returncode, p.stdout.decode("utf-8", "replace")
+
+
+def git_show(repo, ref, path):
+    """ref 那個版本的檔案內容；沒有這個檔回 None。"""
+    rc, out = git(repo, ["show", "%s:%s" % (ref, path)])
+    return out if rc == 0 else None
+
+
+def git_blob(repo, ref, path):
+    rc, out = git(repo, ["rev-parse", "-q", "--verify", "%s:%s" % (ref, path)])
+    return out.strip() if rc == 0 and out.strip() else None
+
+
+def read_json(path, default=None):
+    try:
+        with io.open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:                                              # noqa: B902
+        return default
+
+
+def write_json(path, obj):
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+        json.dump(obj, fh, ensure_ascii=False, indent=1, sort_keys=True)
+        fh.write("\n")
+
+
+def write_text(path, text, mode=None):
+    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+    with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(text)
+    if mode is not None:
+        try:
+            os.chmod(path, mode)
+        except Exception:                                          # noqa: B902
+            pass
+
+
+def glob_match(rel, patterns):
+    """跟 .claude/hooks/iw_common.glob_match 一樣的規則（這裡不 import hook，驗收機要能單獨跑）。"""
+    import fnmatch
+    rel = rel.lower()
+    for pat in patterns:
+        pat = pat.lower()
+        if pat.endswith("/**"):
+            base = pat[:-3]
+            if rel == base or rel.startswith(base + "/"):
+                return True
+        elif fnmatch.fnmatchcase(rel, pat):
+            return True
+    return False
+
+
+def load_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def find_chrome():
+    forced = os.environ.get("IW_BROWSER")
+    if forced and os.path.exists(forced):
+        return forced
+    for name in ("google-chrome", "google-chrome-stable", "chromium-browser", "chromium"):
+        p = shutil.which(name)
+        if p:
+            return p
+    return None
+
+
+def now_iso():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# ---------------------------------------------------------------- 1. 取驗收程式
+
+def cmd_extract_verifier(a):
+    repo, dest = os.path.abspath(a.repo), os.path.abspath(a.dest)
+    os.makedirs(dest, exist_ok=True)
+    first_time = git_blob(repo, a.main_ref, "scripts/verify_ci.py") is None
+    source = "branch" if first_time else "main"
+    files = {}
+    for rel, name in list(DEST_NAMES.items()) + list(EXTRA_FROM_MAIN.items()):
+        text = None if first_time and rel in DEST_NAMES else git_show(repo, a.main_ref, rel)
+        where = "main"
+        if text is None:
+            p = os.path.join(repo, *rel.split("/"))
+            if os.path.exists(p):
+                with io.open(p, encoding="utf-8", errors="replace") as fh:
+                    text = fh.read()
+                where = "branch"
+        if text is None:
+            files[rel] = "missing"
+            continue
+        write_text(os.path.join(dest, name), text)
+        files[rel] = where
+    write_json(os.path.join(dest, "verifier-source.json"), {"source": source, "main_ref": a.main_ref, "files": files, "at": now_iso()})
+    print("dir=%s" % dest)
+    print("source=%s" % source)
+    return 0
+
+
+# ---------------------------------------------------------------- 2. 封鎖
+
+def cmd_lockdown(a):
+    out = os.path.abspath(a.out)
+    os.makedirs(out, exist_ok=True)
+    egress = os.path.join(out, "egress")
+    os.makedirs(egress, exist_ok=True)
+    info = {"started_at": now_iso(), "layers": {"python": "sitecustomize", "browser": None, "ip": None}, "user": None, "notes": [],
+            "browser": None, "selftest": {}}
+    pyguard = os.path.join(out, "pyguard")
+    write_text(os.path.join(pyguard, "sitecustomize.py"), SITECUSTOMIZE)
+    chrome = find_chrome()
+    if chrome:
+        wrapper = os.path.join(out, "chrome-wrapper.sh")
+        write_text(wrapper, CHROME_WRAPPER % {"chrome": chrome, "egress": egress}, mode=0o755)
+        info["browser"] = wrapper
+        info["chrome"] = chrome
+        info["layers"]["browser"] = "host-resolver-rules+netlog"
+    else:
+        info["notes"].append("找不到 Chrome：瀏覽器那幾組會紅（這一組刻意不跳過）")
+    # Python 層自我測試：解析一個不存在的名稱，必須失敗、而且被記下來
+    env = dict(os.environ, PYTHONPATH=pyguard + os.pathsep + os.environ.get("PYTHONPATH", ""), IW_EGRESS_LOG=os.path.join(egress, "python.jsonl"))
+    rc, _o = run([sys.executable, "-c", "import socket; socket.getaddrinfo('lockdown-selftest.invalid', 80)"], env=env, timeout=30)
+    logged = os.path.exists(env["IW_EGRESS_LOG"]) and "lockdown-selftest.invalid" in io.open(env["IW_EGRESS_LOG"], encoding="utf-8").read()
+    info["selftest"]["python"] = "blocked+logged" if (rc != 0 and logged) else "NOT blocked"
+    if info["selftest"]["python"] != "blocked+logged":
+        info["layers"]["python"] = None
+        info["notes"].append("Python 層的自我測試沒過")
+    # 第 1 層：另一個使用者＋iptables（Linux、免密碼 sudo 才有）
+    if sys.platform.startswith("linux"):
+        rc, o = sudo(["-v"])
+        if rc != 0:
+            info["notes"].append("沒有免密碼 sudo：沒有系統層的封鎖")
+        else:
+            rc, o = sudo(["useradd", "-m", "-s", "/bin/bash", TEST_USER])
+            if rc == 0 or "already exists" in o:
+                info["user"] = TEST_USER
+                sudo(["chmod", "-R", "a+rwX", os.path.abspath(a.repo)], timeout=300)
+                sudo(["chmod", "-R", "a+rwX", out], timeout=120)
+                rules = [["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", TEST_USER, "-o", "lo", "-j", "ACCEPT"],
+                         ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "LOG", "--log-prefix", IPTABLES_PREFIX],
+                         ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "DROP"]]
+                ok4 = all(sudo(["iptables"] + r)[0] == 0 for r in rules)
+                ok6 = all(sudo(["ip6tables"] + r)[0] == 0 for r in rules)
+                info["iptables"] = {"ipv4": ok4, "ipv6": ok6, "rules": rules}
+                if ok4:
+                    info["layers"]["ip"] = "iptables(uid-owner %s)" % TEST_USER
+                    rc, o = sudo(["-u", TEST_USER, "curl", "-sS", "--max-time", "5", "http://1.1.1.1/"], timeout=30)
+                    info["selftest"]["ip"] = "blocked" if rc != 0 else "NOT blocked"
+                    if rc == 0:
+                        info["layers"]["ip"] = None
+                        info["notes"].append("系統層自我測試沒過：以 %s 連 1.1.1.1 竟然成功" % TEST_USER)
+                else:
+                    info["notes"].append("iptables 加規則失敗：%s" % o[-200:])
+            else:
+                info["notes"].append("建不出使用者 %s：%s" % (TEST_USER, o[-200:]))
+    else:
+        info["notes"].append("不是 Linux：只有 Python 與瀏覽器兩層")
+    layers = info["layers"]
+    n = sum(1 for k in ("python", "browser", "ip") if layers.get(k))
+    info["level"] = "%d/3" % n
+    write_json(os.path.join(out, "lockdown.json"), info)
+    print("封鎖層級 %s：%s" % (info["level"], "；".join("%s=%s" % (k, v or "沒有") for k, v in layers.items())))
+    for note in info["notes"]:
+        print("  注意：" + note)
+    return 0
+
+
+# ---------------------------------------------------------------- 3. 跑全套
+
+def cmd_run_tests(a):
+    out = os.path.abspath(a.out)
+    repo = os.path.abspath(a.repo)
+    lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
+    egress = os.path.join(out, "egress")
+    os.makedirs(egress, exist_ok=True)
+    env_items = {"PYTHONPATH": os.path.join(out, "pyguard"), "IW_EGRESS_LOG": os.path.join(egress, "python.jsonl"),
+                 "PYTHONIOENCODING": "utf-8", "PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8", "TMPDIR": "/tmp"}
+    browser = lock.get("browser") or find_chrome()
+    if browser:
+        env_items["IW_BROWSER"] = browser
+    user = lock.get("user")
+    inner = [sys.executable, "-X", "utf8", "-W", "ignore", os.path.join(HERE, "verify_ci.py"), "run-tests-inner", "--repo", repo,
+             "--out", os.path.join(out, "tests.json"), "--log", os.path.join(out, "tests-verbose.txt")]
+    if user:
+        home = "/tmp/%s-home" % user
+        env_items["HOME"] = home
+        sudo(["mkdir", "-p", home])
+        sudo(["chown", "-R", user, home])
+        cmd = ["sudo", "-n", "-u", user, "-H", "env"] + ["%s=%s" % (k, v) for k, v in env_items.items()] + inner
+        env = None
+    else:
+        cmd = inner
+        env = dict(os.environ, **env_items)
+    print("跑全套測試（%s）…" % ("使用者 %s、封鎖層級 %s" % (user, lock.get("level")) if user else "封鎖層級 %s" % lock.get("level", "?")))
+    t0 = time.time()
+    rc, o = run(cmd, cwd=repo, timeout=a.timeout, env=env)
+    print(o[-4000:])
+    res = read_json(os.path.join(out, "tests.json"), {}) or {}
+    print("Ran %s tests in %.0fs — %s" % (res.get("ran"), time.time() - t0, "OK" if res.get("ok") else "FAILED"))
+    return 0 if res.get("ok") else (rc or 1)
+
+
+class _Sink(object):
+    def __init__(self):
+        self.passed, self.failed, self.errors, self.skipped, self.unexpected, self.expected = [], [], [], [], [], 0
+
+
+def _result_class(sink):
+    import unittest
+
+    class R(unittest.TextTestResult):
+        def addSuccess(self, test):
+            super(R, self).addSuccess(test)
+            sink.passed.append(test.id())
+
+        def addFailure(self, test, err):
+            super(R, self).addFailure(test, err)
+            sink.failed.append(test.id())
+
+        def addError(self, test, err):
+            super(R, self).addError(test, err)
+            sink.errors.append(test.id())
+
+        def addSkip(self, test, reason):
+            super(R, self).addSkip(test, reason)
+            sink.skipped.append({"name": test.id(), "reason": str(reason)[:200]})
+
+        def addExpectedFailure(self, test, err):
+            super(R, self).addExpectedFailure(test, err)
+            sink.expected += 1
+
+        def addUnexpectedSuccess(self, test):
+            super(R, self).addUnexpectedSuccess(test)
+            sink.unexpected.append(test.id())
+    return R
+
+
+def cmd_run_tests_inner(a):
+    import unittest
+    repo = os.path.abspath(a.repo)
+    os.chdir(repo)
+    scripts = os.path.join(repo, "scripts")
+    sys.path.insert(0, scripts)
+    loader = unittest.defaultTestLoader
+    suite = loader.discover("scripts", pattern="test_*.py", top_level_dir="scripts")
+    defined = suite.countTestCases()
+    sink = _Sink()
+    t0 = time.time()
+    os.makedirs(os.path.dirname(os.path.abspath(a.log)), exist_ok=True)
+    with io.open(a.log, "w", encoding="utf-8", errors="replace", newline="\n") as log:
+        runner = unittest.TextTestRunner(stream=log, verbosity=2, resultclass=_result_class(sink))
+        result = runner.run(suite)
+    res = {"defined": defined, "ran": result.testsRun, "passed": len(sink.passed), "failed": sorted(sink.failed), "errors": sorted(sink.errors),
+           "skipped": sorted(sink.skipped, key=lambda s: s["name"]), "expected_failures": sink.expected, "unexpected_successes": sorted(sink.unexpected),
+           "seconds": round(time.time() - t0, 1), "python": sys.version.split()[0], "platform": sys.platform, "ok": result.wasSuccessful(),
+           "browser": os.environ.get("IW_BROWSER")}
+    write_json(a.out, res)
+    return 0 if result.wasSuccessful() else 1
+
+
+# ---------------------------------------------------------------- 4. 解除封鎖、收集對外請求
+
+def parse_python_log(text):
+    hosts, events = {}, 0
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except ValueError:
+            continue
+        events += 1
+        target = str(rec.get("target") or "")
+        host = target.rsplit(":", 1)[0] if rec.get("kind") == "connect" and ":" in target and not target.count(":") > 1 else target
+        host = host.strip("[]").lower().rstrip(".")
+        if host:
+            hosts[host] = hosts.get(host, 0) + 1
+    return hosts, events
+
+
+_NETLOG_HOST = re.compile(r'"host"\s*:\s*"([^"\\]+)"')
+_NETLOG_URL = re.compile(r'"url"\s*:\s*"[a-z]+://([^/"\\:]+)')
+
+
+def parse_netlog_hosts(text):
+    hosts = {}
+    for m in list(_NETLOG_HOST.finditer(text or "")) + list(_NETLOG_URL.finditer(text or "")):
+        h = m.group(1).strip().lower().rstrip(".")
+        h = h.rsplit(":", 1)[0] if re.search(r":\d+$", h) else h
+        if h:
+            hosts[h] = hosts.get(h, 0) + 1
+    return hosts
+
+
+_IPT_LINE = re.compile(r"IWEGRESS .*?DST=(\S+).*?PROTO=(\S+)(?:.*?DPT=(\d+))?")
+
+
+def parse_iptables_log(text):
+    blocked = {}
+    for line in (text or "").splitlines():
+        m = _IPT_LINE.search(line)
+        if not m:
+            continue
+        key = (m.group(1), m.group(2), m.group(3) or "")
+        blocked[key] = blocked.get(key, 0) + 1
+    return [{"ip": k[0], "proto": k[1], "port": k[2], "count": v} for k, v in sorted(blocked.items())]
+
+
+def cmd_unlock(a):
+    out = os.path.abspath(a.out)
+    lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
+    egress_dir = os.path.join(out, "egress")
+    hosts = {}
+    py_hosts, py_events = parse_python_log(_read(os.path.join(egress_dir, "python.jsonl")))
+    for h, n in py_hosts.items():
+        hosts.setdefault(h, {"count": 0, "via": []})
+        hosts[h]["count"] += n
+        if "python" not in hosts[h]["via"]:
+            hosts[h]["via"].append("python")
+    netlogs = sorted(glob.glob(os.path.join(egress_dir, "chrome-netlog-*.json")))
+    for p in netlogs:
+        for h, n in parse_netlog_hosts(_read(p)).items():
+            hosts.setdefault(h, {"count": 0, "via": []})
+            hosts[h]["count"] += n
+            if "browser" not in hosts[h]["via"]:
+                hosts[h]["via"].append("browser")
+    blocked, counters = [], None
+    if (lock.get("layers") or {}).get("ip"):
+        rc, o = sudo(["dmesg"], timeout=60)
+        if rc != 0:
+            rc, o = sudo(["journalctl", "-k", "--no-pager"], timeout=60)
+        blocked = parse_iptables_log(o if rc == 0 else "")
+        rc, counters = sudo(["iptables", "-L", "OUTPUT", "-v", "-n", "-x"], timeout=30)
+        for table in ("iptables", "ip6tables"):                     # 還原（倒著刪）
+            for r in reversed((lock.get("iptables") or {}).get("rules") or []):
+                rr = list(r)
+                rr[0] = "-D"
+                if rr[1] == "OUTPUT" and rr[2] == "1":
+                    del rr[2]
+                sudo([table] + rr)
+    res = {"hosts": hosts, "blocked_ips": blocked, "python_events": py_events, "browser_netlogs": len(netlogs), "layers": lock.get("layers") or {},
+           "level": lock.get("level"), "selftest": lock.get("selftest") or {}, "notes": lock.get("notes") or [], "counters": (counters or "")[-2000:],
+           "collected_at": now_iso()}
+    write_json(os.path.join(out, "egress.json"), res)
+    print("對外請求：%d 個主機名稱、%d 個被擋的 IP（封鎖層級 %s）" % (len(hosts), len(blocked), res["level"]))
+    return 0
+
+
+def _read(path):
+    try:
+        with io.open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except Exception:                                              # noqa: B902
+        return ""
+
+
+# ---------------------------------------------------------------- 5. 跟 main 比
+
+def test_functions(source):
+    """{Class.test_name: 原始碼的雜湊}。靜態計數：跟 loader 數出來的可能差幾條（動態產生的測試），但 main 與分支用同一把尺。"""
+    out = {}
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return out
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            for f in node.body:
+                if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)) and f.name.startswith("test"):
+                    seg = ast.get_source_segment(source, f) or ""
+                    out[node.name + "." + f.name] = hashlib.sha1(seg.encode("utf-8")).hexdigest()[:12]
+    return out
+
+
+def collect_tests(sources):
+    """sources：{檔名: 內容}。回傳 {檔名::Class.test: 雜湊}。"""
+    out = {}
+    for name, text in sources.items():
+        for k, v in test_functions(text).items():
+            out[name + "::" + k] = v
+    return out
+
+
+def diff_items(main_items, branch_items):
+    removed = sorted(k for k in main_items if k not in branch_items)
+    modified = sorted(k for k in main_items if k in branch_items and main_items[k] != branch_items[k])
+    return removed, modified
+
+
+def mutation_items(defs):
+    out = {}
+    for m in defs:
+        old, new = m[3], m[4]
+        key = json.dumps([m[2], old, new], ensure_ascii=False, sort_keys=True)
+        out[m[0]] = hashlib.sha1(key.encode("utf-8")).hexdigest()[:12]
+    return out
+
+
+def main_test_sources(repo, main_ref):
+    rc, out = git(repo, ["ls-tree", "--name-only", main_ref, "scripts/"])
+    if rc != 0:
+        return None
+    srcs = {}
+    for line in out.splitlines():
+        name = line.strip()
+        if re.match(r"^scripts/test_.*\.py$", name):
+            text = git_show(repo, main_ref, name)
+            if text is not None:
+                srcs[name] = text
+    return srcs
+
+
+def branch_test_sources(repo):
+    srcs = {}
+    for p in sorted(glob.glob(os.path.join(repo, "scripts", "test_*.py"))):
+        srcs["scripts/" + os.path.basename(p)] = _read(p)
+    return srcs
+
+
+def cmd_compare(a):
+    repo, out = os.path.abspath(a.repo), os.path.abspath(a.out)
+    os.makedirs(out, exist_ok=True)
+    main_ref = a.main_ref
+    rc, main_sha = git(repo, ["rev-parse", main_ref])
+    rc2, head_sha = git(repo, ["rev-parse", "HEAD"])
+    res = {"main_ref": main_ref, "main_sha": main_sha.strip() if rc == 0 else None, "head_sha": head_sha.strip() if rc2 == 0 else None}
+    # 測試
+    branch_tests = collect_tests(branch_test_sources(repo))
+    main_srcs = main_test_sources(repo, main_ref)
+    main_tests = collect_tests(main_srcs) if main_srcs is not None else None
+    res["tests_defined"] = len(branch_tests)
+    res["tests_defined_main"] = len(main_tests) if main_tests is not None else None
+    res["tests_removed"], res["tests_modified"] = diff_items(main_tests or {}, branch_tests)
+    # 突變
+    defs_path = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
+    branch_defs = load_module(defs_path, "iw_defs_branch").MUTATIONS if os.path.exists(defs_path) else []
+    main_defs_text = git_show(repo, main_ref, "scripts/mutations/autopilot_mutations.py")
+    main_defs = None
+    if main_defs_text is not None:
+        tmp = os.path.join(out, "main_autopilot_mutations.py")
+        write_text(tmp, main_defs_text)
+        main_defs = load_module(tmp, "iw_defs_main").MUTATIONS
+    res["mutations_total"] = len(branch_defs)
+    res["mutations_main"] = len(main_defs) if main_defs is not None else None
+    res["mutations_removed"], res["mutations_modified"] = diff_items(mutation_items(main_defs or []), mutation_items(branch_defs))
+    runner_path = os.path.join(HERE, "run_mutations.py")
+    if not os.path.exists(runner_path):
+        runner_path = os.path.join(repo, "scripts", "mutations", "run_mutations.py")
+    try:
+        res["mutation_anchor_problems"] = load_module(runner_path, "iw_runner").check_anchors(repo, branch_defs) if os.path.exists(runner_path) else ["找不到突變的執行器"]
+    except Exception as e:                                          # noqa: B902
+        res["mutation_anchor_problems"] = ["核對錨點時出錯：%r" % (e,)]
+    # 保護範圍（清單用 main 上的 config）
+    cfg_text = git_show(repo, main_ref, ".claude/autopilot/config.json") or _read(os.path.join(repo, ".claude", "autopilot", "config.json"))
+    try:
+        cfg = json.loads(cfg_text) if cfg_text else {}
+    except ValueError:
+        cfg = {}
+    rc, changed = git(repo, ["diff", "--name-only", "%s...HEAD" % main_ref])
+    changed = [f for f in changed.splitlines() if f.strip()] if rc == 0 else []
+    res["changed_files"] = len(changed)
+    res["protected_touched"] = {
+        "tier1": [f for f in changed if glob_match(f, (cfg.get("tier1") or {}).get("paths") or [])],
+        "self": [f for f in changed if glob_match(f, (cfg.get("selfFiles") or {}).get("paths") or [])],
+        "tier2": [f for f in changed if glob_match(f, (cfg.get("tier2") or {}).get("paths") or [])]}
+    # 驗收機本身
+    vfiles = (cfg.get("verify") or {}).get("files") or VERIFIER_FILES
+    changed_v = [f for f in vfiles if git_blob(repo, "HEAD", f) != git_blob(repo, main_ref, f)]
+    src = read_json(os.path.join(HERE, "verifier-source.json"), {}) or {}
+    res["verifier_first_time"] = git_blob(repo, main_ref, "scripts/verify_ci.py") is None
+    res["verifier_source"] = src.get("source") or ("branch" if res["verifier_first_time"] else "main")
+    res["verifier_changed_files"] = changed_v
+    res["verifier_changed"] = bool(changed_v) or res["verifier_source"] == "branch"
+    res["compared_at"] = now_iso()
+    write_json(os.path.join(out, "compare.json"), res)
+    print("測試 %s（main %s）、突變 %s（main %s）、動到保護範圍 %d 個檔、驗收機%s" % (
+        res["tests_defined"], res["tests_defined_main"], res["mutations_total"], res["mutations_main"],
+        sum(len(v) for v in res["protected_touched"].values()), "本身有改：" + "、".join(changed_v) if res["verifier_changed"] else "沒改"))
+    return 0
+
+
+# ---------------------------------------------------------------- 6. 突變（一片）
+
+def cmd_mutations(a):
+    repo, out = os.path.abspath(a.repo), os.path.abspath(a.out)
+    os.makedirs(out, exist_ok=True)
+    runner = os.path.join(HERE, "run_mutations.py")
+    known = os.path.join(HERE, "known_survivors.json")
+    if not os.path.exists(runner):
+        runner = os.path.join(repo, "scripts", "mutations", "run_mutations.py")
+    if not os.path.exists(known):
+        known = os.path.join(repo, "scripts", "mutations", "known_survivors.json")
+    defs = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
+    tag = a.shard.replace("/", "-of-")
+    cmd = [sys.executable, "-X", "utf8", runner, "--defs", defs, "--known", known, "--repo", repo, "--copy", os.path.join(a.copy_dir, "mutcopy-" + tag),
+           "--shard", a.shard, "--no-baseline", "--out", os.path.join(out, "mut-%s.json" % tag), "--timeout", str(a.timeout)]
+    chrome = find_chrome()
+    if chrome:
+        cmd += ["--browser", chrome]
+    rc, o = run(cmd, cwd=repo, timeout=a.timeout * 3, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    print(o[-6000:])
+    return rc
+
+
+# ---------------------------------------------------------------- 7. 判定、結果檔
+
+def classify_host(host, allowed_hosts):
+    host = (host or "").strip().lower().rstrip(".")
+    if not host or LOOPBACK_RE.match(host):
+        return "loopback"
+    if any(part in host for part in BOT_HOST_PARTS):
+        return "bot"
+    if host in set(h.lower() for h in (allowed_hosts or [])) or any(re.search(p, host) for p in GITHUB_HOSTS):
+        return "source"
+    if any(re.search(p, host) for p in BROWSER_NOISE):
+        return "browser"
+    return "unknown"
+
+
+def judge_egress(raw, allowed_hosts):
+    hosts = (raw or {}).get("hosts") or {}
+    out = {"bot_hits": 0, "bot_hosts": [], "source_hosts": [], "browser_hosts": [], "unknown_hosts": [], "loopback_hosts": [],
+           "blocked_ips": (raw or {}).get("blocked_ips") or [], "layers": (raw or {}).get("layers") or {}, "level": (raw or {}).get("level"),
+           "python_events": (raw or {}).get("python_events", 0), "browser_netlogs": (raw or {}).get("browser_netlogs", 0)}
+    for host, rec in sorted(hosts.items()):
+        kind = classify_host(host, allowed_hosts)
+        if kind == "bot":
+            out["bot_hits"] += int(rec.get("count") or 0)
+            out["bot_hosts"].append(host)
+        elif kind == "source":
+            out["source_hosts"].append(host)
+        elif kind == "browser":
+            out["browser_hosts"].append(host)
+        elif kind == "unknown":
+            out["unknown_hosts"].append(host)
+        else:
+            out["loopback_hosts"].append(host)
+    return out
+
+
+def merge_mutations(shards, known, expected_total=None):
+    results, shards_seen = [], []
+    for s in shards:
+        shards_seen.append(s.get("shard"))
+        results += [r for r in (s.get("results") or []) if not str(r.get("id", "")).startswith("基準")]
+    ids = sorted(set(r["id"] for r in results))
+    red = sorted(r["id"] for r in results if r.get("ok"))
+    anchor_errors = sorted(r["id"] for r in results if r.get("error"))
+    survivors = sorted(r["id"] for r in results if not r.get("ok") and not r.get("error"))
+    known = known or {}
+    return {"total_ran": len(ids), "red": len(red), "survivors": survivors, "anchor_errors": anchor_errors,
+            "known_exceptions": sorted(k for k in survivors if k in known), "unexplained_survivors": sorted(k for k in survivors if k not in known),
+            "shards": shards_seen, "missing": max(0, (expected_total or 0) - len(ids)) if expected_total is not None else 0,
+            "seconds": round(sum(float(r.get("seconds") or 0) for r in results), 1)}
+
+
+def judge(tests, egress, cmp_, mut, lockdown, privacy):
+    """回傳紅的原因清單（空的＝綠）。每一條規則在 scripts/test_verify_ci.py 都有「改壞→紅」的對照。"""
+    reasons = []
+    tests = tests or {}
+    cmp_ = cmp_ or {}
+    mut = mut or {}
+    egress = egress or {}
+    if not tests:
+        reasons.append("沒有測試結果（tests.json 不在）")
+    else:
+        if int(tests.get("ran") or 0) == 0:
+            reasons.append("沒有跑到任何測試")
+        bad = len(tests.get("failed") or []) + len(tests.get("errors") or [])
+        if bad:
+            reasons.append("測試有 %d 條紅：%s" % (bad, "、".join((tests.get("failed") or []) + (tests.get("errors") or []))[:300]))
+        if tests.get("unexpected_successes"):
+            reasons.append("有 %d 條預期失敗的測試竟然過了" % len(tests["unexpected_successes"]))
+    if cmp_.get("tests_defined_main") is not None and tests.get("defined", 0) < cmp_["tests_defined_main"]:
+        reasons.append("測試數變少：main %d → 這裡 %d" % (cmp_["tests_defined_main"], tests.get("defined", 0)))
+    if cmp_.get("mutations_main") is not None and int(cmp_.get("mutations_total") or 0) < cmp_["mutations_main"]:
+        reasons.append("突變數變少：main %d → 這裡 %d" % (cmp_["mutations_main"], cmp_.get("mutations_total") or 0))
+    if cmp_.get("mutation_anchor_problems"):
+        reasons.append("突變的錨點有 %d 個問題：%s" % (len(cmp_["mutation_anchor_problems"]), "；".join(cmp_["mutation_anchor_problems"])[:300]))
+    if mut.get("unexplained_survivors"):
+        reasons.append("有 %d 個突變沒有紅、也不在 main 的例外清單裡：%s" % (len(mut["unexplained_survivors"]), "、".join(mut["unexplained_survivors"])))
+    if mut.get("anchor_errors"):
+        reasons.append("突變執行時錨點出錯：%s" % "、".join(mut["anchor_errors"]))
+    if mut.get("missing"):
+        reasons.append("突變有 %d 個沒跑到（分片沒全部回來？）" % mut["missing"])
+    if egress.get("bot_hits"):
+        reasons.append("對台銀的請求出現 %d 次（%s）——這個系列對台銀的請求數要是 0" % (egress["bot_hits"], "、".join(egress.get("bot_hosts") or [])))
+    if egress.get("source_hosts"):
+        reasons.append("測試期間連了資料來源或 GitHub（測試應該全部離線）：%s" % "、".join(egress["source_hosts"]))
+    if egress.get("unknown_hosts"):
+        reasons.append("測試期間連了名單外的主機：%s" % "、".join(egress["unknown_hosts"]))
+    if not ((lockdown or {}).get("layers") or {}).get("python"):
+        reasons.append("Python 層的封鎖沒有生效")
+    if privacy:
+        reasons.append("結果檔含不該公開的字串：%s" % "；".join(privacy)[:300])
+    return reasons
+
+
+# 隱私掃描（跟 scripts/test_autopilot_config.py 的樣式一致；另外加 main 上 test_analysis_guards 的三個掃描器）
+_LOCAL_USER = re.compile(r"(?i)[a-z]:[\\/]+users[\\/]+(?!fake\b)[a-z0-9_.-]+")
+_LOCAL_ROOT = re.compile(r"(?i)[a-z]:[\\/]+claude_use")
+_TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def privacy_scan(texts, guards=None):
+    """texts：{名稱: 內容}。回傳命中清單（名稱：原因）。guards：main 上的 test_analysis_guards 模組（有就多掃三種）。"""
+    hits = []
+    for name, text in sorted(texts.items()):
+        text = text or ""
+        if _LOCAL_USER.search(text):
+            hits.append("%s：本機的使用者資料夾" % name)
+        if _LOCAL_ROOT.search(text):
+            hits.append("%s：本機的絕對路徑" % name)
+        if _TOKEN.search(text):
+            hits.append("%s：像權杖的字串" % name)
+        for m in _MAIL.findall(text):
+            if not (m.endswith(("@example.com", "@example.invalid", "@github.com")) or "noreply" in m or m.startswith("git@")):
+                hits.append("%s：電子郵件" % name)
+                break
+        if guards is not None:
+            try:
+                extra = list(guards.privacy_hits(text)) + list(guards.profile_key_hits(text)) + list(guards.fxplan_key_hits(text))
+            except Exception as e:                                  # noqa: B902
+                extra = ["掃描器出錯：%r" % (e,)]
+            if extra:
+                hits.append("%s：%s" % (name, "、".join(str(x) for x in extra)[:120]))
+    return hits
+
+
+def _find_files(root, name):
+    out = []
+    for base, _dirs, names in os.walk(root):
+        for n in names:
+            if n == name or (name.endswith("*") and n.startswith(name[:-1])):
+                out.append(os.path.join(base, n))
+    return sorted(out)
+
+
+def summary_md(res):
+    t, e, c, m = res.get("tests") or {}, res.get("egress") or {}, res.get("compare") or {}, res.get("mutations") or {}
+    lines = ["### 驗收機：%s" % ("🔴 紅" if res.get("red") else "🟢 綠"), "",
+             "- commit：`%s`　分支／標籤：`%s`　驗收程式來源：%s%s" % ((res.get("commit") or "")[:12], res.get("ref"), c.get("verifier_source"),
+                                                                "（**驗收機本身有改**：%s）" % "、".join(c.get("verifier_changed_files") or []) if c.get("verifier_changed") else ""),
+             "- 測試：跑了 %s 條，通過 %s、紅 %s、skipped %s；靜態計數 %s（main %s）" % (t.get("ran"), t.get("passed"), len(t.get("failed") or []) + len(t.get("errors") or []),
+                                                                         len(t.get("skipped") or []), t.get("defined"), c.get("tests_defined_main")),
+             "- 突變：跑了 %s 個，紅 %s；存活 %s（已知例外 %s、沒解釋的 %s）；定義 %s（main %s）" % (m.get("total_ran"), m.get("red"), len(m.get("survivors") or []),
+                                                                                 len(m.get("known_exceptions") or []), len(m.get("unexplained_survivors") or []),
+                                                                                 c.get("mutations_total"), c.get("mutations_main")),
+             "- 對外連線：封鎖層級 %s；台銀 %s 次；資料來源／GitHub %d 個；未知主機 %d 個；瀏覽器自己的 %d 個；被擋的 IP %d 個" % (
+                 e.get("level"), e.get("bot_hits", 0), len(e.get("source_hosts") or []), len(e.get("unknown_hosts") or []), len(e.get("browser_hosts") or []),
+                 len(e.get("blocked_ips") or [])),
+             "- 動到的保護範圍檔：第一層 %d、自己的檔 %d、第二層 %d" % tuple(len((c.get("protected_touched") or {}).get(k) or []) for k in ("tier1", "self", "tier2"))]
+    if res.get("reasons"):
+        lines += ["", "**紅的原因**", ""] + ["- " + r for r in res["reasons"]]
+    if t.get("skipped"):
+        lines += ["", "**沒跑的測試（skipped，列出理由）**", ""] + ["- `%s`：%s" % (s["name"], s["reason"]) for s in t["skipped"]]
+    if c.get("tests_removed") or c.get("tests_modified"):
+        lines += ["", "**跟 main 比：測試**", ""]
+        lines += ["- 被刪：`%s`" % x for x in c.get("tests_removed") or []]
+        lines += ["- 被改：`%s`" % x for x in c.get("tests_modified") or []]
+    if c.get("mutations_removed") or c.get("mutations_modified"):
+        lines += ["", "**跟 main 比：突變**", ""]
+        lines += ["- 被刪：`%s`" % x for x in c.get("mutations_removed") or []]
+        lines += ["- 被改：`%s`" % x for x in c.get("mutations_modified") or []]
+    for k, title in (("tier1", "第一層（一律不能動）"), ("self", "自動駕駛自己的檔"), ("tier2", "第二層（要給 David 看 diff）")):
+        files = (c.get("protected_touched") or {}).get(k) or []
+        if files:
+            lines += ["", "**動到的保護範圍檔：%s**" % title, ""] + ["- `%s`" % f for f in files]
+    if e.get("browser_hosts") or e.get("unknown_hosts") or e.get("source_hosts") or e.get("bot_hosts"):
+        lines += ["", "**對外請求（主機名稱）**", ""]
+        for k, label in (("bot_hosts", "台銀"), ("source_hosts", "資料來源／GitHub"), ("unknown_hosts", "未知"), ("browser_hosts", "瀏覽器自己的")):
+            lines += ["- %s：`%s`" % (label, h) for h in e.get(k) or []]
+    return "\n".join(lines) + "\n"
+
+
+def cmd_collect(a):
+    repo, out, inputs = os.path.abspath(a.repo), os.path.abspath(a.out), os.path.abspath(a.inputs)
+    os.makedirs(out, exist_ok=True)
+
+    def pick(name):
+        found = _find_files(inputs, name)
+        return read_json(found[0], {}) if found else {}
+    tests = pick("tests.json")
+    egress_raw = pick("egress.json")
+    cmp_ = pick("compare.json")
+    lockdown = pick("lockdown.json")
+    shards = [read_json(p, {}) or {} for p in _find_files(inputs, "mut-*")]
+    allowed = []
+    guards = None
+    try:
+        allowed = list(load_module(os.path.join(HERE, "net_policy.py"), "iw_net_policy").ALLOWED_HOSTS)
+    except Exception:                                              # noqa: B902
+        allowed = []
+    try:
+        guards = load_module(os.path.join(HERE, "test_analysis_guards.py"), "iw_guards")
+    except Exception:                                              # noqa: B902
+        guards = None
+    known = read_json(os.path.join(HERE, "known_survivors.json"), {}) or {}
+    known = dict((k, v) for k, v in known.items() if not k.startswith("_"))
+    egress = judge_egress(egress_raw, allowed)
+    mut = merge_mutations(shards, known, expected_total=cmp_.get("mutations_total"))
+    verbose = ""
+    for p in _find_files(inputs, "tests-verbose.txt"):
+        verbose += _read(p)
+    res = {"commit": os.environ.get("GITHUB_SHA") or cmp_.get("head_sha"), "ref": os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_REF"),
+           "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
+           "run_url": "%s/%s/actions/runs/%s" % (os.environ.get("GITHUB_SERVER_URL", "https://github.com"), os.environ.get("GITHUB_REPOSITORY", "?"),
+                                                 os.environ.get("GITHUB_RUN_ID", "?")),
+           "tests": tests, "egress": egress, "compare": cmp_, "mutations": mut, "lockdown": {"level": lockdown.get("level"), "layers": lockdown.get("layers"),
+                                                                                       "selftest": lockdown.get("selftest"), "notes": lockdown.get("notes")},
+           "verifier_changed": bool(cmp_.get("verifier_changed")), "verifier_source": cmp_.get("verifier_source"),
+           "allowed_hosts_from": "main" if allowed else "（讀不到 net_policy，白名單為空）", "privacy_scanner": "main" if guards is not None else "（讀不到）",
+           "generated_at": now_iso(), "schema": 1}
+    privacy = privacy_scan({"verify-result": json.dumps(res, ensure_ascii=False), "tests-verbose": verbose,
+                            "egress-hosts": "\n".join(sorted((egress_raw.get("hosts") or {}).keys()))}, guards)
+    if guards is None:
+        privacy = privacy + ["隱私掃描器讀不到（main 上的 test_analysis_guards.py）"]
+    reasons = judge(tests, egress, cmp_, mut, lockdown, privacy)
+    res["reasons"] = reasons
+    res["red"] = bool(reasons)
+    if privacy:
+        res = {"commit": res["commit"], "ref": res["ref"], "run_id": res["run_id"], "run_url": res["run_url"], "red": True, "reasons": reasons,
+               "privacy_hits": [h.split("：", 1)[0] for h in privacy], "note": "結果檔含不該公開的字串，內容沒有寫出來", "generated_at": now_iso(), "schema": 1}
+    write_json(os.path.join(out, "verify-result.json"), res)
+    md = summary_md(res) if not privacy else "### 驗收機：🔴 紅\n\n結果檔含不該公開的字串（%s），內容沒有寫出來。\n" % "、".join(res["privacy_hits"])
+    write_text(os.path.join(out, "summary.md"), md)
+    if a.summary:
+        with io.open(a.summary, "a", encoding="utf-8") as fh:
+            fh.write(md)
+    print(md)
+    return 1 if res["red"] else 0
+
+
+# ---------------------------------------------------------------- 入口
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="驗收機（verify.yml 的每一步）")
+    sub = ap.add_subparsers(dest="cmd")
+    p = sub.add_parser("extract-verifier")
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--dest", default="/tmp/verifier")
+    p = sub.add_parser("lockdown")
+    p.add_argument("--out", required=True)
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p = sub.add_parser("run-tests")
+    p.add_argument("--out", required=True)
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p.add_argument("--timeout", type=int, default=1800)
+    p = sub.add_parser("run-tests-inner")
+    p.add_argument("--repo", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--log", required=True)
+    p = sub.add_parser("unlock")
+    p.add_argument("--out", required=True)
+    p = sub.add_parser("compare")
+    p.add_argument("--out", required=True)
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p = sub.add_parser("mutations")
+    p.add_argument("--out", required=True)
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p.add_argument("--shard", default="1/1")
+    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--copy-dir", default="/tmp", dest="copy_dir")
+    p.add_argument("--timeout", type=int, default=1800)
+    p = sub.add_parser("collect")
+    p.add_argument("--inputs", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
+    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--summary", default=None)
+    a = ap.parse_args(argv)
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+    except Exception:                                              # noqa: B902
+        pass
+    fn = {"extract-verifier": cmd_extract_verifier, "lockdown": cmd_lockdown, "run-tests": cmd_run_tests, "run-tests-inner": cmd_run_tests_inner,
+          "unlock": cmd_unlock, "compare": cmd_compare, "mutations": cmd_mutations, "collect": cmd_collect}.get(a.cmd)
+    if fn is None:
+        ap.print_help()
+        return 2
+    return fn(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -690,8 +690,8 @@ class TestAutopilotOnly(Base):
                           ("gh workflow run notify.yml -f title=x", 3),
                           ("gh workflow run notify.yml -R davidjjx/invest-data --ref evil -f title=x", 3),
                           ("gh workflow run probe-analysis.yml --ref feat/stopX1", 3),
-                          ("gh issue create -R davidjjx/invest-data -t x -b y", 8),
-                          ("gh pr create --fill", 8),
+                          ("gh issue create -R davidjjx/invest-data -t x -b y", 1),          # P2：PR／issue 的寫入兩種模式都擋
+                          ("gh pr create --fill", 1),
                           ("gh api repos/davidjjx/invest-watch/commits", 8),
                           ("gh run rerun 123", 8),
                           ("gh run list -R someone/else", 8),
@@ -1666,6 +1666,47 @@ class TestStructuralPauseInTheGuard(Base):
         self.allowed(self.bash("git worktree add --detach " + nowhere + " origin/main", state=self.state(), cwd=MAIN))   # 第一個指令：單獨建
         self.allowed(self.bash("cd " + nowhere + " && git status", state=self.state()))              # 唯讀的照舊放行
         self.allowed(self.bash("cd " + nowhere + " && git merge --no-ff feat/stopX1"))              # 一般模式照舊（git 自己會失敗）
+
+
+# ============================================================ P2：PR 的寫入只准經過 iw_notify.py pr
+
+class TestPullRequestWrites(Base):
+    """P2 第 2 節：PR 相關的寫入只准三種（開、改標題內文、留言剛好是 @codex review），而且只准經過主目錄那支 iw_notify.py；
+    gh 直接寫 PR／issue、用 gh api 寫、resolve／刪／隱藏留言——兩種模式都擋；唯讀的放行。"""
+
+    NOTIFY = "python " + MAIN + "/.claude/hooks/iw_notify.py"
+
+    def test_gh_pr_and_issue_writes_are_blocked_in_both_modes(self):
+        """對照組：拿掉 GH_PR_WRITES／GH_ISSUE_WRITES 那兩道 → 這一條會紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh pr create --fill", "gh pr create -t x -b y --base main --head feat/stopX1", "gh pr edit 7 --title x",
+                        "gh pr comment 7 --body \"@codex review\"", "gh pr review 7 --approve", "gh pr review 7 --comment -b x", "gh pr close 7",
+                        "gh pr reopen 7", "gh pr ready 7", "gh pr lock 7", "gh pr merge 7",
+                        "gh issue create -t x -b y", "gh issue comment 1 --body x", "gh issue close 1", "gh issue edit 1 --title x",
+                        "gh api -X POST repos/davidjjx/invest-watch/pulls/7/comments -f body=x",
+                        "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"x\"}) { thread { id } } }'",
+                        "gh api --method PATCH repos/davidjjx/invest-watch/pulls/comments/1 -f body=x",
+                        "gh api -X DELETE repos/davidjjx/invest-watch/pulls/comments/1"):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh pr view 7", "gh pr list", "gh pr diff 7", "gh pr checks 7", "gh pr status", "gh pr view 7 --json reviews"):
+            self.allowed(self.bash(cmd), msg=cmd)
+            self.allowed(self.bash(cmd, state=self.state()), msg=cmd)
+        self.allowed(self.bash("gh issue list"))
+
+    def test_the_notify_program_is_the_only_door_and_downloads_stay_in_the_runs_folder(self):
+        st = self.state()
+        for cmd in (self.NOTIFY + " pr open --stage X1 --title x --body-file " + MAIN + "/.autopilot/runs/X1/pr-body.md",
+                    self.NOTIFY + " pr request-review --stage X1", self.NOTIFY + " verify --stage X1 --wait", self.NOTIFY + " review-status --stage X1"):
+            self.allowed(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh run download 123 -n verify-result -D " + MAIN + "/.autopilot/runs/X1/verify/abc", state=st))
+        self.blocked(self.bash("gh run download 123 -n verify-result -D /tmp/x", state=st), code=8)
+        self.blocked(self.bash("gh run download 123 -n verify-result", state=st), code=8)
+        paused = self.state(pause={"reason": "blocked", "code": 8, "detail": "x", "at": C.iso(NOW), "retries": 0})
+        block, effects = self.bash(self.NOTIFY + " pr request-review --stage X1", state=paused)
+        self.assertIsNotNone(block)                                                               # 暫停中不碰 PR
+        self.assertIn(("pause_retry",), effects)
+        self.allowed(self.bash(self.NOTIFY + " review-status --stage X1", state=paused))
+        self.allowed(self.bash(self.NOTIFY + " verify --stage X1", state=paused))
 
 
 if __name__ == "__main__":

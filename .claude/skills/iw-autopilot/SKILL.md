@@ -41,7 +41,7 @@ hook 記成暫停之後（任何擋下、程式判定的停止條件、你寄了
 - 不用 PowerShell 工具、不用「問問題」的工具、不排程、不開審查代理以外的子代理、不用瀏覽器擴充。
 - 啟動時 hook 若說「分支在啟動之前就已經改了動不得的檔」：那些是 David 在場時改的，你不能再動；停止報告「你要決定的事」第一件寫明這次改了保護或排程相關的檔。
 - git 都在 worktree 裡下；主目錄只下唯讀指令、`git fetch`、`git merge --ff-only origin/main`。
-- `gh` 只能看執行紀錄；寄信一律用 `iw_notify.py`。對外抓資料只走專案自己的抓取程式。
+- `gh` 只能唯讀地看執行紀錄與 PR；寄信一律用 `iw_notify.py`。PR 的寫入只有三種、而且只准經過 `iw_notify.py pr`（開 PR、改標題內文、留言剛好是 `@codex review`）；不在 PR 上回覆 Codex、不 resolve／刪／隱藏任何留言。對外抓資料只走專案自己的抓取程式。
 
 ## 跑測試的環境（寫死在 `.claude/autopilot/config.json` 的 `testEnv`，hook 每次啟動也會講一次；這裡的值要跟那裡一致，有測試釘住）
 
@@ -66,13 +66,15 @@ hook 記成暫停之後（任何擋下、程式判定的停止條件、你寄了
 
 批准 → 施工。要改 → 改完再審，最多兩輪。升級、或兩輪不過 → 停（條件 2 或 7）。結論是 hook 記的，不要自己轉述成別的。
 
-**4. 施工**　worktree：`git worktree add --no-track -b feat/stop<階段> .claude/worktrees/stop<階段> origin/main`。離線測試先綠 → 突變對照（每條規則都要有「改壞→紅」）→ 截圖 → 文件與 CHANGELOG 三段式 → 逐檔 `git add` → commit → 標籤 `stop<階段>` → 推分支與標籤。
+**4. 施工**　worktree：`git worktree add --no-track -b feat/stop<階段> .claude/worktrees/stop<階段> origin/main`。離線測試先綠 → 突變對照（每條規則都要有「改壞→紅」；清單在 `scripts/mutations/`）→ 截圖 → 文件與 CHANGELOG 三段式 → 逐檔 `git add` → commit → 標籤 `stop<階段>` → 推分支與標籤。
 
-**5. 驗收材料**　都放 `.autopilot/runs/<階段>/`：`02_驗收報告.md`、`diffstat.txt`（`git diff --stat origin/main...HEAD`）、`tests.txt`（全套測試的輸出）、`mutation.txt`、`03_停止報告.md`（照 `report-template.md`）。
+**4b. 第三方**（P2）　照同資料夾的 [pr-steps.md](pr-steps.md)：推上去之後驗收機（GitHub 的電腦）會重跑全套；開 PR 給 Codex 審；意見逐條回覆進 `.autopilot/runs/<階段>/03_第三方審查.md`（採納並修／不採納＋理由），不在 PR 上回。Codex 逾時或不能用＝「外部審查未完成」：寄 `--kind stop`，等 David 手打「免外部審查 <階段>」或之後「繼續」。
 
-**6. 審驗收**　同第 3 步，開頭改成 `REVIEW-KIND: acceptance`、`COMMIT: <worktree 的 HEAD，完整 40 碼>`。審完之後如果又改了任何東西，要重審。
+**5. 驗收材料**　都放 `.autopilot/runs/<階段>/`：`02_驗收報告.md`、`diffstat.txt`（`git diff --stat origin/main...HEAD`）、`tests.txt`（全套測試的輸出）、`mutation.txt`、`03_停止報告.md`（照 `report-template.md`）。報告裡的測試數以驗收機為準，旁邊附本機的數字。
 
-**7. 停在合併前**　`py -3.12 .claude/hooks/iw_notify.py send --stage <階段> --kind ready --report .autopilot/runs/<階段>/03_停止報告.md`。程式會自己檢查標籤、分支有沒有推、有沒有動到不能動的檔、審查紀錄；任何一項不過就不寄，照它說的處理。寄出後結束這一輪。
+**6. 審驗收**　同第 3 步，開頭改成 `REVIEW-KIND: acceptance`、`COMMIT: <worktree 的 HEAD，完整 40 碼>`。審完之後如果又改了任何東西，要重審。一般模式也要審：沒有跳過的選項。
+
+**7. 停在合併前**　`py -3.12 .claude/hooks/iw_notify.py send --stage <階段> --kind ready --report .autopilot/runs/<階段>/03_停止報告.md`。程式會自己檢查標籤、分支有沒有推、有沒有動到不能動的檔、審查紀錄，以及關卡四件（同一個 commit：驗收機綠、外部審查完成或 David 免除、Codex 每條意見有回覆、重大意見沒被判不採納；本機數字跟驗收機一致）；任何一項不過就不寄，照它說的處理。寄出後結束這一輪。
 
 **8. 放行之後**　照同資料夾的 [merge-steps.md](merge-steps.md)：合併分兩個指令、合併推上去之後**立刻**推文件那一筆（中間不做別的事）、主目錄快轉、收尾、`close`。補文件的時間窗過了或中途停了，狀態仍是「已合併、等補文件」：請 David 再手打一次「放行 <階段>」重開（一次性、只准改 README.md 與 docs/CHANGELOG.md）。
 

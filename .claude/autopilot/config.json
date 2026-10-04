@@ -2,7 +2,7 @@
   "version": 1,
   "about": "自動駕駛的常數。這個檔是保護檔：生效的是主目錄（main）上的那一份，改它要經過「放行」。說明見 docs/AUTOPILOT.md。",
 
-  "protectionVersion": "P1-1",
+  "protectionVersion": "P2",
 
   "requiredModel": "claude-fable-5-1",
   "requiredEffort": "xhigh",
@@ -50,6 +50,25 @@
     "minMinutesBetweenFallbacks": 10
   },
 
+  "verify": {
+    "about": "驗收機（P2）：GitHub 的電腦從實際的 commit 重跑全套測試、掃描、突變，結果綁 commit 存成 artifact。寄「可以合併」的信、放行、合併前各查一次；查不到就擋。files：分支改了這幾個檔，CI 的綠不算（判定要用 main 上的驗收機）。",
+    "workflow": "verify.yml",
+    "artifact": "verify-result",
+    "timeoutMinutes": 40,
+    "pollSeconds": 60,
+    "files": [".github/workflows/verify.yml", "scripts/verify_ci.py", "scripts/mutations/run_mutations.py", "scripts/mutations/known_survivors.json"]
+  },
+
+  "externalReview": {
+    "about": "外部審查員（P2）：OpenAI Codex 的程式碼審查。只認機器人帳號針對 PR 最新 commit 發出的 review；意見逐條回覆在 responsesFile；Codex 不能用時由 David 手打「免外部審查 <階段>」（一次性、綁 commit、waiverHours 內有效），只免外部審查。",
+    "botLogin": "chatgpt-codex-connector[bot]",
+    "trigger": "@codex review",
+    "timeoutMinutes": 60,
+    "waiverHours": 24,
+    "responsesFile": "03_第三方審查.md",
+    "severityPattern": "\\[?P([01])\\]?"
+  },
+
   "goldJob": {
     "about": "筆電黃金排程的推送：不需要通行證的唯一例外。檔案清單必須等於 data/assets.json 裡 owner 是 local 的標的（有測試釘住）。",
     "files": [
@@ -85,7 +104,10 @@
       "scripts/publish.py",
       "scripts/net_policy.py",
       "scripts/sensitive_terms_hmac.json",
-      ".gitignore"
+      ".gitignore",
+      "AGENTS.md",
+      "scripts/verify_ci.py",
+      "scripts/mutations/**"
     ]
   },
 

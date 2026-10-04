@@ -89,7 +89,54 @@ def all_plain(repo, shas, allowed=None, prefix=None):
     return True
 
 
-def check_main(repo, lsha, rsha, st, cfg, environ, now, sd):
+def verify_gate(main_root, sd, cfg, stage, sha, now):
+    """P2 第 3 節：合併前再查一次驗收機（放行時已查過一次）。設定裡沒有驗收機（舊版）就不查；查不到＝不綠＝擋。"""
+    if not (cfg.get("verify") and cfg.get("externalReview")):
+        return None
+    try:
+        import iw_review as R
+        vs = R.verify_status(main_root or C.main_root(), sd, cfg, stage, sha, now=now)
+    except Exception as e:                                          # noqa: B902
+        return "查驗收機時出錯（%r）" % (e,)
+    return None if vs.get("green") else vs.get("why")
+
+
+def foreign_ok(st, rref, rsha):
+    """P2 第 2 節：feat 分支的遠端頭要是自己上一次推的（任何一次都算）；第一次推、或還沒有紀錄就放行。"""
+    pushes = (st.get("branch_pushes") or {}).get(rref) or []
+    return (not pushes) or rsha in pushes
+
+
+def remember_push(sd, rref, lsha):
+    def fn(s):
+        lst = s.setdefault("branch_pushes", {}).setdefault(rref, [])
+        if lsha not in lst:
+            lst.append(lsha)
+        del lst[:-30]
+    ST.update(sd, fn)
+
+
+def mark_foreign(main_root, sd, cfg, st, rref, rsha):
+    """分支上出現不是自己推的 commit：記下來；自動駕駛中立刻暫停（等級「要你決定」）、寄短信。"""
+    now = C.iso()
+    detail = "遠端的 %s 上有不是你推的 commit（%s）" % (rref[11:], rsha[:7])
+
+    def fn(s):
+        s["foreign_commit"] = {"ref": rref, "sha": rsha, "at": now}
+        if s.get("active") and not s.get("pause"):
+            s["pause"] = {"reason": "foreign-commit", "detail": detail, "code": None, "at": now, "retries": 0}
+    ST.update(sd, fn)
+    ST.log(sd, {"event": "foreign-commit", "ref": rref, "sha": rsha[:12], "active": bool(st.get("active"))})
+    if st.get("active"):
+        try:
+            import iw_notify as N
+            N.fallback(main_root or C.main_root(), sd, cfg, detail + "。有人（Codex？別的帳號？）動了這個分支，自動駕駛已暫停；請看 PR，確認沒事之後輸入「繼續 %s」。"
+                       % st.get("stage"), min_gap_key="foreign")
+        except Exception:                                           # noqa: B902
+            pass
+
+
+def check_main(repo, lsha, rsha, st, cfg, environ, now, sd, main_root=None):
     """回傳 (可以推, 白話說明)。"""
     if lsha == ZERO:
         return False, "不能刪除遠端的 main。"
@@ -133,6 +180,9 @@ def check_main(repo, lsha, rsha, st, cfg, environ, now, sd):
         if rc != 0 or got != want:
             return False, ("這個合併 commit 的內容，跟「把放行的 commit（%s）原封不動合併進現在的 main」算出來的不一樣"
                            "——合併的時候多改了東西。請重做一次乾淨的合併（git merge --no-ff，不要再動任何檔）。" % cand[:7])
+        problem = verify_gate(main_root, sd, cfg, stage, cand, now)
+        if problem:
+            return False, "合併前再查一次驗收機：%s。查不到也算不綠，不能推。" % problem
 
         def fn(s):
             if s.get("credential"):
@@ -182,16 +232,24 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
             elif rsha != ZERO and rsha != lsha:
                 ok, why = False, "不能移動既有的標籤 %s（停止條件 4）。" % rref[10:]
         elif rref == main_ref:
-            ok, why = check_main(repo, lsha, rsha, st, cfg, environ, now, sd)
+            ok, why = check_main(repo, lsha, rsha, st, cfg, environ, now, sd, main_root)
             st = ST.load(sd)
         elif rref.startswith("refs/remotes/"):
             ok, why = False, "把東西推進 refs/remotes/（用來記遠端位置的記號）不是正常的推送，不允許。"
         elif rref.startswith("refs/heads/"):
             if lsha != ZERO and rsha != ZERO:
-                if not has(repo, rsha):
+                ok_foreign = foreign_ok(st, rref, rsha)
+                if not ok_foreign:
+                    ok, why = False, ("遠端的 %s 上有不是你推的 commit（%s）。有人（Codex？別的帳號？）動了這個分支：停下來寄「要你決定」的信，"
+                                      "不要覆蓋、不要合併它。" % (rref[11:], rsha[:7]))
+                    mark_foreign(main_root, sd, cfg, st, rref, rsha)
+                    st = ST.load(sd)
+                elif not has(repo, rsha):
                     ok, why = False, "遠端的 %s 有這台電腦還沒有的 commit。先 git fetch 再試。" % rref[11:]
                 elif not is_ancestor(repo, rsha, lsha):
                     ok, why = False, "這個推送會改寫遠端 %s 的歷史（強推），不允許。" % rref[11:]
+            if ok and lsha != ZERO:
+                remember_push(sd, rref, lsha)
         ST.log(sd, {"event": "prepush", "ref": rref, "local": lsha[:12], "remote": rsha[:12], "ok": ok, "why": why,
                     "claude": C.in_claude_session(environ)})
         if not ok:

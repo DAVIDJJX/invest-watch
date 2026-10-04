@@ -35,7 +35,7 @@ import iw_events as E            # noqa: E402
 import iw_notify as N            # noqa: E402
 import iw_state as ST            # noqa: E402
 import autopilot_install as INST  # noqa: E402
-from test_autopilot_prepush import Sandbox, run_git   # noqa: E402
+from test_autopilot_prepush import Sandbox, run_git, fake_gh_entries, write_fake_gh, FAKE_GH_ENV, BOT_LOGIN   # noqa: E402
 
 FABLE = "claude-fable-5-1"
 PASTED = "<pasted_content id=\"0141\">\n%s\n</pasted_content id=\"0141\">"      # 桌面 App 把貼上的長文字包成這樣（2026-10-02 實測）
@@ -75,9 +75,17 @@ class FlowBase(unittest.TestCase):
         io.open(self.tp, "w", encoding="utf-8").close()
         self.assistant(FABLE)
         self.n = 0
+        self.fake = write_fake_gh(os.path.join(self.sb.tmp, "fake-gh-%s.json" % self.id().split(".")[-1]), fake_gh_entries())   # P2：預設全綠、Codex 已審
+        os.environ[FAKE_GH_ENV] = self.fake
+        N._GATE_CACHE.clear()
 
     def tearDown(self):
         C.out_json, C.err, C.out_text = self._orig
+        os.environ[FAKE_GH_ENV] = self.sb.fake_gh
+
+    def fake_gh(self, **kw):
+        write_fake_gh(self.fake, fake_gh_entries(**kw))
+        N._GATE_CACHE.clear()
 
     def runner(self, args):
         self.sent.append(args)
@@ -1281,13 +1289,14 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         sb = self.sb
         head = self.protected_commit()
         self.push_branch()
-        self.assertEqual(self.send("ready"), 3)                                # 沒有審查紀錄、也沒說是一般的階段
-        self.assertEqual(self.send("ready", extra=["--no-review"]), 0, self.errs)
+        self.assertEqual(self.send("ready"), 3)                                # 沒有審查紀錄（一般模式也要有，P2）
+        self.review("acceptance", head)
+        self.assertEqual(self.send("ready"), 0, self.errs)
         body = [a for a in self.sent[-1] if a.startswith("body=")][0]
         self.assertIn("這個階段不是自動駕駛跑的", body)
         self.assertIn(".gitignore", body)
         self.assertIn("一般模式", body)
-        self.assertIn("僅供參考", body)
+        self.assertIn("hook 記的", body)
         self.assertEqual(self.state()["candidate"]["sha"], head)
 
 
@@ -1742,24 +1751,31 @@ def G_APPROVAL_WORDS():
 
 # ============================================================ 13. --no-review 只准一般模式（David 的補充 3）
 
-class TestNoReviewIsGeneralModeOnly(FlowBase):
-    def test_no_review_is_refused_during_autopilot(self):
-        """對照組：拿掉這個檢查 → 這一條會紅（審查代理那一關就能被跳過）。"""
-        self.start()
+class TestNoReviewIsGone(FlowBase):
+    def test_the_no_review_flag_no_longer_exists_and_attended_stages_need_a_recorded_review(self):
+        """P2 第 3 節：沒有「--no-review」這種跳過選項（一般模式也要有 hook 記的審查代理批准）。
+        對照組：把旗標加回去、或一般模式不記審查代理的結論 → 這一條會紅。"""
         self.push_branch()
         self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
-        self.assertEqual(self.send("ready", extra=["--no-review"]), 3)
-        self.assertIn("--no-review 只准一般模式", "".join(self.errs))
+        with self.assertRaises(SystemExit):
+            self.send("ready", extra=["--no-review"])
         self.assertEqual(self.sent, [])
-        self.assertNotEqual(self.state()["status"], "awaiting_approval")
-        self.assertIsNone(self.state().get("candidate"))
+        self.assertEqual(self.send("ready"), 3)                                       # 一般模式、沒有審查紀錄：不寄
+        self.assertIn("沒有審查代理對這個 commit", "".join(self.errs))
+        rc, rec = self.review("acceptance", self.sb.cand)                              # 一般模式（沒有 start）也記得住
+        self.assertEqual((rec["verdict"], rec["stage"], rec["commit"]), ("APPROVE", "X1", self.sb.cand))
+        self.assertTrue(self.state()["reviews"][-1].get("attended"))
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("一般模式", body_of(self.sent[-1]))
+        self.assertIn("驗收機：綠", body_of(self.sent[-1]))
+        self.assertIn("外部審查（GPT）：Codex；重大 0 條；採納 0、不採納 0", body_of(self.sent[-1]))
 
 
 # ============================================================ 14. 一般模式的放行（P1-1 第 8 節；M97）
 
 class TestGeneralModeApproval(FlowBase):
     def test_an_attended_stage_can_be_approved_after_its_ready_mail(self):
-        """一般模式（David 在場、沒有自動駕駛）：寄過 ready（--no-review）之後手打放行拿得到通行證，而且真的合併得上去；
+        """一般模式（David 在場、沒有自動駕駛）：審查代理批准、寄過 ready 之後手打放行拿得到通行證，而且真的合併得上去；
         還沒寄 ready 就放行拿不到。對照組：放行只看有沒有登記 commit（M97）→ 下面那一條會紅。"""
         sb = self.sb
         self.push_branch()
@@ -1767,7 +1783,8 @@ class TestGeneralModeApproval(FlowBase):
         out = self.say("放行 X1")                                               # 還沒寄 ready（紀錄裡連階段都還沒有）
         self.assertTrue("還不能放行" in out["systemMessage"] or "沒有作用" in out["systemMessage"], out["systemMessage"])
         self.assertIsNone(self.state().get("credential"))
-        self.assertEqual(self.send("ready", extra=["--no-review"]), 0, self.errs)
+        self.review("acceptance", sb.cand)
+        self.assertEqual(self.send("ready"), 0, self.errs)
         self.assertIn("【要你放行上線】", title_of(self.sent[-1]))
         self.assertIn("一般模式", body_of(self.sent[-1]))
         st = self.state()
@@ -2041,6 +2058,327 @@ class TestDrillSimulation(FlowBase):
         self.assertEqual(run_git(["status", "--porcelain"], sb.main)[1], "")   # 主目錄乾淨
         self.assertEqual(sb.rev("refs/heads/main", sb.remote), sb.base)         # 沒有任何 commit 推上去
         self.assertEqual(len(st["rulings"]), 1)
+
+
+# ============================================================ 19. 關卡（P2 第 3 節）：驗收機、外部審查、意見的回覆、數字以驗收機為準
+
+def _resp_file(sb, rows):
+    p = os.path.join(sb.main, ".autopilot", "runs", "X1", "03_第三方審查.md")
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with io.open(p, "w", encoding="utf-8") as fh:
+        fh.write("# 第三方審查回覆\n\n| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
+
+
+def _bot_comment(cid, body, line, commit="{sha}"):
+    return {"id": cid, "user": {"login": BOT_LOGIN}, "body": body, "path": "js/app.js", "line": line, "commit_id": commit, "original_commit_id": commit}
+
+
+class TestGate(FlowBase):
+    def ready_setup(self):
+        self.start()
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
+        rc, rec = self.review("acceptance", self.sb.cand)
+        self.assertEqual(rec["verdict"], "APPROVE")
+
+    def test_ready_needs_a_green_verifier_bound_to_the_commit(self):
+        """驗收機紅、還在跑、沒有紀錄、結果檔綁錯 commit、結果檔標紅、查不到——都不寄。對照組：拿掉驗收機那一關、或不核對結果檔的 commit → 紅。"""
+        self.ready_setup()
+        for kw, want in ((dict(green=False), "不綠"), (dict(pending=True), "還在跑"), (dict(runs=False), "沒有這個 commit"),
+                         (dict(result_commit="0" * 40), "綁的 commit"), (dict(red_reasons=["測試有 1 條紅"]), "標紅")):
+            self.fake_gh(**kw)
+            self.errs = []
+            self.assertEqual(self.send("ready"), 3, want)
+            self.assertIn("驗收機", "".join(self.errs), want)
+            self.assertIn(want, "".join(self.errs), want)
+            self.assertEqual(self.sent, [])
+            self.assertNotEqual(self.state().get("status"), "awaiting_approval")
+        write_fake_gh(self.fake, [])                                                    # 查不到也算不綠
+        N._GATE_CACHE.clear()
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("查不到", "".join(self.errs))
+        self.fake_gh()
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("驗收機：綠（https://example.invalid/actions/runs/1）", body_of(self.sent[-1]))
+
+    def test_a_green_from_a_branch_that_changed_the_verifier_does_not_count(self):
+        """分支改了驗收機本身（用 git 比 blob，不信 CI 說的）：CI 的綠不算。P2 第一次建立（main 上還沒有驗收程式）除外。對照組：拿掉那一道 → 紅。"""
+        sb = self.sb
+        sb.write("scripts/verify_ci.py", "# main verifier\n")                              # main 上先有一份：不是第一次了
+        sb.land(sb.commit("verifier on main", files=["scripts/verify_ci.py"]))
+        run_git(["fetch", "-q", "origin"], sb.wt)
+        sb.write("scripts/verify_ci.py", "# main verifier\n", sb.wt)                       # 分支上同一份（blob 一樣）
+        same = sb.commit("same verifier", sb.wt)
+        self.push_branch()                                                                 # 一般模式（David 在場）：第一層的檔可以動，信裡會寫
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.review("acceptance", same)
+        self.assertEqual(self.send("ready"), 0, self.errs)                                 # 沒改驗收機：綠算數
+        sb.write("scripts/verify_ci.py", "# tampered\n", sb.wt)
+        tampered = sb.commit("tamper", sb.wt)
+        self.push_branch()
+        self.review("acceptance", tampered)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("驗收機本身有改", "".join(self.errs))
+        self.assertIn("scripts/verify_ci.py", "".join(self.errs))
+
+    def test_ready_needs_a_completed_codex_review_and_records_incomplete(self):
+        """外部審查未完成（沒有 review、review 針對舊 commit、只有別人的留言）→ 不寄，而且程式記下「外部審查未完成」（免外部審查的前提）。
+        對照組：拿掉那一關、或別人的留言也算、或舊 commit 的也算 → 紅。"""
+        self.ready_setup()
+        for kw in (dict(codex=False), dict(review_commit="0" * 40), dict(codex=False, others=["someone"])):
+            self.fake_gh(**kw)
+            self.errs = []
+            self.assertEqual(self.send("ready"), 3, kw)
+            self.assertIn("外部審查還沒完成", "".join(self.errs))
+            inc = self.state()["external_review"]
+            self.assertEqual((inc["stage"], inc["sha"], inc["status"]), ("X1", self.sb.cand, "incomplete"))
+            self.assertEqual(self.sent, [])
+        self.fake_gh(pr=False)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("找不到分支", "".join(self.errs))
+        self.fake_gh(others=["someone"])                                                 # 別人的 review：忽略、列出
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("別人的留言 1 則（忽略）", body_of(self.sent[-1]))
+
+    def test_findings_need_answers_and_a_rejected_major_one_blocks(self):
+        """Codex 的每條意見都要在 03_第三方審查.md 有回覆；P0／P1 判「不採納」→ 不寄（要你決定）；沒標等級的當 P1；別人的與舊 commit 的不算。
+        對照組：拿掉「每條要回覆」或「不採納擋下」→ 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        comments = [_bot_comment(101, "**[P1]** 這裡會漏掉 None", 3), _bot_comment(102, "[P0] 權杖寫進檔案", 9), _bot_comment(103, "沒標等級的意見", 1),
+                    dict(_bot_comment(104, "[P0] drive-by", 1), user={"login": "someone"}), _bot_comment(105, "[P1] 舊 commit 的", 2, commit="0" * 40)]
+        self.fake_gh(comments=comments)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("還有 3 條沒有回覆", "".join(self.errs))
+        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 不採納 | 那不是權杖 |", "| 103 | P1 | js/app.js:1 | 採納並修 | x |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("有重大意見（P0／P1）被判「不採納」", "".join(self.errs))
+        self.assertIn("102", "".join(self.errs))
+        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |", "| 103 | P1 | js/app.js:1 | 不採納 | 其實沒事 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                        # 沒標等級的從嚴當 P1
+        self.assertIn("103", "".join(self.errs))
+        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |", "| 103 | P1 | js/app.js:1 | 採納並修 | y |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("外部審查（GPT）：Codex；重大 3 條；採納 3、不採納 0；別人的留言 1 則（忽略）", body_of(self.sent[-1]))
+
+    def test_numbers_come_from_the_verifier(self):
+        """本機 tests.txt 的條數跟驗收機對不上＝要你決定，不寄 ready。對照組：拿掉比對 → 紅。"""
+        self.ready_setup()
+        runs = os.path.join(self.sb.main, ".autopilot", "runs", "X1")
+        os.makedirs(runs, exist_ok=True)
+        with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+            fh.write("...\nRan 829 tests in 100.0s\n\nOK\n")
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("對不上", "".join(self.errs))
+        with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+            fh.write("Ran 830 tests in 100.0s\n\nOK\n")
+        self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_stop_mails_also_carry_the_two_lines(self):
+        """停止信固定多兩行，由程式寫。對照組：拿掉 gate_lines → 紅。"""
+        self.start()
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
+        rc, why = self.bash("npm --version", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        self.assertEqual(self.send("stop"), 0, self.errs)
+        body = body_of(self.sent[-1])
+        self.assertIn("驗收機：綠", body)
+        self.assertIn("外部審查（GPT）：Codex", body)
+
+    def test_a_foreign_commit_on_the_pr_branch_is_caught_when_asking_about_the_verifier_or_the_review(self):
+        """P2 第 2 節：本機落後遠端時 git 自己先拒收、pre-push 看不到，所以查驗收機、查審查、寄 ready 時都再比一次遠端的頭；
+        不是自己推過的 → 記下來、自動駕駛中暫停（要你決定）、不寄。對照組：拿掉 foreign_commit_check → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        other = os.path.join(sb.tmp, "other-clone-flow")
+        shutil.rmtree(other, ignore_errors=True)
+        run_git(["clone", "-q", sb.remote, other], sb.tmp)
+        run_git(["checkout", "-q", "feat/stopX1"], other)
+        sb.write("js/app.js", "// someone else\n", other)
+        foreign = sb.commit("drive-by", other)
+        run_git(["push", "-q", "--no-verify", "origin", "feat/stopX1"], other)
+        self.errs = []
+        self.assertEqual(N.main(["review-status", "--stage", "X1"], main_root=sb.main), 3)
+        self.assertIn("不是你推的 commit", "".join(self.errs))
+        st = self.state()
+        self.assertEqual((st["pause"]["reason"], st["foreign_commit"]["sha"]), ("foreign-commit", foreign))
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                          # 暫停中照樣可以試寄；寄不出去，原因是別人的 commit
+        self.assertIn("不是你推的 commit", "".join(self.errs))
+        self.assertEqual(self.sent, [])
+
+    def test_approval_rechecks_the_verifier(self):
+        """放行時再查一次驗收機（合併前第二道還會再查）：紅或查不到就不開通行證。對照組：拿掉那一道 → 紅。"""
+        self.ready_setup()
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.fake_gh(green=False)
+        out = self.say("放行 X1")
+        self.assertIn("放行前再查一次驗收機", out["systemMessage"])
+        self.assertIsNone(self.state().get("credential"))
+        write_fake_gh(self.fake, [])
+        N._GATE_CACHE.clear()
+        out = self.say("放行 X1")
+        self.assertIn("放行前再查一次驗收機", out["systemMessage"])
+        self.assertIsNone(self.state().get("credential"))
+        self.fake_gh()
+        out = self.say("放行 X1")
+        self.assertIn("已放行 X1", out["systemMessage"])
+        self.assertEqual(self.state()["credential"]["candidate"], self.sb.cand)
+
+
+# ============================================================ 20. 免外部審查（P2 裁決一）
+
+class TestWaiver(FlowBase):
+    def incomplete(self):
+        self.start()
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
+        self.review("acceptance", self.sb.cand)
+        self.fake_gh(codex=False)
+        self.assertEqual(self.send("ready"), 3)
+        self.assertEqual(self.state()["external_review"]["status"], "incomplete")
+
+    def test_waiver_needs_the_incomplete_record_and_must_be_typed(self):
+        """只在程式記了「外部審查未完成」之後才有效；貼上的不算；它不是放行。對照組：不看紀錄、或貼上的也算 → 紅。"""
+        self.start()
+        out = self.say("免外部審查 X1")
+        self.assertIn("沒有生效", out["systemMessage"])
+        self.assertIsNone(self.state().get("external_waiver"))
+        self.push_branch()
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], self.sb.wt, check=False))
+        self.review("acceptance", self.sb.cand)
+        self.fake_gh(codex=False)
+        self.assertEqual(self.send("ready"), 3)
+        out = self.say(PASTED % "免外部審查 X1")
+        self.assertIn("沒有免外部審查", out["systemMessage"])
+        self.assertIn("請手打", out["systemMessage"])
+        self.assertIsNone(self.state().get("external_waiver"))
+        out = self.say("免外部審查 X1")
+        self.assertIn("已免外部審查", out["systemMessage"])
+        w = self.state()["external_waiver"]
+        self.assertEqual((w["stage"], w["sha"]), ("X1", self.sb.cand))
+        self.assertIsNone(self.state().get("credential"))                                 # 不是放行
+        self.assertEqual(self.state()["status"], "running")
+        self.errs = []
+        self.assertEqual(self.send("ready"), 0, self.errs)                                # 驗收機綠、審查代理批准：可以寄
+        body = body_of(self.sent[-1])
+        self.assertIn("免除（David 親手免除", body)
+        self.assertIn("本階段未經外部審查", body)
+        self.assertEqual(self.state()["waived_stages"], ["X1"])
+        rc, why = self.bash("git status --short", cwd=self.sb.wt)                           # 下一個動作：核對是人打的
+        self.assertEqual(rc, 0, why)
+        self.assertTrue(any(a.get("waiver") == self.sb.cand for a in ST.approvals(self.sb.sd)))
+        out = self.say("放行 X1")                                                           # 放行仍要另外手打
+        self.assertIn("已放行 X1", out["systemMessage"])
+
+    def test_waiver_is_bound_to_the_commit_expires_and_is_revoked_by_revise(self):
+        """對照組：不綁 commit、不過期、「修改」之後不作廢 → 各自會紅。"""
+        sb = self.sb
+        self.incomplete()
+        self.say("免外部審查 X1")
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        sb.write("js/app.js", "// app v3\n", sb.wt)
+        new = sb.commit("feat: more", sb.wt)
+        self.push_branch()
+        self.review("acceptance", new)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                            # 綁的是舊 commit：不算
+        self.assertIn("外部審查還沒完成", "".join(self.errs))
+        self.assertEqual(self.state()["external_review"]["sha"], new)
+        self.say("免外部審查 X1")
+        ST.update(sb.sd, lambda s: s["external_waiver"].__setitem__("expires_at", C.iso(C.now() - datetime.timedelta(hours=1))))
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                            # 過期：不算
+        self.say("免外部審查 X1")
+        self.say("修改 X1：再改一點")
+        self.assertEqual(self.state()["external_waiver"]["revoked"], "David 輸入了修改")
+        self.review("acceptance", new)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                            # 作廢：不算
+
+    def test_waiver_does_not_skip_the_verifier(self):
+        """只免外部審查：驗收機照樣要綠。對照組：免除之後連驗收機也不看 → 紅。"""
+        self.incomplete()
+        self.say("免外部審查 X1")
+        self.fake_gh(codex=False, green=False)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("免除不包括驗收機", "".join(self.errs))
+
+    def test_a_forged_waiver_locks_everything(self):
+        self.incomplete()
+        self.say("免外部審查 X1", human=False)
+        self.assertIsNotNone(self.state().get("external_waiver"))
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)                         # 下一個動作：核對 → 冒充
+        self.assertEqual(rc, 2)
+        st = self.state()
+        self.assertEqual(st["pause"]["reason"], "forged")
+        self.assertEqual(st["external_waiver"]["revoked"], "收到不是 David 親手輸入的指令詞")
+
+    def test_consecutive_waivers_remind_david(self):
+        self.incomplete()
+        ST.update(self.sb.sd, lambda s: s.__setitem__("waived_stages", ["P0"]))
+        self.say("免外部審查 X1")
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("連續兩個階段", body_of(self.sent[-1]))
+
+
+# ============================================================ 20b. PR 唯三的寫入（P2 第 2 節）：只准經過 iw_notify.py pr，文字先過隱私掃描
+
+class TestPrCommands(FlowBase):
+    def test_pr_open_edit_and_request_review_after_a_privacy_scan(self):
+        """對照組：拿掉隱私掃描、或留言可以是別的字 → 紅。"""
+        sb = self.sb
+        runs = os.path.join(sb.main, ".autopilot", "runs", "X1")
+        os.makedirs(runs, exist_ok=True)
+        body = os.path.join(runs, "pr-body.md")
+        with io.open(body, "w", encoding="utf-8") as fh:
+            fh.write("改了 js/app.js 的一行。\n")
+        self.assertEqual(N.main(["pr", "open", "--stage", "X1", "--title", "停點 X1：測試", "--body-file", body], main_root=sb.main), 0, self.errs)
+        self.assertEqual(self.state()["pull_requests"]["X1"]["url"], "https://example.invalid/pull/7")
+        for bad, want in (("路徑在 D:" + "\\Claude_" + "use\\x\n", "本機的絕對路徑"), ("<pasted_content id=\"1\">規格原文</pasted_content>\n", "規格原文不放進 PR"),
+                          ("ghp_" + "A" * 30 + "\n", "像權杖的字串"), ("持有 " + "1,000 股\n", "隱私掃描命中")):
+            with io.open(body, "w", encoding="utf-8") as fh:
+                fh.write(bad)
+            self.errs = []
+            self.assertEqual(N.main(["pr", "edit", "--stage", "X1", "--title", "x", "--body-file", body], main_root=sb.main), 3, bad)
+            self.assertIn("沒過隱私掃描", "".join(self.errs))
+            self.assertIn(want, "".join(self.errs))
+        self.errs = []
+        self.assertEqual(N.main(["pr", "edit", "--stage", "X1", "--title", "", "--body-file", body], main_root=sb.main), 3)
+        self.assertIn("標題是空的", "".join(self.errs))
+        self.texts = []
+        self.assertEqual(N.main(["pr", "request-review", "--stage", "X1"], main_root=sb.main), 0, self.errs)
+        self.assertIn("「@codex review」", "".join(self.texts))
+        self.assertEqual(self.state()["external_review"]["status"], "requested")
+
+
+# ============================================================ 21. retries 的證據（P2 第 7 節）
+
+class TestRetriesEvidence(FlowBase):
+    def test_log_and_status_show_retries(self):
+        """守門紀錄每一筆擋下寫出當時的 retries；status 暫停中印 retries。對照組：log 不寫、status 不印 → 紅。"""
+        self.start()
+        rc, why = self.bash("npm --version", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        rc, why = self.bash("python scripts/x.py", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        with io.open(os.path.join(self.sb.sd, "log.jsonl"), encoding="utf-8") as fh:
+            lines = [json.loads(l) for l in fh if l.strip()]
+        blocks = [l for l in lines if l.get("event") == "pretool" and l.get("blocked")]
+        self.assertEqual([b.get("retries") for b in blocks[-2:]], [0, 1])
+        self.texts = []
+        self.assertEqual(N.main(["status"], runner=self.runner, main_root=self.sb.main), 0)
+        self.assertIn('"retries": 1', "".join(self.texts))
 
 
 if __name__ == "__main__":
