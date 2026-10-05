@@ -89,6 +89,39 @@ def all_plain(repo, shas, allowed=None, prefix=None):
     return True
 
 
+MAX_SCAN_COMMITS = 2000
+
+
+def commit_message_problem(repo, main_root, cfg, lsha, rsha):
+    """這次推送會公開的新 commit，訊息裡有沒有不該公開的東西（個人資料的字樣、權杖、信箱、本機路徑）。可以推回 None；不行回一句原因。
+    commit 訊息一推上公開倉庫就收不回來，驗收機事後判紅也來不及（2026-10-06 Codex 的審查意見；原本推送前完全不看訊息）。
+    用主目錄上的隱私掃描器（＝main 的版本）。列不出要推的 commit、讀不到掃描器（那會算成每一筆都有問題）、筆數多到看不完——一律擋。
+    只在 Claude Code 裡的推送做（呼叫的人判斷）；筆電排程與 David 自己終端機的推送不經過這裡。"""
+    import iw_notify as N      # noqa: E402   用到才載入：排程的推送不必付這個成本
+    if rsha != ZERO and has(repo, rsha):
+        rng = ["%s..%s" % (rsha, lsha)]
+    else:                                                           # 新的分支或標籤：還不在遠端任何分支上的那些 commit
+        rng = [lsha, "--not", "--remotes=%s" % cfg["remote"]]
+    rc, out = C.git(["log", "--format=%H%x00%B%x01", "--max-count=%d" % (MAX_SCAN_COMMITS + 1)] + rng, repo, timeout=60)
+    if rc != 0:
+        return "列不出這次要推的 commit，沒辦法檢查 commit 訊息，先擋下（%s）。" % (out or "")[:80]
+    bad, n = [], 0
+    for chunk in out.split("\x01"):
+        if "\x00" not in chunk:
+            continue
+        sha, msg = chunk.strip("\n").split("\x00", 1)
+        n += 1
+        problems = N.text_privacy_problems(main_root, msg)
+        if problems:
+            bad.append("%s（%s）" % (sha.strip()[:7], "、".join(problems)))
+    if n > MAX_SCAN_COMMITS:
+        return "這次要推的 commit 超過 %d 筆，沒辦法逐筆檢查訊息，先擋下。" % MAX_SCAN_COMMITS
+    if bad:
+        return ("commit 訊息裡有不該公開的東西——一推上公開倉庫就收不回來：%s。請把那幾筆的訊息改掉再推"
+                "（訊息裡不要放個人資料、權杖、電子郵件、本機的絕對路徑）。" % "；".join(bad[:8]))
+    return None
+
+
 def verify_gate(main_root, sd, cfg, stage, sha, now):
     """P2 第 3 節：合併前再查一次驗收機（放行時已查過一次）。設定裡沒有驗收機（舊版）就不查；查不到＝不綠＝擋。"""
     if not (cfg.get("verify") and cfg.get("externalReview")):
@@ -246,7 +279,13 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
             continue
         lref, lsha, rref, rsha = parts
         ok, why = True, None
-        if rref.startswith("refs/tags/"):
+        msg_problem = None
+        if lsha != ZERO and C.in_claude_session(environ) and not rref.startswith("refs/remotes/"):
+            # 先看 commit 訊息（分支、標籤、main 都看）：排在通行證的檢查之前，訊息有問題就不會白白用掉一張通行證
+            msg_problem = commit_message_problem(repo, main_root, cfg, lsha, rsha)
+        if msg_problem:
+            ok, why = False, msg_problem
+        elif rref.startswith("refs/tags/"):
             if lsha == ZERO:
                 ok, why = False, "不能刪除遠端的標籤 %s（停止條件 4）。" % rref[10:]
             elif rsha != ZERO and rsha != lsha:

@@ -553,6 +553,15 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                             "本機的條數要跟驗收機的（%s）對得上才能寄「可以合併」的信。" % (stage, vs.get("ran")))
             if local_ran != vs.get("ran"):
                 return fail("本機的測試條數（%s，tests.txt）跟驗收機的（%s）對不上。數字以驗收機為準，對不上是「要你決定」：請改寄 --kind stop。" % (local_ran, vs.get("ran")))
+            # PR 內文最後那一段「動到的保護範圍檔」是開 PR、改內文的那個當下列的；之後為了回應審查又加的 commit 可能動到別的保護檔
+            # （2026-10-06 Codex 的審查意見：原本寄信前不看 PR 內文，舊清單漏了檔也照樣放行）。寄之前拿現在的 diff 再對一次。
+            pr_now = ext.get("pr") if isinstance(ext.get("pr"), dict) else None
+            if pr_now is not None:
+                stale = protected_list_missing(pr_now.get("body"), t1 + sf + t2)
+                if stale:
+                    return fail("PR 內文最後那一段「動到的保護範圍檔」跟現在的 diff 對不上，漏了 %d 個：%s。開 PR 之後又動到新的保護檔時，"
+                                "請用 iw_notify.py pr edit 重新送一次內文（程式會重新列清單），再寄。"
+                                % (len(stale), "、".join(stale[:12]) + ("……" if len(stale) > 12 else "")))
         cand = {"sha": head, "tag_sha": tag_sha, "branch": branch, "registered_at": C.iso()}
         slug = github_slug(main_root, cfg)
         if slug:
@@ -653,9 +662,20 @@ def verifier_change_extras(main_root, cfg, stage, wt, base, head, files, st):
     return out
 
 
+PROTECTED_HEAD = "**動到的保護範圍檔**（程式列的）"
+
+
+def protected_list_missing(body, files):
+    """PR 內文最後那一段（程式列的保護範圍檔）有沒有涵蓋 files 裡的每一個檔。回傳漏掉的檔（那一段不在＝全部都算漏）。"""
+    body = body or ""
+    i = body.rfind(PROTECTED_HEAD)
+    section = body[i:] if i >= 0 else ""
+    return [f for f in files if ("`%s`" % f) not in section]
+
+
 def protected_section(main_root, cfg, stage):
     """PR 內文最後由程式加的一段：這個分支動到的保護範圍檔（AGENTS.md 的審查規則要求在 PR 內文標示；由程式列，不靠記得）。"""
-    head = "**動到的保護範圍檔**（程式列的）"
+    head = PROTECTED_HEAD
     wt = stage_worktree(main_root, cfg, stage)
     if not os.path.isdir(wt):
         return head + "：讀不到這個階段的 worktree，沒有列。"
@@ -735,10 +755,18 @@ _PR_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 def pr_text_problems(main_root, title, body):
     """PR 的標題與內文要過隱私掃描才送出（公開倉庫的 PR 人人看得到）。掃描器讀不到就當成沒過（寧可擋）。"""
-    text = "%s\n%s" % (title or "", body or "")
+    problems = ["標題是空的"] if not (title or "").strip() else []
+    return problems + text_privacy_problems(main_root, "%s\n%s" % (title or "", body or ""))
+
+
+_GUARDS_CACHE = {}
+
+
+def text_privacy_problems(main_root, text):
+    """一段要公開的文字（PR 的標題內文、commit 訊息）有沒有不該公開的東西。回傳問題的類別（不帶命中的字本身）。
+    掃描器（主目錄上的 scripts/test_analysis_guards.py＝main 的版本）讀不到就當成有問題（寧可擋）。"""
+    text = text or ""
     problems = []
-    if not (title or "").strip():
-        problems.append("標題是空的")
     if any(rx.search(text) for rx in _PR_LOCAL):
         problems.append("有本機的絕對路徑")
     if _PR_TOKEN.search(text):
@@ -750,14 +778,18 @@ def pr_text_problems(main_root, title, body):
     if "<pasted_content" in text or "pasted_content>" in text:
         problems.append("內文含貼上的區塊標籤（規格原文不放進 PR）")
     try:
-        import importlib.util
         p = os.path.join(main_root, "scripts", "test_analysis_guards.py")
-        spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        key = (p, os.path.getmtime(p))                              # 檔不在＝這裡就出錯＝讀不到（擋）
+        mod = _GUARDS_CACHE.get(key)
+        if mod is None:                                             # 一次推送可能要掃幾十筆 commit 訊息：同一份掃描器只載入一次
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            _GUARDS_CACHE[key] = mod
         hits = list(mod.privacy_hits(text)) + list(mod.profile_key_hits(text)) + list(mod.fxplan_key_hits(text))
         if hits:
-            problems.append("隱私掃描命中：%s" % "、".join(str(h) for h in hits)[:120])
+            problems.append("隱私掃描命中（個人資料的字樣或設定鍵名，%d 處）" % len(hits))      # 只說有幾處：這句話會進紀錄檔
     except Exception as e:                                         # noqa: B902
         problems.append("隱私掃描器讀不到（%r）" % (e,))
     return problems

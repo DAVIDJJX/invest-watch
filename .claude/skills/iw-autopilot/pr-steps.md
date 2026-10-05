@@ -5,7 +5,7 @@
 ## 順序（本機全套綠、突變紅、commit、標籤、推分支與標籤之後）
 
 1. **等驗收機**：`py -3.12 .claude/hooks/iw_notify.py verify --stage <階段> --wait`（每 60 秒查一次，上限 40 分鐘）。紅就先修（修完是新 commit，重推、重等）；結果檔會抓到 `.autopilot/runs/<階段>/verify/<commit>/verify-result.json`。
-2. **開 PR**（只准這一支開）：先寫 `.autopilot/runs/<階段>/pr-body.md`——只寫改了什麼，**不放規格原文**、不放本機路徑、不放任何個人資料——再 `py -3.12 .claude/hooks/iw_notify.py pr open --stage <階段> --title "停點 <階段>：一句話" --body-file .autopilot/runs/<階段>/pr-body.md`。程式先過隱私掃描才送。改標題內文用 `pr edit`。
+2. **開 PR**（只准這一支開）：先寫 `.autopilot/runs/<階段>/pr-body.md`——只寫改了什麼，**不放規格原文**、不放本機路徑、不放任何個人資料——再 `py -3.12 .claude/hooks/iw_notify.py pr open --stage <階段> --title "停點 <階段>：一句話" --body-file .autopilot/runs/<階段>/pr-body.md`。程式先過隱私掃描才送。改標題內文用 `pr edit`——開 PR 之後又動到新的保護檔時一定要再 `pr edit` 一次（最後那一段清單由程式重列），不然寄 ready 時程式會說清單對不上。commit 訊息也一樣不放個人資料、權杖、信箱、本機路徑：推送前的檢查會逐筆掃，命中就擋。
 3. **等 Codex**：`py -3.12 .claude/hooks/iw_notify.py review-status --stage <階段> --wait`（上限 60 分鐘）。Codex 設了 Automatic review 會自己審；10 分鐘沒動靜就 `py -3.12 .claude/hooks/iw_notify.py pr request-review --stage <階段>`（留言內容寫死是 `@codex review`，之後有新 commit 要重審也只用這一句）。Codex 有意見才發 review（訊號 A）；沒有意見時它不發 review，只把它自己那則「Codex Review Summary」留言更新成 Completed——程式認那張表（訊號 B：Commit 欄對得上最新的 commit、完成時間晚於推送與最後一則 `@codex review`）。表情不算。那張表的格式跟預期的不一樣時，程式判定未完成，照下面那一節處理，不要自己當成通過。
 4. **回覆意見**：讀 `review-status` 印出來的 findings，寫 `.autopilot/runs/<階段>/03_第三方審查.md`，固定一張表、一行一條：
 

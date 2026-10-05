@@ -166,7 +166,22 @@ class FlowBase(unittest.TestCase):
                                 last_assistant_message="（已交回報告）"), self.env())
         return 0, self.state()["reviews"][-1]
 
-    def send(self, kind, stage="X1", report=None, extra=None, tests_txt=True):
+    def sync_pr_body(self, stage="X1"):
+        """假的 PR 內文跟上現在的 diff（＝已經用 pr open／pr edit 送過一次內文，最後那一段是程式列的保護範圍檔）。"""
+        with io.open(self.fake, encoding="utf-8") as fh:
+            entries = json.load(fh)
+        for e in entries:
+            if e.get("match") == "pulls?head=":
+                prs = json.loads(e["text"])
+                for p in prs:
+                    p["body"] = "改了什麼……\n\n" + N.protected_section(self.sb.main, self.env().cfg, stage) + "\n"
+                e["text"] = json.dumps(prs)
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+
+    def send(self, kind, stage="X1", report=None, extra=None, tests_txt=True, pr_body_in_sync=True):
+        if kind == "ready" and pr_body_in_sync:                                 # P2：PR 內文的保護範圍清單要涵蓋現在動到的保護檔（預設當成已更新）
+            self.sync_pr_body(stage)
         if kind == "ready" and tests_txt:                                       # P2：本機的測試紀錄要在、條數要跟驗收機一樣（假的驗收機預設回 830）
             runs = os.path.join(self.sb.main, ".autopilot", "runs", stage)
             if not os.path.exists(os.path.join(runs, "tests.txt")):
@@ -1350,6 +1365,34 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         out = self.start()
         self.assertNotIn("啟動之前就已經改了", out["systemMessage"])
         self.assertEqual(self.state()["preexisting"], {})
+
+    def test_the_pr_body_must_list_every_protected_file_touched_now(self):
+        """PR 內文最後那一段是開 PR、改內文的那個當下列的。之後為了回應審查又加的 commit 動到別的保護檔時，舊清單會漏
+        （2026-10-06 Codex 的審查意見：原本寄信前不看 PR 內文）。寄「可以合併」之前拿現在的 diff 再對一次，漏了就不寄。
+        對照組：不核對 → 紅。"""
+        head = self.protected_commit()
+        self.push_branch()
+        self.review("acceptance", head)
+        self.errs = []
+        self.assertEqual(self.send("ready", pr_body_in_sync=False), 3)          # PR 內文沒有那一段
+        msg = "".join(self.errs)
+        self.assertIn("跟現在的 diff 對不上", msg)
+        self.assertIn(".gitignore", msg)
+        self.assertIn(".claude/autopilot/config.json", msg)
+        self.sync_pr_body()
+        with io.open(self.fake, encoding="utf-8") as fh:                         # 清單只列了其中一個：照樣不寄，並說漏了哪一個
+            entries = json.load(fh)
+        for e in entries:
+            if e.get("match") == "pulls?head=":
+                e["text"] = e["text"].replace("`.gitignore`", "`README.md`")
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+        self.errs = []
+        self.assertEqual(self.send("ready", pr_body_in_sync=False), 3)
+        self.assertIn("漏了 1 個：.gitignore", "".join(self.errs))
+        self.assertEqual(self.send("ready"), 0, self.errs)                      # 內文重新送過（清單涵蓋現在動到的檔）：可以寄
+        self.assertEqual(N.protected_list_missing("x\n\n" + N.PROTECTED_HEAD + "\n- 第一層：`a.py`、`b.py`\n", ["a.py", "b.py", "c.py"]), ["c.py"])
+        self.assertEqual(N.protected_list_missing("`a.py` 寫在別的地方，不在那一段裡", ["a.py"]), ["a.py"])
 
     def test_an_attended_stage_may_touch_them_but_the_mail_says_so(self):
         """不是自動駕駛跑的階段（David 在場）動到這些檔：可以登記要合併的 commit，但信裡一定寫出來。"""

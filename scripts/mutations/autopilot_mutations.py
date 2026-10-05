@@ -182,7 +182,7 @@ M += [
     ("M72", "會讓 shell 一啟動就執行別的程式的環境變數不擋（BASH_ENV）", H + "iw_guard.py",
      "    m = _CODE_ENV_RE.search(raw)\n    if m:", "    m = _CODE_ENV_RE.search(raw)\n    if False:", GUARD),
     ("M42", "第二道：標籤的刪除與移動不擋", H + "iw_prepush.py",
-     "        if rref.startswith(\"refs/tags/\"):", "        if False and rref.startswith(\"refs/tags/\"):", PREPUSH + ["-k", "test_tags"]),
+     "        elif rref.startswith(\"refs/tags/\"):", "        elif False and rref.startswith(\"refs/tags/\"):", PREPUSH + ["-k", "test_tags"]),
     ("M73", "寄「可以合併」之前不重新向遠端問 main 的位置（本機的記號被改就看不到分支改了什麼）", H + "iw_notify.py",
      "    if not a.offline:\n        # 「這個分支改了哪些檔」是跟 origin/main 比的", "    if False:\n        # 「這個分支改了哪些檔」是跟 origin/main 比的",
      FLOW + ["-k", "moved_origin_main"]),
@@ -661,6 +661,19 @@ M += [
     ("R56", "兩種訊號都有時不以 review 為準（有 review 也去用訊號 B）", H + "iw_review.py",
      "    if reviews:                                                     # 訊號 A", "    if False:                                                       # 訊號 A",
      FLOW + ["-k", "test_a_review_wins_over_the_summary_comment"]),
+    # ---- Codex 對 P2 的第三次審查（commit 454ae82，2026-10-06）採納的兩條
+    ("R57", "第二道：從 Claude Code 推送之前不掃 commit 訊息", H + "iw_prepush.py",
+     "        if lsha != ZERO and C.in_claude_session(environ) and not rref.startswith(\"refs/remotes/\"):", "        if False:",
+     PREPUSH + ["-k", "test_commit_messages_are_scanned_before_claude_pushes_anything"]),
+    ("R58", "第二道：新的分支與標籤不掃 commit 訊息（只掃接在遠端後面的）", H + "iw_prepush.py",
+     "        rng = [lsha, \"--not\", \"--remotes=%s\" % cfg[\"remote\"]]", "        return None",
+     PREPUSH + ["-k", "test_commit_messages_are_scanned_before_claude_pushes_anything"]),
+    ("R59", "公開文字的隱私檢查：掃描器讀不到也放行", H + "iw_notify.py",
+     "        problems.append(\"隱私掃描器讀不到（%r）\" % (e,))", "        pass",
+     PREPUSH + ["-k", "test_commit_messages_are_scanned_before_claude_pushes_anything"]),
+    ("R60", "關卡：寄信前不核對 PR 內文的保護範圍清單", H + "iw_notify.py",
+     "                if stale:\n                    return fail(\"PR 內文最後那一段", "                if False:\n                    return fail(\"PR 內文最後那一段",
+     FLOW + ["-k", "test_the_pr_body_must_list_every_protected_file_touched_now"]),
 ]
 
 MUTATIONS = [m[:5] + (NARROW.get(m[0], m[5]),) for m in M]

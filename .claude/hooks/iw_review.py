@@ -308,7 +308,7 @@ def find_pr(main_root, cfg, branch, runner=None, hints=None):
         return None, "找不到分支 %s 的 PR（還沒開？）" % branch
     pr = prs[0]
     return {"number": pr.get("number"), "url": pr.get("html_url"), "head": ((pr.get("head") or {}).get("sha") or "").lower(), "title": pr.get("title"),
-            "created_at": pr.get("created_at")}, None
+            "created_at": pr.get("created_at"), "body": pr.get("body")}, None
 
 
 def codex_status(main_root, cfg, pr_number, head, runner=None, pr=None):

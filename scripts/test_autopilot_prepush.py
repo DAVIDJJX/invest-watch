@@ -742,6 +742,47 @@ class TestPrePush(unittest.TestCase):
         ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (mine, sb.cand)])    # 遠端頭是自己推過的：放行
         self.assertTrue(ok, msgs)
 
+    def test_commit_messages_are_scanned_before_claude_pushes_anything(self):
+        """commit 訊息一推上公開倉庫就收不回來，驗收機事後判紅也來不及（2026-10-06 Codex 的審查意見；原本推送前完全不看訊息）。
+        從 Claude Code 推的每一筆新 commit，訊息都先過主目錄上的隱私掃描器；接在已推過的後面、新的分支、標籤都看。
+        命中、讀不到掃描器 → 擋，而且擋下的訊息不重複那段不該公開的字。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道、新分支與標籤不掃、掃描器讀不到也放行 → 紅。"""
+        sb = self.sb
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        zero = "0" * 40
+        cases = (("gh" + "p_" + "A" * 30, "像權杖的字串"), ("C:" + "\\Users\\" + "someone" + "\\notes.txt", "本機的絕對路徑"),
+                 ("聯絡 someone" + "@" + "mail.example.org", "電子郵件"), ("持有 " + "1,000 股", "隱私掃描命中"))
+        for bad, word in cases:
+            run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+            sb.write("js/app.js", "// app v3\n", sb.wt)
+            run_git(["add", "--", "js/app.js"], sb.wt)
+            run_git(["commit", "-q", "-m", "feat: y\n\n說明：" + bad], sb.wt)
+            sha = sb.rev("HEAD", sb.wt)
+            for line in ("refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, sb.cand),              # 接在遠端現在的頭後面
+                         "refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sha, zero),                # 新的分支
+                         "refs/tags/stopX1-msg %s refs/tags/stopX1-msg %s" % (sha, zero)):                   # 標籤
+                ok, msgs = sb.check([line])
+                said = " ".join(msgs)
+                self.assertFalse(ok, (word, line))
+                self.assertIn("commit 訊息", said)
+                self.assertIn(word, said)
+                self.assertIn(sha[:7], said)
+                self.assertNotIn(bad, said)
+            ok, msgs = sb.check(["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sha, zero)], claude=False)
+            self.assertTrue(ok, msgs)                                                                         # 不是從 Claude Code 推的：這一道不管
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        clean = "refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sb.cand, zero)
+        guards = os.path.join(sb.main, "scripts", "test_analysis_guards.py")
+        os.rename(guards, guards + ".off")
+        try:
+            ok, msgs = sb.check([clean])                                                                      # 讀不到掃描器：寧可擋
+            self.assertFalse(ok)
+            self.assertIn("隱私掃描器讀不到", " ".join(msgs))
+        finally:
+            os.rename(guards + ".off", guards)
+        ok, msgs = sb.check([clean])                                                                          # 訊息乾淨、掃描器在：照常
+        self.assertTrue(ok, msgs)
+
     def test_autopilot_cannot_push_anything_that_touches_the_verifier_or_the_workflows(self):
         """2026-10-05 裁決二：自動駕駛期間，推送前的檢查擋下所有動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md 的推送（分支與標籤都算）。
         啟動之前、David 在場時改好而且沒再變的不算；不在自動駕駛就不管（一般模式另有 blob 比對把關）。對照組：拿掉這一道 → 這一條會紅。"""
