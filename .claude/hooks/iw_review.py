@@ -57,6 +57,7 @@ def _fake(args, hints):
             text = str(e.get("text") or "")
             for k, v in (hints or {}).items():
                 text = text.replace("{%s}" % k, str(v))
+                text = text.replace("{%s7}" % k, str(v)[:7])        # {sha7}＝短的 commit 編號（Codex 的進度留言用短的）
             if e.get("file"):
                 return int(e.get("rc", 0)), text, e["file"]
             return int(e.get("rc", 0)), text
@@ -306,10 +307,14 @@ def find_pr(main_root, cfg, branch, runner=None, hints=None):
     if not prs:
         return None, "找不到分支 %s 的 PR（還沒開？）" % branch
     pr = prs[0]
-    return {"number": pr.get("number"), "url": pr.get("html_url"), "head": ((pr.get("head") or {}).get("sha") or "").lower(), "title": pr.get("title")}, None
+    return {"number": pr.get("number"), "url": pr.get("html_url"), "head": ((pr.get("head") or {}).get("sha") or "").lower(), "title": pr.get("title"),
+            "created_at": pr.get("created_at")}, None
 
 
-def codex_status(main_root, cfg, pr_number, head, runner=None):
+def codex_status(main_root, cfg, pr_number, head, runner=None, pr=None):
+    """Codex 對這個 commit 審完了沒有、有哪些意見。完成的訊號有兩種（都要綁最新的 commit）：
+    A＝機器人帳號針對這個 commit 發出的 review（有意見時）；B＝機器人自己那則進度留言寫這個 commit Completed（沒有意見時；見 summary_verdict）。
+    同一個 commit 兩種都有時以 A 為準。Codex 的實際行為以 2026-10-05 這個倉庫 1 號 PR 的觀察為準。"""
     ext = cfg["externalReview"]
     bot = ext["botLogin"]
     s = slug(main_root, cfg)
@@ -342,10 +347,138 @@ def codex_status(main_root, cfg, pr_number, head, runner=None):
     inline = set((f.get("path"), f.get("line")) for f in findings)
     for r in reviews:                                               # review 本文裡的意見也算（同一個檔同一行已經有行內留言的不重複算）
         findings += [f for f in body_findings(r, ext) if (f.get("path"), f.get("line")) not in inline]
-    return {"complete": bool(reviews),
-            "why": None if reviews else "Codex（%s）還沒有針對 commit %s 發出 review" % (bot, head[:7]),
-            "reviews": [{"id": r.get("id"), "state": r.get("state"), "body": (r.get("body") or "")[:200], "submitted_at": r.get("submitted_at")} for r in reviews],
-            "findings": findings, "others": sorted(others), "major": [f for f in findings if f["severity"] in ("P0", "P1")]}
+    out = {"complete": bool(reviews), "signal": "A" if reviews else None, "summary": None,
+           "why": None if reviews else "Codex（%s）還沒有針對 commit %s 發出 review" % (bot, head[:7]),
+           "reviews": [{"id": r.get("id"), "state": r.get("state"), "body": (r.get("body") or "")[:200], "submitted_at": r.get("submitted_at")} for r in reviews],
+           "findings": findings, "others": sorted(others), "major": [f for f in findings if f["severity"] in ("P0", "P1")]}
+    if reviews:                                                     # 訊號 A：這個 commit 有 review 就以 review 為準，不去看訊號 B（不能用 B 蓋掉 A）
+        return out
+    # 訊號 B（2026-10-06 Cowork 的裁決）：Codex 沒有意見時不發 review，只把它自己那則「Codex Review Summary」留言更新成 Completed
+    issue_comments, err3 = gh_pages("repos/%s/issues/%s/comments" % (s, pr_number), runner=runner, hints=hints)
+    if issue_comments is None:
+        out["why"] = "%s；也查不到 PR 的留言（%s）" % (out["why"], err3)
+        return out
+    created = (pr or {}).get("created_at")
+    if not created:
+        obj, _e = gh_json(["api", "repos/%s/pulls/%s" % (s, pr_number)], runner=runner, hints=hints)
+        created = (obj or {}).get("created_at") if isinstance(obj, dict) else None
+    ok, why, detail = summary_verdict(issue_comments, ext, head, push_time(main_root, cfg, head, runner=runner), C.parse_iso(created))
+    out["summary"] = detail
+    if ok:
+        out.update({"complete": True, "signal": "B", "why": None})
+    else:
+        out["why"] = "%s；%s" % (out["why"], why)
+    return out
+
+
+# ---- 訊號 B：Codex 自己那則進度留言
+
+SUMMARY_TITLE = "Codex Review Summary"
+_REL_TIME = re.compile(r'datetime="([^"]+)"')
+_SHORT_SHA = re.compile(r"`([0-9a-fA-F]{7,40})`")
+
+
+def parse_summary_table(body):
+    """進度留言裡的那張表。回傳 (列的清單, None)；每一列是 {review, status, commit, trigger}（原文）。
+    表頭少了 Review、Status、Commit 任何一欄，或有一列欄數不對 → 回 (None, 原因)：格式變了就不猜（裁決第四節）。"""
+    header, rows = None, []
+    for line in (body or "").replace("\r\n", "\n").split("\n"):
+        s = line.strip()
+        if not s.startswith("|"):
+            if header is not None and rows:
+                break                                               # 表格結束了
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if header is None:
+            header = [c.lower() for c in cells]
+            continue
+        if all(re.match(r"^:?-{3,}:?$", c) for c in cells):         # 表頭底下的分隔線
+            continue
+        rows.append(cells)
+    if header is None:
+        return None, "裡面沒有表格"
+    idx = {}
+    for want in ("review", "status", "commit"):
+        if want not in header:
+            return None, "表格少了 %s 欄" % want.capitalize()
+        idx[want] = header.index(want)
+    trig = header.index("review trigger") if "review trigger" in header else None
+    out = []
+    for cells in rows:
+        if len(cells) != len(header):
+            return None, "表格有一列的欄數跟表頭不一樣"
+        out.append({"review": cells[idx["review"]], "status": cells[idx["status"]], "commit": cells[idx["commit"]],
+                    "trigger": cells[trig] if trig is not None else ""})
+    if not out:
+        return None, "表格沒有任何一列"
+    return out, None
+
+
+def push_time(main_root, cfg, head, runner=None):
+    """這個 commit 第一次被推上 GitHub 的時間：用驗收機「由 push 觸發」的那幾次執行裡最早的建立時間（GitHub 記的，不是本機說的）。查不到回 None。"""
+    v = cfg.get("verify") or {}
+    s = slug(main_root, cfg)
+    if not v or not s:
+        return None
+    obj, _err = gh_json(["api", "repos/%s/actions/workflows/%s/runs?head_sha=%s&per_page=100" % (s, v["workflow"], head)], runner=runner, hints={"sha": head})
+    want = ".github/workflows/" + v["workflow"]
+    times = [C.parse_iso(r.get("created_at")) for r in ((obj or {}).get("workflow_runs") or [] if isinstance(obj, dict) else [])
+             if str(r.get("head_sha") or "").lower() == head.lower() and r.get("path") == want and r.get("event") == "push"]
+    times = [t for t in times if t is not None]
+    return min(times) if times else None
+
+
+def summary_verdict(comments, ext, head, t_push, pr_created):
+    """訊號 B 成不成立。comments：PR 的一般留言（全部頁）。回傳 (成立, 不成立的原因, 細節)。
+    成立的條件（2026-10-06 Cowork 的裁決，全部都要）：留言是機器人帳號發的那則「Codex Review Summary」；表格裡 Code Review 那一列的
+    Commit 欄短 sha 對得上最新的 commit；Status 是 Completed 而且讀得出完成時間；完成時間晚於最後一次推送，
+    也晚於最後一則「@codex review」留言（從來沒有人留過＝第一次自動審查，就要晚於開 PR 的時間）。
+    表情（👍、👀）不看；一般留言裡出現 Completed 字樣不算；格式跟上面不一樣就當成還沒完成，不猜。"""
+    bot = ext["botLogin"]
+    mine = [c for c in comments if (c.get("user") or {}).get("login") == bot and SUMMARY_TITLE in (c.get("body") or "")]
+    if not mine:
+        return False, "也沒有它的進度留言（%s）" % SUMMARY_TITLE, None
+    c = max(mine, key=lambda x: str(x.get("updated_at") or x.get("created_at") or ""))
+    rows, problem = parse_summary_table(c.get("body"))
+    if rows is None:
+        return False, "它的進度留言格式跟預期的不一樣（%s），不能當成完成的訊號，也不猜" % problem, {"format_problem": problem, "comment_id": c.get("id")}
+    code = [r for r in rows if "code review" in re.sub(r"[*_`]", "", r["review"]).lower()]
+    if not code:
+        return False, "它的進度留言格式跟預期的不一樣（表格裡找不到 Code Review 那一列），不能當成完成的訊號，也不猜", {"format_problem": "沒有 Code Review 那一列",
+                                                                                       "comment_id": c.get("id")}
+    stale = None
+    for r in code:
+        m = _SHORT_SHA.search(r["commit"])
+        if not m:
+            return False, "它的進度留言格式跟預期的不一樣（Commit 欄讀不出 commit），不能當成完成的訊號，也不猜", {"format_problem": "Commit 欄讀不出 commit",
+                                                                                           "comment_id": c.get("id")}
+        short = m.group(1).lower()
+        if not head.lower().startswith(short):
+            stale = short
+            continue
+        plain = re.sub(r"<[^>]+>", " ", r["status"])
+        plain = re.sub(r"[*_`]", "", plain).strip()
+        if "completed" not in plain.lower():
+            return False, "它的進度留言寫 commit %s 的狀態是「%s」，還不是 Completed" % (short, plain[:30] or "空白"), {"commit": short, "status": plain[:60]}
+        t = _REL_TIME.search(r["status"])
+        done = C.parse_iso(t.group(1)) if t else None
+        if done is None:
+            return False, "它的進度留言格式跟預期的不一樣（寫了 Completed 但讀不出完成時間），不能當成完成的訊號，也不猜", {"format_problem": "讀不出完成時間",
+                                                                                               "comment_id": c.get("id")}
+        detail = {"commit": short, "completed_at": C.iso(done), "trigger": re.sub(r"[*_`]", "", r["trigger"]).strip()[:40], "comment_id": c.get("id")}
+        if t_push is None:
+            return False, "查不到最後一次推送的時間（驗收機沒有這個 commit 由 push 觸發的執行紀錄），沒辦法確認進度留言是推送之後才完成的", detail
+        if done <= t_push:
+            return False, "它的進度留言裡的完成時間（%s）不晚於最後一次推送（%s）" % (C.iso(done), C.iso(t_push)), detail
+        triggers = [C.parse_iso(x.get("created_at")) for x in comments if (x.get("body") or "").strip() == ext["trigger"]]
+        triggers = [x for x in triggers if x is not None]
+        t_trig = max(triggers) if triggers else None
+        if t_trig is not None and done <= t_trig:
+            return False, "它的進度留言裡的完成時間（%s）不晚於最後一則「%s」留言（%s）：那一次還沒審完" % (C.iso(done), ext["trigger"], C.iso(t_trig)), detail
+        if t_trig is None and (pr_created is None or done <= pr_created):
+            return False, "它的進度留言裡的完成時間（%s）不晚於開 PR 的時間（或查不到開 PR 的時間）" % C.iso(done), detail
+        return True, None, detail
+    return False, "它的進度留言還停在舊的 commit（%s），不是現在的 %s" % (stale, head[:7]), {"commit": stale}
 
 
 RESPONSE_ADOPT, RESPONSE_REJECT = "採納並修", "不採納"
@@ -438,9 +571,10 @@ def external_status(main_root, sd, cfg, stage, head, st, runner=None, now=None):
         if wp is None:
             return {"mode": "waived", "complete": True, "why": None, "pr": None, "findings": [], "others": [], "major": [], "waiver": st.get("external_waiver")}
         return {"mode": "incomplete", "complete": False, "why": err, "pr": None, "findings": [], "others": [], "major": []}
-    cs = codex_status(main_root, cfg, pr["number"], head, runner=runner)
+    cs = codex_status(main_root, cfg, pr["number"], head, runner=runner, pr=pr)
     out = {"mode": "codex" if cs["complete"] else "incomplete", "complete": cs["complete"], "why": cs.get("why"), "pr": pr,
-           "pr_url": pr.get("url"), "findings": cs["findings"], "others": cs["others"], "major": cs["major"], "reviews": cs["reviews"]}
+           "pr_url": pr.get("url"), "findings": cs["findings"], "others": cs["others"], "major": cs["major"], "reviews": cs["reviews"],
+           "signal": cs.get("signal"), "summary": cs.get("summary")}
     if not cs["complete"] and wp is None:
         out.update({"mode": "waived", "complete": True, "why": None, "waiver": st.get("external_waiver")})
     out["pr_head_matches"] = (pr.get("head") or "") == head.lower()
@@ -571,7 +705,7 @@ def gate_line_external(ext, rows=None):
     if mode == "waived":
         who = "免除（David 親手免除%s）" % ("；本階段未經外部審查" if not findings else "")
     elif mode == "codex":
-        who = "Codex"
+        who = "Codex（沒有意見；它的進度留言寫這個 commit 審完了）" if ext.get("signal") == "B" else "Codex"
     else:
         who = "未完成（%s）" % (ext.get("why") or "?")
     pr = ext.get("pr_url") or ((ext.get("pr") or {}).get("url") if isinstance(ext.get("pr"), dict) else None)

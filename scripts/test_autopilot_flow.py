@@ -2136,6 +2136,100 @@ def _resp_file(sb, rows):
         fh.write("# 第三方審查回覆\n\n| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
 
 
+def _summary(status="✅ **Completed**", when="2026-10-04T00:20:00Z", commit="{sha7}", login=BOT_LOGIN, review="📝 **Code Review**", cid=900):
+    """Codex 自己那則「Codex Review Summary」進度留言（格式照 2026-10-05 這個倉庫 1 號 PR 上實際看到的）。
+    假的驗收機那一次執行（＝推送的時間）是 2026-10-04T00:00:00Z，開 PR 是 2026-10-03T23:00:00Z。"""
+    time_html = ' <relative-time datetime="%s">%s</relative-time>' % (when, when) if when else ""
+    body = ("<!-- codex-pull-request-review-summary -->\n\n## Codex Review Summary\n\nThis comment shows the latest Codex review activity on this pull request.\n\n"
+            "| Review | Status | Commit | Review trigger |\n| --- | --- | --- | --- |\n| %s | %s%s | `%s` | Manual request |\n\n"
+            "<details> <summary>About Codex in GitHub</summary>\nCodex reacts with a thumbs-up once all reviews finish with no findings.\n</details>\n"
+            % (review, status, time_html, commit))
+    return {"id": cid, "user": {"login": login}, "body": body, "created_at": "2026-10-04T00:05:00Z", "updated_at": when or "2026-10-04T00:05:00Z"}
+
+
+def _trigger(at, login="someone", cid=950):
+    return {"id": cid, "user": {"login": login}, "body": "@codex review", "created_at": at, "updated_at": at}
+
+
+class TestCodexSummarySignal(unittest.TestCase):
+    """2026-10-06 Cowork 的裁決：Codex 沒有意見時不發 review，只把它自己那則進度留言更新成 Completed。
+    這種「訊號 B」要同時符合：留言是機器人帳號發的那則表格留言；Code Review 那一列的短 sha 對得上最新的 commit；Status 是 Completed 而且讀得出完成時間；
+    完成時間晚於最後一次推送，也晚於最後一則「@codex review」留言（沒有人留過＝第一次自動審查，就要晚於開 PR）。表情不看；格式變了不猜。"""
+
+    EXT = {"botLogin": BOT_LOGIN, "trigger": "@codex review"}
+    HEAD = "abc1234" + "0" * 33
+    PUSH = C.parse_iso("2026-10-04T00:00:00Z")
+    OPENED = C.parse_iso("2026-10-03T23:00:00Z")
+
+    def verdict(self, comments, push="default", opened="default"):
+        return R.summary_verdict(comments, self.EXT, self.HEAD, self.PUSH if push == "default" else push, self.OPENED if opened == "default" else opened)
+
+    def test_completed_for_the_head_commit_after_the_push_counts(self):
+        ok, why, detail = self.verdict([_summary(commit="abc1234")])
+        self.assertEqual((ok, why), (True, None))
+        self.assertEqual((detail["commit"], detail["completed_at"][:16]), ("abc1234", "2026-10-04T00:20"))
+
+    def test_only_the_bot_account_and_only_its_table_comment(self):
+        """對照組：不看留言是誰發的 → 紅。"""
+        ok, why, _d = self.verdict([_summary(commit="abc1234", login="someone")])                # 人類帳號發一則一模一樣的表格
+        self.assertFalse(ok)
+        self.assertIn("沒有它的進度留言", why)
+        plain = {"id": 1, "user": {"login": BOT_LOGIN}, "body": "Review Completed for `abc1234`", "created_at": "2026-10-04T00:20:00Z"}
+        self.assertFalse(self.verdict([plain])[0])                                              # 一般留言裡出現 Completed 字樣：不算，只認那則表格留言
+
+    def test_the_commit_column_must_match_the_head(self):
+        """對照組：不比短 sha → 紅。"""
+        ok, why, _d = self.verdict([_summary(commit="9999999")])
+        self.assertFalse(ok)
+        self.assertIn("舊的 commit", why)
+
+    def test_status_must_be_completed(self):
+        """對照組：不看 Status → 紅。"""
+        for status in ("🔄 **Running** since", "", "✅ **Done**", "⏳ **Queued**"):
+            ok, why, _d = self.verdict([_summary(commit="abc1234", status=status)])
+            self.assertFalse(ok, status)
+            self.assertIn("還不是 Completed", why)
+
+    def test_completion_must_be_later_than_the_last_push(self):
+        """對照組：不比推送的時間 → 紅。"""
+        ok, why, _d = self.verdict([_summary(commit="abc1234", when="2026-10-03T23:59:00Z")])
+        self.assertFalse(ok)
+        self.assertIn("不晚於最後一次推送", why)
+        ok, why, _d = self.verdict([_summary(commit="abc1234")], push=None)                      # 查不到推送的時間：沒辦法確認，不算
+        self.assertFalse(ok)
+        self.assertIn("查不到最後一次推送的時間", why)
+
+    def test_completion_must_be_later_than_the_request_that_triggered_it(self):
+        """對照組：不比「@codex review」留言的時間、或不比開 PR 的時間 → 紅。"""
+        done = _summary(commit="abc1234")                                                       # 00:20 完成
+        self.assertTrue(self.verdict([done, _trigger("2026-10-04T00:10:00Z")])[0])              # 00:10 請它審、00:20 審完：算
+        ok, why, _d = self.verdict([done, _trigger("2026-10-04T00:10:00Z"), _trigger("2026-10-04T00:30:00Z", cid=951)])
+        self.assertFalse(ok)                                                                    # 00:30 又請了一次：那一次還沒審完
+        self.assertIn("那一次還沒審完", why)
+        ok, why, _d = self.verdict([done], opened=C.parse_iso("2026-10-04T00:25:00Z"))           # 沒有人留過言＝第一次自動審查：要晚於開 PR
+        self.assertFalse(ok)
+        self.assertIn("不晚於開 PR 的時間", why)
+        self.assertFalse(self.verdict([done], opened=None)[0])
+
+    def test_an_unexpected_format_is_never_guessed(self):
+        """裁決第四節：欄位跟預期的不一樣，一律當成還沒完成。對照組：格式不對也照樣認 → 紅。"""
+        missing = _summary(commit="abc1234")
+        missing["body"] = missing["body"].replace("| Review | Status | Commit | Review trigger |", "| Review | Status | Review trigger |").replace(" | `abc1234` |", " |")
+        ok, why, detail = self.verdict([missing])
+        self.assertFalse(ok)
+        self.assertIn("格式跟預期的不一樣", why)
+        self.assertIn("少了 Commit 欄", why)
+        self.assertTrue(detail["format_problem"])
+        for odd in (_summary(commit="abc1234", when=None),                                      # 寫了 Completed 但沒有完成時間
+                    _summary(commit="abc1234", review="🔒 **Security Review**"),                 # 沒有 Code Review 那一列
+                    _summary(commit="（無）")):                                                  # Commit 欄讀不出 commit
+            ok, why, _d = self.verdict([odd])
+            self.assertFalse(ok)
+            self.assertIn("格式跟預期的不一樣", why)
+        rows, problem = R.parse_summary_table("## Codex Review Summary\n\n沒有表格\n")
+        self.assertEqual((rows, problem), (None, "裡面沒有表格"))
+
+
 class TestResponseTable(unittest.TestCase):
     """03_第三方審查.md 那張表怎麼讀（不用沙盒）。Codex 對 P2 的第二次審查：回覆欄只認兩種、一字不差；理由不能空；同一條不能有兩種回覆。"""
 
@@ -2296,6 +2390,50 @@ class TestGate(FlowBase):
         with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
             fh.write("Ran 830 tests in 100.0s\n\nOK\n")
         self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_no_findings_is_signalled_by_codex_own_summary_comment(self):
+        """Codex 沒有意見時不發 review（2026-10-05 在這個倉庫 1 號 PR 上看到的）：程式改認它自己那則進度留言（訊號 B，2026-10-06 的裁決）。
+        沒有 review、也沒有進度留言 → 未完成；進度留言寫這個 commit Completed → 完成、0 條意見，信裡寫明是哪一種訊號。"""
+        self.ready_setup()
+        self.fake_gh(codex=False)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("外部審查還沒完成", "".join(self.errs))
+        self.assertIn("也沒有它的進度留言", "".join(self.errs))
+        self.fake_gh(codex=False, issue_comments=[_summary(status="🔄 **Running** since")])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("還不是 Completed", "".join(self.errs))
+        self.fake_gh(codex=False, issue_comments=[_summary()])
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("外部審查（GPT）：Codex（沒有意見；它的進度留言寫這個 commit 審完了）；重大 0 條", body_of(self.sent[-1]))
+
+    def test_a_review_wins_over_the_summary_comment(self):
+        """裁決第三節：同一個 commit 既有 review（訊號 A）又有 Completed（訊號 B）時，以 review 的意見為準。對照組：有 review 也去用 B → 紅。"""
+        self.ready_setup()
+        self.fake_gh(comments=[_bot_comment(401, "[P1] 有一條意見", 3)], issue_comments=[_summary()])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("還有 1 條沒有回覆", "".join(self.errs))
+        _resp_file(self.sb, ["| 401 | P1 | js/app.js:3 | 採納並修 | commit abc1234 |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        line = [x for x in body_of(self.sent[-1]).split("\n") if x.startswith("外部審查（GPT）")][0]
+        self.assertIn("Codex；重大 1 條；採納 1", line)
+        self.assertNotIn("沒有意見", line)
+
+    def test_a_summary_comment_in_an_unexpected_format_stops_the_ready_mail(self):
+        """裁決第四節：進度留言的欄位跟預期的不一樣 → 判定「外部審查未完成」、記下來（之後寄的是「要你決定」），不猜。"""
+        self.ready_setup()
+        odd = _summary()
+        odd["body"] = odd["body"].replace("| Review | Status | Commit | Review trigger |", "| Review | Status | Review trigger |").replace(" | `{sha7}` |", " |")
+        self.fake_gh(codex=False, issue_comments=[odd])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("外部審查還沒完成", msg)
+        self.assertIn("格式跟預期的不一樣", msg)
+        self.assertIn("少了 Commit 欄", msg)
+        self.assertEqual(self.state()["external_review"]["status"], "incomplete")
 
     def test_replies_must_be_exact_and_a_p0_marked_not_yet_adopted_blocks_ready(self):
         """Codex 對 P2 的第二次審查（P0）：回覆欄原本只要「包含」採納兩個字就算，「尚未採納」也被當成採納；理由那一欄也不看。

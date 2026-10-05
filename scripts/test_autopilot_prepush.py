@@ -64,7 +64,7 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
-                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None):
+                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
     沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
     event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。"""
@@ -80,12 +80,13 @@ def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}",
     for login in (others or []):
         reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
                         "submitted_at": "2026-10-04T00:11:00Z"})
-    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "head": {"sha": "{sha}"}, "title": "x"}] if pr else []
+    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "head": {"sha": "{sha}"}, "title": "x", "created_at": "2026-10-03T23:00:00Z"}] if pr else []
     return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": ([run] if runs else []) + list(extra_runs or [])})},
             {"match": "run download", "rc": 0, "text": json.dumps(result)},
             {"match": "pulls?head=", "rc": 0, "text": json.dumps(prs)},
             {"match": "/pulls/7/reviews", "rc": 0, "text": json.dumps(reviews)},
             {"match": "/pulls/7/comments", "rc": 0, "text": json.dumps(comments or [])},
+            {"match": "/issues/7/comments", "rc": 0, "text": json.dumps(issue_comments or [])},        # PR 的一般留言（Codex 的進度留言在這裡）
             {"match": "pr comment", "rc": 0, "text": "https://example.invalid/pull/7#issuecomment-1"},
             {"match": "pr create", "rc": 0, "text": "https://example.invalid/pull/7"},
             {"match": "pr edit", "rc": 0, "text": ""}]

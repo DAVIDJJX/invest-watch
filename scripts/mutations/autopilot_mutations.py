@@ -641,6 +641,26 @@ M += [
     ("R48", "突變執行器：結果檔裡寫定義檔的絕對路徑", "scripts/mutations/run_mutations.py",
      "    out = {\"defs\": public_path(a.defs, a.repo),", "    out = {\"defs\": os.path.abspath(a.defs),",
      VERIFY + ["-k", "test_result_files_do_not_carry_absolute_paths"]),
+    # ---- Cowork 2026-10-06 的裁決：Codex 沒有意見時的完成訊號（訊號 B＝它自己那則進度留言）
+    ("R49", "訊號 B：不看進度留言是誰發的（人類帳號發的同款表格也算）", H + "iw_review.py",
+     "    mine = [c for c in comments if (c.get(\"user\") or {}).get(\"login\") == bot and SUMMARY_TITLE in (c.get(\"body\") or \"\")]",
+     "    mine = [c for c in comments if SUMMARY_TITLE in (c.get(\"body\") or \"\")]", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R50", "訊號 B：Commit 欄的短 sha 對不上最新的 commit 也算", H + "iw_review.py",
+     "        if not head.lower().startswith(short):\n            stale = short", "        if False:\n            stale = short", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R51", "訊號 B：Status 不是 Completed 也算", H + "iw_review.py",
+     "        if \"completed\" not in plain.lower():", "        if False:", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R52", "訊號 B：完成時間早於最後一次推送也算", H + "iw_review.py",
+     "        if done <= t_push:", "        if False:", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R53", "訊號 B：完成時間早於最後一則 @codex review 留言也算", H + "iw_review.py",
+     "        if t_trig is not None and done <= t_trig:", "        if False:", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R54", "訊號 B：第一次自動審查，完成時間早於開 PR 也算", H + "iw_review.py",
+     "        if t_trig is None and (pr_created is None or done <= pr_created):", "        if False:", FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R55", "訊號 B：進度留言的格式不對也照樣認", H + "iw_review.py",
+     "    if rows is None:\n        return False, \"它的進度留言格式跟預期的不一樣", "    if rows is None:\n        return True, \"它的進度留言格式跟預期的不一樣",
+     FLOW + ["-k", "TestCodexSummarySignal"]),
+    ("R56", "兩種訊號都有時不以 review 為準（有 review 也去用訊號 B）", H + "iw_review.py",
+     "    if reviews:                                                     # 訊號 A", "    if False:                                                       # 訊號 A",
+     FLOW + ["-k", "test_a_review_wins_over_the_summary_comment"]),
 ]
 
 MUTATIONS = [m[:5] + (NARROW.get(m[0], m[5]),) for m in M]
