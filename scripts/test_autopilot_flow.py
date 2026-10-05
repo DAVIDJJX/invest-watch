@@ -25,6 +25,9 @@ import sys
 import unittest
 
 os.environ["IW_TEST_NO_SIDE_EFFECTS"] = "1"      # 測試不對外寄信、不在桌面跳通知；用子程序跑的 hook 也會繼承
+# 沙盒裡的 hook 是用子程序跑的（git push 會叫到 pre-push）：Python 預設會在沙盒主目錄的 .claude/hooks/ 留下 __pycache__/，
+# 「主目錄要乾淨」那一關就會擋。正式倉庫的 .gitignore 有 __pycache__/（test_autopilot_config 釘住），沙盒的沒有，所以這裡關掉。
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)

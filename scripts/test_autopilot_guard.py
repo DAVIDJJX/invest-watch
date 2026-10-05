@@ -214,12 +214,14 @@ class TestBypassesAreBlocked(Base):
         self.each(["git push", "git push origin", "git push origin HEAD"], cwd=MAIN)
 
     def test_push_from_elsewhere_with_dash_C_or_cd(self):
+        # 換行分隔的那一種：Windows 用 Git Bash 的磁碟機寫法（/d/…＝D:/…，只有 Windows 才有這種對應）；別的系統用一般寫法
+        newline = "cd /d/Fake/invest-watch\ngit push" if C.IS_WINDOWS else "cd D:/Fake/invest-watch\ngit push"
         self.each(["git -C D:/Fake/invest-watch push",
                    "git -C 'D:/Fake/invest-watch' push origin main",
                    "git -CD:/Fake/invest-watch push",
                    "cd D:/Fake/invest-watch && git push",
                    "cd D:/Fake/invest-watch; git push",
-                   "cd /d/Fake/invest-watch\ngit push",
+                   newline,
                    "pushd D:/Fake/invest-watch && git push origin"], cwd=ELSE)
 
     def test_push_when_the_branch_upstream_is_main(self):

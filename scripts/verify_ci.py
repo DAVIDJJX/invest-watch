@@ -89,9 +89,20 @@ socket.socket.connect, socket.socket.connect_ex = _c, _cx
 
 CHROME_WRAPPER = '''#!/bin/sh
 # iw-verify：第 2 層封鎖。所有名稱解析一律失敗（MAP * ~NOTFOUND），同時把 Chrome 查過的名稱記進 netlog。
-exec "%(chrome)s" --host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1" \\
+%(pre)sexec "%(chrome)s" %(extra)s--host-resolver-rules="MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1" \\
   --log-net-log="%(egress)s/chrome-netlog-$$.json" --net-log-capture-mode=Default "$@"
 '''
+# 瀏覽器在測試用的使用者底下的幾種開法：依序試，第一個開得起來的就用，每一種的結果都寫進紀錄。
+# own-dirs：設定、快取、當機報告的資料夾都指到那個使用者自己寫得到的地方（不靠繼承來的環境變數）。
+CHROME_OWN_DIRS = ('d="${HOME:-/tmp}/.iw-chrome"; mkdir -p "$d/config" "$d/cache" "$d/crash" 2>/dev/null\n'
+                   'export XDG_CONFIG_HOME="$d/config" XDG_CACHE_HOME="$d/cache" BREAKPAD_DUMP_LOCATION="$d/crash"\n')
+CHROME_VARIANTS = [("plain", "", ""), ("own-dirs", CHROME_OWN_DIRS, ""), ("no-sandbox", "", "--no-sandbox "),
+                   ("own-dirs+no-sandbox", CHROME_OWN_DIRS, "--no-sandbox ")]
+
+
+def chrome_wrapper_text(chrome, egress, variant="plain"):
+    pre, extra = dict((v[0], (v[1], v[2])) for v in CHROME_VARIANTS)[variant]
+    return CHROME_WRAPPER % {"chrome": chrome, "egress": egress, "pre": pre, "extra": extra}
 
 
 # ---------------------------------------------------------------- 小工具
@@ -229,7 +240,7 @@ def cmd_lockdown(a):
     chrome = find_chrome()
     if chrome:
         wrapper = os.path.join(out, "chrome-wrapper.sh")
-        write_text(wrapper, CHROME_WRAPPER % {"chrome": chrome, "egress": egress}, mode=0o755)
+        write_text(wrapper, chrome_wrapper_text(chrome, egress), mode=0o755)
         info["browser"] = wrapper
         info["chrome"] = chrome
         info["layers"]["browser"] = "host-resolver-rules+netlog"
@@ -290,18 +301,28 @@ def cmd_lockdown(a):
                         info["notes"].append("系統層自我測試沒過：以 %s 連 %s 竟然成功" % (TEST_USER, SELFTEST_IP))
                 else:
                     info["notes"].append("iptables 加規則失敗（沒有系統層的封鎖）")
-                if chrome:                                          # 瀏覽器在那個使用者底下開不開得起來；開不起來就加 --no-sandbox 再試（結果寫進紀錄）
+                if chrome:                                          # 瀏覽器在那個使用者底下開不開得起來：幾種開法依序試，第一個成功的就用
                     probe = ["-u", TEST_USER, "env", "HOME=" + home, info["browser"], "--headless=new", "--disable-gpu", "--no-first-run",
                              "--user-data-dir=/tmp/%s-probe" % TEST_USER, "--dump-dom", "about:blank"]
-                    rc, o = sudo(probe, timeout=90)
-                    info["selftest"]["browser"] = "ok" if (rc == 0 and "<html" in o.lower()) else "failed"
-                    if info["selftest"]["browser"] != "ok":
-                        write_text(info["browser"], CHROME_WRAPPER.replace('exec "%(chrome)s"', 'exec "%(chrome)s" --no-sandbox')
-                                   % {"chrome": chrome, "egress": egress}, mode=0o755)
+                    info["browser_probe"], info["selftest"]["browser"] = [], "failed"
+                    for name, _pre, _extra in CHROME_VARIANTS:
+                        write_text(info["browser"], chrome_wrapper_text(chrome, egress, name), mode=0o755)
                         rc, o = sudo(probe, timeout=90)
-                        info["selftest"]["browser"] = "ok(--no-sandbox)" if (rc == 0 and "<html" in o.lower()) else "failed"
-                        info["notes"].append("瀏覽器在測試用的使用者底下要加 --no-sandbox 才開得起來" if info["selftest"]["browser"].startswith("ok")
-                                             else "瀏覽器在測試用的使用者底下開不起來：%s" % o[-200:])
+                        ok = rc == 0 and "<html" in o.lower()
+                        info["browser_probe"].append({"variant": name, "rc": rc, "ok": ok, "output": "" if ok else o[-600:]})
+                        if ok:
+                            info["selftest"]["browser"] = "ok" if name == "plain" else "ok(%s)" % name
+                            info["browser_variant"] = name
+                            if name != "plain":
+                                info["notes"].append("瀏覽器在測試用的使用者底下要用「%s」的開法才開得起來" % name)
+                            break
+                    else:                                           # 都開不起來：留下診斷（那個使用者是誰、家在哪、寫不寫得進去），瀏覽器那幾組會紅
+                        write_text(info["browser"], chrome_wrapper_text(chrome, egress), mode=0o755)
+                        rc, o = sudo(["-u", TEST_USER, "env", "HOME=" + home, "sh", "-c",
+                                      'id; echo "HOME=$HOME"; env | grep "^XDG\\|^TMP\\|^DBUS"; ls -ld "$HOME" /tmp; '
+                                      'mkdir -p "$HOME/.config/google-chrome/Crash Reports" && echo mkdir-ok; ls -la "$HOME"'], timeout=30)
+                        info["browser_diag"] = o[-1500:]
+                        info["notes"].append("瀏覽器在測試用的使用者底下開不起來（%d 種開法都不行；細節在 lockdown.json 的 browser_probe）" % len(CHROME_VARIANTS))
             else:
                 info["notes"].append("建不出使用者 %s：%s" % (TEST_USER, o[-200:]))
     else:
@@ -313,6 +334,11 @@ def cmd_lockdown(a):
     print("封鎖層級 %s：%s" % (info["level"], "；".join("%s=%s" % (k, v or "沒有") for k, v in layers.items())))
     for note in info["notes"]:
         print("  注意：" + note)
+    for p in info.get("browser_probe") or []:
+        print("  瀏覽器開法 %s：%s%s" % (p["variant"], "開得起來" if p["ok"] else "開不起來（rc=%s）" % p["rc"],
+                                    "" if p["ok"] else "\n    " + p["output"].strip().replace("\n", "\n    ")))
+    if info.get("browser_diag"):
+        print("  診斷：\n    " + info["browser_diag"].strip().replace("\n", "\n    "))
     return 0
 
 

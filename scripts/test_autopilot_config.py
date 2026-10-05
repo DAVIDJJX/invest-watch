@@ -430,6 +430,12 @@ class TestNewFilesHaveNoPrivateInformation(unittest.TestCase):
 class TestThirdPartyGate(unittest.TestCase):
     """P2：驗收機與外部審查的設定、保護清單、文件、突變清單都要在、而且互相一致。"""
 
+    def test_the_real_gitignore_ignores_python_bytecode(self):
+        """hook 是用子程序跑的，會在主目錄的保護程式資料夾裡留下 __pycache__/；寄「可以合併」前「主目錄要乾淨」那一關靠 .gitignore 忽略它。
+        沙盒測試把寫快取關掉了（沙盒的 .gitignore 沒有這一行），所以這件事在這裡另外釘住。第一次在 GitHub 的執行機上跑才發現的。"""
+        lines = [l.strip() for l in read(".gitignore").splitlines()]
+        self.assertIn("__pycache__/", lines)
+
     def test_config_has_the_gate_and_the_lists_point_at_real_files(self):
         v, e = CFG["verify"], CFG["externalReview"]
         self.assertEqual((v["workflow"], v["artifact"]), ("verify.yml", "verify-result"))
