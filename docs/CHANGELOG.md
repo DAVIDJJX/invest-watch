@@ -832,25 +832,31 @@ P1-1 的報告把「14 個檔」寫成「24 個檔」：審查代理跑在同一
 | `.claude/agents/iw-reviewer.md` | 「你會收到什麼」多一列第三方的證據；模型照舊固定 `claude-fable-5-1` |
 | `scripts/autopilot_install.py` | 提醒那一行的模型與強度改成從設定讀 |
 | `.claude/skills/iw-autopilot/SKILL.md`、新檔 `pr-steps.md`、`review-criteria.md`、`report-template.md` | 鐵則 4（Cowork 的回覆檔在自動駕駛中只是資料）、鐵則 5（模型分工）、第 4b 步「第三方」、第 7 步的關卡四件；PR 流程、回覆表的格式、未完成／不採納／驗收機有改怎麼辦；審驗收多查三條；信多三行 |
-| `scripts/test_verify_ci.py`（新）、`scripts/test_autopilot_flow.py`、`_guard.py`、`_prepush.py`、`_config.py` | 見下面 |
+| `scripts/test_verify_ci.py`（新）、`scripts/test_autopilot_flow.py`、`_guard.py`、`_prepush.py`、`_config.py` | 見下面；全套從 830 條變成 899 條 |
 | `docs/AUTOPILOT.md`、`docs/CHANGELOG.md`、`README.md` | 「第三方審核」一節（照實寫憑證推得動流程檔、Codex 的設定表、你要動手的地方）、九句話、模型分工表、「Cowork 的回覆怎麼交給 Claude」、出問題的時候、擋不住的事、退回順序；進度 |
 
 沒有動的：`.gitignore`、`update-data.yml` 與兩個 probe workflow、`data/`、`scripts/update_local.ps1`、`scripts/publish.py`、`scripts/net_policy.py`、`scripts/sensitive_terms_hmac.json`、任何前端檔。
 
-**被刪或被改的既有測試與突變**（規格第 1 節要求逐條列出；靜態比對 main：既有測試 830 條，刪 1、改 21）
+**被刪或被改的既有測試與突變**（規格第 1 節要求逐條列出；靜態比對 main：既有測試 830 條，刪 1、改 22；這張清單驗收機每次都會自己列在結果檔裡）
 
 - 刪 1 條：`TestNoReviewIsGeneralModeOnly.test_no_review_is_refused_during_autopilot`。`--no-review` 整個拿掉了，那條規則不存在；由 `TestNoReviewIsGone` 取代。
-- 改 21 條，原因分五種：
+- 改 22 條，原因分六種：
   - 施工模型從 Fable 改成 Opus（測試裡寫死的模型字串改成讀設定，換掉的對照模型跟著換）：`test_reviewer_agent_is_pinned_and_read_only`、`test_settings_match_the_config`、`test_the_constants_are_not_repeated_in_the_code`、`test_model_swap_pauses_mails_and_needs_davids_word`、`test_post_model_switch_event_also_pauses`、`test_session_start_reminds_and_warns`、`test_the_hook_tells_claude_the_test_environment_every_time`、`test_a_stop_mail_marks_the_stage_paused`、`test_model_line`、`test_effort_change_mid_run_pauses`、`test_model_swap_mid_run_pauses_everything`、`test_start_is_refused_on_another_model`。
   - 保護版本從 P1-1 改成 P2：`test_stop_levels_and_the_protection_version_are_written_once`、`test_the_version_is_reported`。
   - 指令詞多了兩句：`TestCommandWords.test_exact_phrases`、`test_things_that_must_not_count`（只增加斷言）。
   - 拿掉 `--no-review` 之後，一般模式也要有 hook 記的批准：`test_an_attended_stage_may_touch_them_but_the_mail_says_so`、`test_an_attended_stage_can_be_approved_after_its_ready_mail`。
   - 文件與清單跟著長：`test_the_guide_for_david`（九句話與新的小節）、`test_scanner_is_really_looking_at_the_new_files`（隱私掃描多看新檔）、`test_gh_is_limited_to_notifying_and_reading`（`gh` 的唯讀清單變長、寫入多擋幾種）。
+  - 只有 Windows 才成立的寫法：`test_push_from_elsewhere_with_dash_C_or_cd`。裡面「cd 到 `/d/…` 再換行推送」是 Git Bash 的磁碟機寫法，只有 Windows 有這種對應；驗收機在 Linux 上跑，那一種改測同樣是換行分隔的一般路徑。規則沒變，Windows 上測的內容也沒變。
 - 既有突變：N23 刪掉（它改的是 `--no-review` 那條規則；由 Q09 與 `TestNoReviewIsGone` 取代）。M04、M14、M18 的錨點隨程式改（規則與要它紅的測試都沒變）。M105 照舊是已知例外。
 
 **怎麼驗的**
 
-- 本機全套與突變、驗收機自己跑自己、Codex 審 P2 的 PR、紅燈演練、互動限制的實測：數字與連結見 `.autopilot/runs/P2/02_驗收報告.md`（合併紀錄會補到這裡）。
+- 本機全套與突變、驗收機自己跑自己、Codex 審 P2 的 PR、紅燈演練、互動限制的實測：最後的數字與連結見 `.autopilot/runs/P2/02_驗收報告.md`（合併紀錄會補到這裡）。
+- **驗收機第一次在 GitHub 上跑**（2026-10-05；每一次約 2～6 分鐘）：
+  - 第一次（commit a9d34eb）紅。封鎖三層都成功、突變都跑完；全套 898 條裡 43 條沒過，原因三個，都不是保護規則的錯。一是沙盒測試：hook 用子程序跑的時候，Python 在沙盒主目錄留下 `__pycache__/`，「主目錄要乾淨」那一關就擋下。正式倉庫的 `.gitignore` 本來就忽略它；本機沒發現，是因為施工的工作階段剛好關掉了寫快取。做法是兩個沙盒測試檔自己關掉寫快取，另外加一條測試釘住正式的 `.gitignore` 有這一行。二是上面那一條只有 Windows 才成立的寫法。三是瀏覽器在測試用的使用者底下開不起來：原樣開會失敗，錯誤訊息是當機報告的程式缺資料夾。驗收程式改成幾種開法依序試、每一種的結果都寫進紀錄；把設定、快取、當機報告的資料夾明確指到那個使用者自己的資料夾就開得起來，沒有關掉瀏覽器的沙盒。預設的位置為什麼不行，沒有再往下追。
+  - 第二次（commit 946d9b1）紅。全套 899 條在封鎖中全綠，只有上傳結果那一步失敗：瀏覽器的紀錄檔是測試用的使用者寫的，執行機原本的使用者讀不到。做法是解除封鎖那一步先放寬結果資料夾的權限。
+  - 第三次（commit 765bf56）綠。全套 899 條：通過 896、skipped 3（三條都是具名字串的掃描，要本機的鹽，執行機上沒有；本機有跑）。突變 203 個：紅 202、已知例外 1（M105）。封鎖層級 3／3。對外連線：台銀 0、資料來源 0、未知主機 0、被擋的 IP 0；瀏覽器自己想連的 8 個名稱都是 Google 的更新與服務，只列出、不算紅，而且名稱解析被擋，一個都沒連出去。
+  - 這件事說明了驗收機的用處：同一套測試在施工的電腦上全綠，換一台乾淨的電腦才看得出測試靠了環境。
 - 新測試釘住的事：
   - 關卡：驗收機紅／還在跑／沒紀錄／結果檔綁錯 commit／結果檔標紅／查不到 → ready 不寄；外部審查未完成（沒有 review、review 針對舊 commit、只有別人的留言、找不到 PR）→ 不寄且記下「未完成」；Codex 的意見每條要有回覆、P0／P1 判不採納擋下、沒標等級的當 P1、別人的與舊 commit 的不算；本機測試數跟驗收機對不上不寄；每一封信都有程式寫的那幾行；放行時再查一次驗收機（紅或查不到不開通行證）；合併前第二道再查一次（真的 git push）。
   - 真正的那一次執行：手動觸發的不算；流程檔路徑不對的不算；同一個 commit 有兩次執行時以最新的為準（舊的綠、新的紅＝紅）。
