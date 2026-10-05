@@ -9,6 +9,7 @@ verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實�
   lockdown          封鎖對外連線：另一個使用者＋iptables（第 1 層）、瀏覽器的名稱解析規則（第 2 層）、Python 的 socket（第 3 層）
   run-tests         用封鎖中的環境跑全套測試（子程序）→ tests.json、tests-verbose.txt
   unlock            收集對外請求的紀錄（Python 層的名稱、瀏覽器的名稱、iptables 擋下的 IP）→ egress.json；還原規則
+  export            上傳之前：只挑判定需要的檔、逐個過隱私掃描 → 另一個資料夾（詳細輸出與瀏覽器的 netlog 不上傳）
   compare           跟 main 比：測試數、被刪改的測試、突變數、被刪改的突變、動到的保護範圍檔、驗收機本身有沒有改 → compare.json
   mutations         跑一片突變（封鎖中；執行器與例外清單用 main 的，定義用分支的）→ mut-*.json
   collect           合併、判定紅綠、結果檔過隱私掃描、寫 job summary → verify-result.json；紅＝非零結束
@@ -379,7 +380,7 @@ def cmd_run_tests(a):
     print("跑全套測試（%s）…" % ("使用者 %s、封鎖層級 %s" % (user, lock.get("level")) if user else "封鎖層級 %s" % lock.get("level", "?")))
     t0 = time.time()
     rc, o = run(cmd, cwd=repo, timeout=a.timeout, env=env)
-    print(o[-4000:])
+    print(safe_tail(o, 4000))
     res = read_json(os.path.join(out, "tests.json"), {}) or {}
     print("Ran %s tests in %.0fs — %s" % (res.get("ran"), time.time() - t0, "OK" if res.get("ok") else "FAILED"))
     return 0 if res.get("ok") else (rc or 1)
@@ -541,12 +542,85 @@ def cmd_unlock(a):
     return 0
 
 
+_GUARDS = []
+
+
+def main_guards():
+    """main 上的隱私掃描器（test_analysis_guards.py，取驗收程式那一步放在這個檔旁邊）。讀不到回 None。只載入一次。"""
+    if not _GUARDS:
+        try:
+            _GUARDS.append(load_module(os.path.join(HERE, "test_analysis_guards.py"), "iw_guards_shared"))
+        except Exception:                                          # noqa: B902
+            _GUARDS.append(None)
+    return _GUARDS[0]
+
+
+def safe_tail(text, limit):
+    """子程序輸出的最後一段，要印進執行紀錄之前先掃：公開倉庫的執行紀錄誰都看得到。命中就不印內容，只說有命中。"""
+    tail = (text or "")[-limit:]
+    hits = privacy_scan({"輸出": tail}, main_guards())
+    if hits:
+        return "（這一段輸出含不該公開的字串，沒有印出來）"
+    return tail
+
+
 def _read(path):
     try:
         with io.open(path, encoding="utf-8", errors="replace") as fh:
             return fh.read()
     except Exception:                                              # noqa: B902
         return ""
+
+
+# ---------------------------------------------------------------- 4b. 上傳之前：只帶必要的、掃過的
+
+# 判定那一段需要的檔。除此之外（完整的詳細輸出、瀏覽器的 netlog、封鎖用的暫存檔與包裝）一律不上傳。
+EXPORT_FILES = ("tests.json", "compare.json", "lockdown.json", "egress.json")
+EXPORT_FAILURE_CHARS = 20000
+NOT_EXPORTED_BUT_SCANNED = ("tests-verbose.txt",)
+
+
+def failure_excerpt(verbose_text, limit=EXPORT_FAILURE_CHARS):
+    """全套測試的詳細輸出裡，只留失敗與錯誤的那幾段（讓人看得出為什麼紅）。通過的那幾百行不帶出去。"""
+    blocks = re.split(r"\n={60,}\n", verbose_text or "")
+    keep = [b.strip("\n") for b in blocks if re.match(r"\s*(FAIL|ERROR): ", b)]
+    return ("\n" + "=" * 70 + "\n").join(keep)[:limit]
+
+
+def cmd_export(a):
+    """每一段在上傳之前做的事：只挑判定需要的檔，逐個過隱私掃描；命中的檔不帶出去，只記「哪個檔命中」。
+    2026-10-05 Codex 的審查意見：原本整個結果資料夾先上傳、到最後一段才掃描——就算最後判紅，
+    詳細輸出、診斷與瀏覽器的 netlog 也已經留在 artifact 裡 90 天。完整的詳細輸出不上傳，但照樣掃（有命中＝紅）。"""
+    out, dest = os.path.abspath(a.out), os.path.abspath(a.export)
+    if os.path.isdir(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest)
+    guards = main_guards()
+    names = [n for n in EXPORT_FILES if os.path.exists(os.path.join(out, n))]
+    names += sorted(n for n in (os.listdir(out) if os.path.isdir(out) else []) if n.startswith("mut-") and n.endswith(".json"))
+    texts = dict((n, _read(os.path.join(out, n))) for n in names)
+    verbose = _read(os.path.join(out, "tests-verbose.txt"))
+    excerpt = failure_excerpt(verbose)
+    if excerpt:
+        texts["failures.txt"] = excerpt
+    report = {"exported": [], "dropped": [], "privacy_hits": [], "scanner": "main" if guards is not None else "（讀不到）", "at": now_iso()}
+    scan_only = dict((n, _read(os.path.join(out, n))) for n in NOT_EXPORTED_BUT_SCANNED)
+    for name in sorted(set(texts) | set(scan_only)):
+        text = texts.get(name, scan_only.get(name)) or ""
+        hits = privacy_scan({name: text}, guards)
+        if hits:                                                    # 只記檔名，不記命中的內容
+            report["privacy_hits"].append(name)
+            if name in texts:
+                report["dropped"].append(name)
+            continue
+        if name in texts:
+            write_text(os.path.join(dest, name), text)
+            report["exported"].append(name)
+    write_json(os.path.join(dest, "export.json"), report)
+    print("要上傳的檔：%s" % ("、".join(report["exported"]) or "（沒有）"))
+    if report["privacy_hits"]:
+        print("含不該公開的字串、沒有帶出去的：%s（判定會是紅）" % "、".join(report["privacy_hits"]))
+    return 0
 
 
 # ---------------------------------------------------------------- 5. 跟 main 比
@@ -621,7 +695,7 @@ def cmd_compare(a):
                  "--main-ref", a.main_ref, "--inner"]
         cmd, env = locked_command(out, lock, inner)
         rc, o = run(cmd, cwd=repo, timeout=600, env=env)
-        print(o[-4000:])
+        print(safe_tail(o, 4000))
         return rc
     main_ref = a.main_ref
     rc, main_sha = git(repo, ["rev-parse", main_ref])
@@ -710,7 +784,7 @@ def cmd_mutations(a):
         lcmd, env = locked_command(out, lock, cmd)
         print("跑這一片突變（%s、封鎖層級 %s）…" % ("使用者 %s" % lock.get("user") if lock.get("user") else "原本的使用者", lock.get("level")))
         rc, o = run(lcmd, cwd=repo, timeout=a.timeout * 3, env=env)
-    print(o[-6000:])
+    print(safe_tail(o, 6000))
     return rc
 
 
@@ -844,7 +918,7 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
         if any(not ((x or {}).get("layers") or {}).get("python") for x in mut_lockdowns):
             reasons.append("有突變分片的 Python 層封鎖沒有生效")
     if privacy:
-        reasons.append("結果檔含不該公開的字串：%s" % "；".join(privacy)[:300])
+        reasons.append("隱私掃描沒過（含不該公開的字串，或有一段沒有掃描）：%s" % "；".join(privacy)[:300])
     return reasons
 
 
@@ -856,7 +930,8 @@ _MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 
 
 def privacy_scan(texts, guards=None):
-    """texts：{名稱: 內容}。回傳命中清單（名稱：原因）。guards：main 上的 test_analysis_guards 模組（有就多掃三種）。"""
+    """texts：{名稱: 內容}。回傳命中清單（名稱：原因）。guards：main 上的 test_analysis_guards 模組（有就多掃三種）。
+    原因只寫類別與處數，絕不帶命中的字串本身。"""
     hits = []
     for name, text in sorted(texts.items()):
         text = text or ""
@@ -873,10 +948,11 @@ def privacy_scan(texts, guards=None):
         if guards is not None:
             try:
                 extra = list(guards.privacy_hits(text)) + list(guards.profile_key_hits(text)) + list(guards.fxplan_key_hits(text))
-            except Exception as e:                                  # noqa: B902
-                extra = ["掃描器出錯：%r" % (e,)]
-            if extra:
-                hits.append("%s：%s" % (name, "、".join(str(x) for x in extra)[:120]))
+            except Exception:                                       # noqa: B902
+                hits.append("%s：掃描器出錯（當成命中）" % name)
+                continue
+            if extra:                                               # 只說有幾處，不把命中的字帶出來——這份清單會進紅的原因、結果檔與執行紀錄
+                hits.append("%s：個人資料的字樣或設定鍵名（%d 處）" % (name, len(extra)))
     return hits
 
 
@@ -970,9 +1046,17 @@ def cmd_collect(a):
     egress = judge_egress(egress_raw, allowed)
     egress["jobs"] = egress_raw.get("jobs")
     mut = merge_mutations(shards, known, expected_total=cmp_.get("mutations_total"))
-    verbose = ""
-    for p in _find_files(inputs, "tests-verbose.txt"):
-        verbose += _read(p)
+    failures = ""
+    for p in _find_files(inputs, "failures.txt"):
+        failures += _read(p)
+    job_privacy = []                                                # 各段上傳之前自己掃出來的（只有檔名）；哪一段沒有掃描紀錄也算
+    for d in ([main_dir] if main_dir else []) + list(shard_dirs):
+        rep = read_json(os.path.join(d, "export.json"), None)
+        label = os.path.basename(d)
+        if rep is None:
+            job_privacy.append("%s：這一段沒有上傳前的掃描紀錄（export.json）" % label)
+            continue
+        job_privacy += ["%s：%s 含不該公開的字串（上傳前就擋下了）" % (label, n) for n in rep.get("privacy_hits") or []]
     res = {"commit": os.environ.get("GITHUB_SHA") or cmp_.get("head_sha"), "ref": os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_REF"),
            "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
            "run_url": "%s/%s/actions/runs/%s" % (os.environ.get("GITHUB_SERVER_URL", "https://github.com"), os.environ.get("GITHUB_REPOSITORY", "?"),
@@ -983,8 +1067,9 @@ def cmd_collect(a):
            "verifier_changed": bool(cmp_.get("verifier_changed")), "verifier_source": cmp_.get("verifier_source"),
            "allowed_hosts_from": "main" if allowed else "（讀不到 net_policy，白名單為空）", "privacy_scanner": "main" if guards is not None else "（讀不到）",
            "generated_at": now_iso(), "schema": 2}
-    privacy = privacy_scan({"verify-result": json.dumps(res, ensure_ascii=False), "tests-verbose": verbose,
+    privacy = privacy_scan({"verify-result": json.dumps(res, ensure_ascii=False), "failures": failures,
                             "egress-hosts": "\n".join(sorted((egress_raw.get("hosts") or {}).keys()))}, guards)
+    privacy = job_privacy + privacy
     if guards is None:
         privacy = privacy + ["隱私掃描器讀不到（main 上的 test_analysis_guards.py）"]
     reasons = judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=mut_lockdowns)
@@ -1025,6 +1110,9 @@ def main(argv=None):
     p.add_argument("--log", required=True)
     p = sub.add_parser("unlock")
     p.add_argument("--out", required=True)
+    p = sub.add_parser("export")
+    p.add_argument("--out", required=True)
+    p.add_argument("--export", required=True)
     p = sub.add_parser("compare")
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
@@ -1049,7 +1137,7 @@ def main(argv=None):
     except Exception:                                              # noqa: B902
         pass
     fn = {"extract-verifier": cmd_extract_verifier, "lockdown": cmd_lockdown, "run-tests": cmd_run_tests, "run-tests-inner": cmd_run_tests_inner,
-          "unlock": cmd_unlock, "compare": cmd_compare, "mutations": cmd_mutations, "collect": cmd_collect}.get(a.cmd)
+          "unlock": cmd_unlock, "export": cmd_export, "compare": cmd_compare, "mutations": cmd_mutations, "collect": cmd_collect}.get(a.cmd)
     if fn is None:
         ap.print_help()
         return 2

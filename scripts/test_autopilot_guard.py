@@ -1744,6 +1744,19 @@ class TestPullRequestWrites(Base):
         self.allowed(self.bash("gh api %s/contents/AGENTS.md --jq .sha" % repo))                               # 讀：可以（一般模式）
         self.allowed(self.bash("gh api -X GET %s/contents/.github/workflows/verify.yml" % repo))
 
+    def test_gh_pr_and_issue_subcommands_must_be_known_read_only(self):
+        """Codex 對 P2 的第二次審查：寫入清單漏了 gh pr revert（它會直接開一個 PR，不經過隱私掃描與保護範圍清單）。
+        會寫的子指令列不完、gh 以後還會加新的，所以反過來：只有確定只讀的幾個放行，其他一律擋。兩種模式都是。
+        對照組：把 revert 當成只讀、或 gh issue 只擋列得出來的幾個 → 紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh pr revert 7", "gh pr revert 7 --title x --body y", "gh pr revert 7 --draft", "gh pr update-branch 7", "gh pr unlock 7",
+                        "gh pr checkout 7", "gh pr some-future-subcommand 7",
+                        "gh issue transfer 1 davidjjx/other", "gh issue develop 1", "gh issue pin 1", "gh issue delete 1 --yes", "gh issue some-future-subcommand 1"):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh pr view 7", "gh pr list", "gh pr diff 7", "gh pr checks 7", "gh pr status", "gh pr --help",
+                    "gh issue list", "gh issue view 1", "gh issue status"):
+            self.allowed(self.bash(cmd), msg=cmd)
+
     def test_gh_api_options_must_be_recognizable_as_read_only(self):
         """gh 接受把短旗標黏在一起（-fbody=x、-XPOST、-iXPOST）；帶了欄位又沒寫方法就自動變成 POST。逐種去認是認不完的，
         所以每一個選項都要是認得的寫法，認不得的一律擋（Codex 對 P2 的意見：-fbody=x 原本漏掉、可以直接在 PR 上留言）。

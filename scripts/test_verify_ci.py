@@ -17,6 +17,8 @@ test_verify_ci.py — 停點 P2「第三方審核」：驗收機（scripts/verif
   7. 突變清單：每個錨點在倉庫裡剛好出現一次；已知例外的鍵都是真的突變編號。
   8.（2026-10-05，Codex 對 P2 的意見）系統層擋下的連線只留下 IP、看不出是連誰→紅；突變分片也在封鎖裡跑，
      每一段的對外請求合起來判定，少一片的封鎖紀錄→紅；跟 main 比（會載入分支上的突變定義）也在封鎖裡跑。
+  9.（2026-10-05，Codex 對 P2 的第二次審查）每一段在上傳之前先過隱私掃描、只帶判定需要的檔；完整的詳細輸出與瀏覽器的 netlog 不上傳；
+     有一段命中、或有一段沒有掃描紀錄→紅。掃描的回報只寫類別與處數，不帶命中的字串本身；子程序的輸出印進執行紀錄之前也先掃。
 """
 import argparse
 import contextlib
@@ -206,7 +208,7 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertEqual(V.weakest_level([{"level": "3/3"}, {"level": "2/3"}]), "2/3")
         self.assertEqual(V.weakest_level([{"level": "3/3"}, None]), "0/3")
 
-    def collect(self, shard_egress=None, shard2_lock=True):
+    def collect(self, shard_egress=None, shard2_lock=True, export_hits=None, shard2_export=True):
         inp = os.path.join(self.tmp, "in")
         shutil.rmtree(inp, True)
         raw = {"hosts": {}, "blocked_ips": [], "python_events": 0, "browser_netlogs": 0}
@@ -216,6 +218,7 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         V.write_json(os.path.join(main, "compare.json"), dict(GREEN_CMP, mutations_total=2, mutations_main=None))
         V.write_json(os.path.join(main, "lockdown.json"), GREEN_LOCK)
         V.write_json(os.path.join(main, "egress.json"), raw)
+        V.write_json(os.path.join(main, "export.json"), {"privacy_hits": [], "exported": ["tests.json"]})
         for i in (1, 2):
             d = os.path.join(inp, "verify-mutations-%d" % i)
             os.makedirs(d)
@@ -223,6 +226,8 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
             V.write_json(os.path.join(d, "egress.json"), shard_egress if (i == 1 and shard_egress) else raw)
             if i == 1 or shard2_lock:
                 V.write_json(os.path.join(d, "lockdown.json"), GREEN_LOCK)
+            if i == 1 or shard2_export:
+                V.write_json(os.path.join(d, "export.json"), {"privacy_hits": (export_hits or []) if i == 1 else [], "exported": []})
         out = tempfile.mkdtemp(prefix="out-", dir=self.tmp)
         with contextlib.redirect_stdout(io.StringIO()):
             rc = V.cmd_collect(argparse.Namespace(repo=ROOT, out=out, inputs=inp, main_ref="origin/main", summary=None))
@@ -243,6 +248,111 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertTrue(any("1 片突變沒有封鎖紀錄" in r for r in res["reasons"]), res["reasons"])
         self.assertEqual(res["egress"]["level"], "0/3")
+
+
+class TestScanBeforeUpload(unittest.TestCase):
+    """2026-10-05 Codex 對 P2 的第二次審查：原本整個結果資料夾先上傳、到最後一段才掃描。現在每一段在上傳之前先掃描，
+    只帶判定需要的檔；命中的檔不帶出去、只記檔名；判定那一段把每一段的掃描結果算進去。"""
+
+    TOKEN = "gh" + "p_" + "A" * 30                                                       # 拼接：這個檔自己也在隱私掃描範圍裡
+    LOCAL = "C:" + "\\Users\\" + "someone" + "\\x"
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="iw-export-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def collect(self, **kw):
+        return TestEveryJobRunsUnderLockdown.collect(self, **kw)                         # 同一個假的「各段結果」資料夾
+
+    def export(self, verbose, tests=None):
+        out, dest = os.path.join(self.tmp, "out"), os.path.join(self.tmp, "export")
+        shutil.rmtree(out, True)
+        for sub in ("egress", "pyguard"):
+            os.makedirs(os.path.join(out, sub))
+        V.write_json(os.path.join(out, "tests.json"), tests or GREEN_TESTS)
+        V.write_json(os.path.join(out, "compare.json"), GREEN_CMP)
+        V.write_json(os.path.join(out, "lockdown.json"), GREEN_LOCK)
+        V.write_json(os.path.join(out, "egress.json"), {"hosts": {}, "blocked_ips": []})
+        V.write_json(os.path.join(out, "mut-1-of-2.json"), {"shard": "1/2", "results": []})
+        for rel, text in (("tests-verbose.txt", verbose), ("egress/chrome-netlog-1.json", "{}"), ("egress/python.jsonl", ""),
+                          ("pyguard/sitecustomize.py", "# x\n"), ("chrome-wrapper.sh", "#!/bin/sh\n")):
+            with io.open(os.path.join(out, *rel.split("/")), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(V.cmd_export(argparse.Namespace(out=out, export=dest)), 0)
+        return dest, V.read_json(os.path.join(dest, "export.json"), {})
+
+    def read(self, dest, name):
+        with io.open(os.path.join(dest, name), encoding="utf-8") as fh:
+            return fh.read()
+
+    def verbose(self, detail):
+        return ("test_a (x.T.test_a) ... ok\n" * 30 + "test_b (x.T.test_b) ... FAIL\n\n" + "=" * 70 + "\nFAIL: test_b (x.T.test_b)\n" + "-" * 70 +
+                "\nTraceback (most recent call last):\nAssertionError: " + detail + "\n\n" + "-" * 70 + "\nRan 31 tests in 1.0s\n\nFAILED (failures=1)\n")
+
+    def test_only_the_needed_files_leave_the_job(self):
+        """對照組：把完整的詳細輸出也列進要上傳的檔 → 紅。"""
+        dest, rep = self.export(self.verbose("1 != 2"))
+        self.assertEqual(sorted(os.listdir(dest)), sorted(["tests.json", "compare.json", "lockdown.json", "egress.json", "mut-1-of-2.json", "failures.txt", "export.json"]))
+        self.assertEqual((rep["privacy_hits"], rep["dropped"]), ([], []))
+        failures = self.read(dest, "failures.txt")
+        self.assertIn("FAIL: test_b", failures)                                          # 看得出為什麼紅
+        self.assertIn("AssertionError: 1 != 2", failures)
+        self.assertNotIn("test_a (x.T.test_a) ... ok", failures)                         # 通過的那幾百行不帶出去
+        dest, rep = self.export("test_a (x.T.test_a) ... ok\n\n" + "-" * 70 + "\nRan 1 test in 0.1s\n\nOK\n")
+        self.assertNotIn("failures.txt", os.listdir(dest))                               # 全綠：沒有失敗的段落可帶
+
+    def test_a_file_with_private_things_stays_in_the_job_and_only_its_name_is_reported(self):
+        """對照組：上傳前不掃描 → 紅。"""
+        dest, rep = self.export(self.verbose("token " + self.TOKEN))
+        self.assertNotIn("failures.txt", os.listdir(dest))
+        self.assertEqual((sorted(rep["privacy_hits"]), rep["dropped"]), (["failures.txt", "tests-verbose.txt"], ["failures.txt"]))
+        for name in os.listdir(dest):
+            self.assertNotIn(self.TOKEN, self.read(dest, name), name)
+        dest, rep = self.export("ok\n", tests=dict(GREEN_TESTS, skipped=[{"name": "a.b", "reason": "看這裡 " + self.LOCAL}]))
+        self.assertNotIn("tests.json", os.listdir(dest))                                 # 連判定要用的檔命中也不帶出去（判定會因為缺它而紅）
+        self.assertEqual(rep["privacy_hits"], ["tests.json"])
+        self.assertNotIn("someone", self.read(dest, "export.json"))
+
+    def test_scan_reports_never_carry_the_matched_text(self):
+        """掃描的回報會進紅的原因、結果檔、摘要與執行紀錄，所以只寫類別與處數。對照組：把命中的字帶出來 → 紅。"""
+        planted = "持有 " + "10 股"
+
+        class Guards(object):
+            def privacy_hits(self, t):
+                return [planted] if planted in t else []
+
+            def profile_key_hits(self, t):
+                return []
+
+            def fxplan_key_hits(self, t):
+                return []
+        hits = V.privacy_scan({"x": "前面 " + planted + " 後面"}, Guards())
+        self.assertEqual(len(hits), 1)
+        self.assertNotIn(planted, hits[0])
+        self.assertIn("1 處", hits[0])
+        reasons = V.judge(GREEN_TESTS, egress([]), GREEN_CMP, GREEN_MUT, GREEN_LOCK, hits)
+        self.assertFalse(any(planted in r for r in reasons))
+
+    def test_output_is_scanned_before_it_is_printed_to_the_public_log(self):
+        """對照組：不掃就印 → 紅。"""
+        self.assertEqual(V.safe_tail("普通的輸出", 4000), "普通的輸出")
+        said = V.safe_tail("前面\n" + self.TOKEN + "\n後面", 4000)
+        self.assertNotIn(self.TOKEN, said)
+        self.assertIn("沒有印出來", said)
+        self.assertEqual(V.safe_tail("0123456789", 4), "6789")
+
+    def test_collect_reds_when_a_job_held_something_back_or_never_scanned(self):
+        """對照組：判定不看各段上傳前的掃描結果 → 紅。"""
+        rc, res = self.collect()
+        self.assertEqual((rc, res["red"]), (0, False), res.get("reasons"))
+        rc, res = self.collect(export_hits=["failures.txt"])
+        self.assertEqual((rc, res["red"]), (1, True))
+        self.assertIn("verify-mutations-1", res["privacy_hits"])
+        self.assertTrue(any("上傳前就擋下了" in r for r in res["reasons"]), res["reasons"])
+        rc, res = self.collect(shard2_export=False)
+        self.assertEqual((rc, res["red"]), (1, True))
+        self.assertTrue(any("沒有上傳前的掃描紀錄" in r for r in res["reasons"]), res["reasons"])
 
 
 class TestCompareHelpers(unittest.TestCase):
@@ -505,6 +615,22 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         self.assertEqual(RM.shard_of(items, "3/3"), [2, 5, 8])
         with self.assertRaises(SystemExit):
             RM.shard_of(items, "4/3")
+
+    def test_result_files_do_not_carry_absolute_paths(self):
+        """突變的結果檔會上傳：定義檔只寫相對於倉庫的路徑，倉庫以外的只留檔名。對照組：寫絕對路徑 → 紅。"""
+        tmp = tempfile.mkdtemp(prefix="iw-mut-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(os.path.join(repo, "scripts", "mutations"))
+        defs = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
+        self.assertEqual(RM.public_path(defs, repo), "scripts/mutations/autopilot_mutations.py")
+        self.assertEqual(RM.public_path(os.path.join(tmp, "elsewhere", "defs.py"), repo), "defs.py")
+        out = os.path.join(tmp, "r.json")
+        RM._dump(argparse.Namespace(defs=defs, repo=repo, shard="1/1", out=out, md=None), [], [], {})
+        with io.open(out, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertEqual(json.loads(text)["defs"], "scripts/mutations/autopilot_mutations.py")
+        self.assertNotIn(os.path.basename(tmp), text)
 
     def test_the_anchor_checks_do_not_count_as_catching_a_mutation(self):
         """檢查錨點的那兩條測試在任何突變底下都會紅（原文被改掉了），不能算成證據：只有它們紅＝這個突變沒有被抓到。

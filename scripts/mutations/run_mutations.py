@@ -271,8 +271,19 @@ def main(argv=None):
     return 1 if bad else 0
 
 
+def public_path(path, repo):
+    """結果檔會上傳，裡面不寫絕對路徑：倉庫裡的檔寫相對於倉庫的路徑，倉庫外的只留檔名。"""
+    try:
+        rel = os.path.relpath(os.path.abspath(path), os.path.abspath(repo))
+    except ValueError:                                             # Windows：不同磁碟機
+        rel = None
+    if rel is None or rel.startswith(".."):
+        return os.path.basename(path)
+    return rel.replace("\\", "/")
+
+
 def _dump(a, defs, results, known, baseline_failed=False):
-    out = {"defs": os.path.abspath(a.defs), "total_defined": len(defs), "shard": a.shard, "known_survivors": known,
+    out = {"defs": public_path(a.defs, a.repo), "total_defined": len(defs), "shard": a.shard, "known_survivors": known,
            "baseline_failed": baseline_failed, "results": results}
     os.makedirs(os.path.dirname(os.path.abspath(a.out)) or ".", exist_ok=True)
     with io.open(a.out, "w", encoding="utf-8", newline="\n") as fh:

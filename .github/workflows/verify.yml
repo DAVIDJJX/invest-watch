@@ -68,12 +68,17 @@ jobs:
         if: always()
         run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" unlock --out "$RUNNER_TEMP/verify-out"
 
+      # 上傳之前先過隱私掃描，只帶判定需要的檔；完整的詳細輸出、瀏覽器的 netlog、封鎖用的暫存檔不上傳
+      - name: 整理要上傳的結果（先掃描，只帶必要的）
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" export --out "$RUNNER_TEMP/verify-out" --export "$RUNNER_TEMP/verify-export"
+
       - name: 上傳這一段的結果
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verify-partial
-          path: ${{ runner.temp }}/verify-out
+          path: ${{ runner.temp }}/verify-export
           retention-days: 90
           if-no-files-found: error
           overwrite: true
@@ -115,12 +120,17 @@ jobs:
         if: always()
         run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" unlock --out "$RUNNER_TEMP/verify-out"
 
+      # 上傳之前先過隱私掃描，只帶判定需要的檔；完整的詳細輸出、瀏覽器的 netlog、封鎖用的暫存檔不上傳
+      - name: 整理要上傳的結果（先掃描，只帶必要的）
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" export --out "$RUNNER_TEMP/verify-out" --export "$RUNNER_TEMP/verify-export"
+
       - name: 上傳這一片的結果
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: verify-mutations-${{ matrix.shard }}
-          path: ${{ runner.temp }}/verify-out
+          path: ${{ runner.temp }}/verify-export
           retention-days: 90
           if-no-files-found: error
           overwrite: true

@@ -446,6 +446,20 @@ class TestThirdPartyGate(unittest.TestCase):
         self.assertLess(pos(mut_job, "lockdown"), pos(mut_job, "mutations"))
         self.assertLess(pos(mut_job, "mutations"), pos(mut_job, "unlock"))
 
+    def test_every_job_scans_before_it_uploads(self):
+        """Codex 對 P2 的第二次審查：原本整個結果資料夾先上傳、到最後一段才掃描，就算判紅，詳細輸出與瀏覽器的 netlog 也已經留在 artifact 裡。
+        現在每一段在上傳之前先「整理」（掃描、只帶必要的檔），上傳的是整理過的資料夾。對照組：上傳整個結果資料夾 → 紅。"""
+        text = read(".github/workflows/verify.yml")
+        verify_job = text[text.index("\n  verify:"):text.index("\n  mutations:")]
+        mut_job = text[text.index("\n  mutations:"):text.index("\n  collect:")]
+        for job in (verify_job, mut_job):
+            self.assertEqual(job.count('verify_ci.py" export '), 1)
+            self.assertLess(job.index('verify_ci.py" unlock '), job.index('verify_ci.py" export '))
+            self.assertLess(job.index('verify_ci.py" export '), job.index("uses: actions/upload-artifact"))
+            self.assertEqual(job.count("uses: actions/upload-artifact"), 1)
+            self.assertIn("path: ${{ runner.temp }}/verify-export\n", job)
+            self.assertNotIn("path: ${{ runner.temp }}/verify-out", job)
+
     def test_the_real_gitignore_ignores_python_bytecode(self):
         """hook 是用子程序跑的，會在主目錄的保護程式資料夾裡留下 __pycache__/；寄「可以合併」前「主目錄要乾淨」那一關靠 .gitignore 忽略它。
         沙盒測試把寫快取關掉了（沙盒的 .gitignore 沒有這一行），所以這件事在這裡另外釘住。第一次在 GitHub 的執行機上跑才發現的。"""

@@ -44,9 +44,11 @@ GIT_NEVER = set("""send-pack http-push receive-pack upload-pack upload-archive h
 remote-ftp remote-ftps remote-ext remote-fd daemon shell subtree svn p4 cvsserver imap-send send-email instaweb http-backend
 credential credential-manager credential-store credential-cache submodule bisect difftool mergetool maintenance""".split())
 
-# gh 對 PR／issue 的寫入（P2）：PR 的寫入只准經過主目錄那支 iw_notify.py pr（開、改標題內文、留言剛好是 @codex review）；其他一律擋，兩種模式都是
-GH_PR_WRITES = set("create edit comment review close reopen ready merge lock unlock update-branch".split())
-GH_ISSUE_WRITES = set("create comment close reopen edit delete lock unlock pin unpin transfer develop".split())
+# gh 對 PR／issue（P2）：PR 的寫入只准經過主目錄那支 iw_notify.py pr（開、改標題內文、留言剛好是 @codex review）；其他一律擋，兩種模式都是。
+# 2026-10-05 Codex 的審查意見：原本列的是「會寫的子指令」，漏了 revert（它會直接開一個 PR，不經過隱私掃描）。
+# 會寫的列不完、gh 以後還會加新的，所以反過來只列「確定只讀的」；不在這裡的一律擋。
+GH_PR_READS = set("view list diff checks status".split())
+GH_ISSUE_READS = set("view list status".split())
 
 READONLY_PROGRAMS =set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
 test [ [[ echo printf true false : pwd basename dirname realpath which type date sort uniq cut tr awk sed find du df sleep wait cd pushd popd
@@ -1768,11 +1770,13 @@ def _gh(argv, ctx, auto, cwd=None):
             raise Block("讀或改 GitHub 的登入憑證，不允許。", 3)
     if sub == "pr" and sub2 == "merge":
         raise Block("停止條件 1：用 gh 合併 PR＝合併進 main，要 David 放行（而且合併一律在本機做，不用 GitHub 的合併按鈕）。", 1)
-    if sub == "pr" and sub2 in GH_PR_WRITES:
-        raise Block("gh pr %s 會寫 PR（開、改、留言、審查、關閉…）。PR 的寫入只准經過主目錄那支 iw_notify.py pr（開 PR、改標題與內文、留言剛好是 @codex review），"
-                    "不准直接下；Codex 的審查與留言也不准 resolve、刪除、隱藏或駁回（P2）。" % sub2, 1)
-    if sub == "issue" and sub2 in GH_ISSUE_WRITES:
-        raise Block("gh issue %s 會寫 issue；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。" % sub2, 1)
+    if sub == "pr" and sub2 and sub2 not in GH_PR_READS:
+        raise Block("gh pr %s 不是確定只讀的子指令（只讀的只有 %s）。會寫 PR 的事（開、改、留言、審查、關閉、revert、更新分支…）"
+                    "只准經過主目錄那支 iw_notify.py pr（開 PR、改標題與內文、留言剛好是 @codex review），不准直接下；"
+                    "Codex 的審查與留言也不准 resolve、刪除、隱藏或駁回（P2）。" % (sub2, "、".join(sorted(GH_PR_READS))), 1)
+    if sub == "issue" and sub2 and sub2 not in GH_ISSUE_READS:
+        raise Block("gh issue %s 不是確定只讀的子指令（只讀的只有 %s）；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。"
+                    % (sub2, "、".join(sorted(GH_ISSUE_READS))), 1)
     if sub == "api":
         # gh 接受把短旗標黏在一起寫（-fbody=x、-XPOST、-iXPOST），帶了欄位又沒寫方法就自動變成 POST。逐種寫法去認是認不完的
         # （2026-10-05 Codex 的審查意見：-fbody=x 就這樣漏掉了），所以反過來：每一個選項都要是認得的寫法；認不得的一律擋。

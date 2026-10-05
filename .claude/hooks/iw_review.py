@@ -348,9 +348,20 @@ def codex_status(main_root, cfg, pr_number, head, runner=None):
             "findings": findings, "others": sorted(others), "major": [f for f in findings if f["severity"] in ("P0", "P1")]}
 
 
+RESPONSE_ADOPT, RESPONSE_REJECT = "採納並修", "不採納"
+
+
+def blank_reason(text):
+    """「理由或修在哪」那一欄算不算空的：沒有字，或只有空白、橫線、底線、刪節號這類佔位的符號。"""
+    return not re.sub(r"[\s\-—–−_＿.。…．·、,，:：;；/／\\()（）\[\]【】「」『』*`~?？!！]+", "", text or "")
+
+
 def parse_responses(path):
-    """03_第三方審查.md 的表：| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |。回傳 {id: {severity, response, reason}}。"""
-    rows = {}
+    """03_第三方審查.md 的表：| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |。回傳 {id: {severity, response, reason}}。
+    2026-10-05 Codex 的審查意見：原本回覆欄只要「包含」採納兩個字就算（「尚未採納」也算採納），第五欄也不看。現在：
+    回覆欄只認兩種、而且要一字不差——「採納並修」或「不採納」；第五欄（理由或修在哪）不可以是空的；
+    同一個編號出現兩次而且回覆不一樣，也不算。不符合的一律記成 other（＝還沒回覆）。"""
+    rows, conflict = {}, set()
     try:
         text = io.open(path, encoding="utf-8").read()
     except Exception:                                              # noqa: B902
@@ -363,14 +374,21 @@ def parse_responses(path):
         if len(cells) < 4 or not re.match(r"^\d+(-\d+)?$", cells[0]):     # 行內留言的編號是數字；review 本文裡的意見是「review 編號-第幾條」
             continue
         resp = cells[3]
-        if "不採納" in resp:
+        reason = cells[4] if len(cells) > 4 else ""
+        if resp == RESPONSE_REJECT:
             kind = "reject"
-        elif "採納" in resp:
+        elif resp == RESPONSE_ADOPT:
             kind = "adopt"
         else:
             kind = "other"
+        if kind != "other" and blank_reason(reason):               # 沒寫理由、沒寫修在哪：不算回覆
+            kind = "other"
         key = int(cells[0]) if cells[0].isdigit() else cells[0]
-        rows[key] = {"severity": cells[1], "response": kind, "reason": cells[4] if len(cells) > 4 else ""}
+        if key in rows and rows[key]["response"] != kind:           # 同一條意見兩種回覆：看不出哪一個算數，當成沒回覆
+            conflict.add(key)
+        if key in conflict:
+            kind = "other"
+        rows[key] = {"severity": cells[1], "response": kind, "reason": reason, "raw": resp}
     return rows
 
 

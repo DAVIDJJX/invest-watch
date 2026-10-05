@@ -22,6 +22,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 os.environ["IW_TEST_NO_SIDE_EFFECTS"] = "1"      # 測試不對外寄信、不在桌面跳通知；用子程序跑的 hook 也會繼承
@@ -2135,6 +2136,49 @@ def _resp_file(sb, rows):
         fh.write("# 第三方審查回覆\n\n| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
 
 
+class TestResponseTable(unittest.TestCase):
+    """03_第三方審查.md 那張表怎麼讀（不用沙盒）。Codex 對 P2 的第二次審查：回覆欄只認兩種、一字不差；理由不能空；同一條不能有兩種回覆。"""
+
+    def rows(self, lines):
+        d = tempfile.mkdtemp(prefix="iw-resp-")
+        self.addCleanup(shutil.rmtree, d, True)
+        p = os.path.join(d, "03.md")
+        with io.open(p, "w", encoding="utf-8") as fh:
+            fh.write("| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(lines) + "\n")
+        return R.parse_responses(p)
+
+    def kind(self, cell4, reason="commit abc1234"):
+        return self.rows(["| 7 | P0 | a.py:1 | %s | %s |" % (cell4, reason)])[7]["response"]
+
+    def test_only_the_two_exact_answers_count(self):
+        """對照組：改回「有提到採納就算」→ 紅。"""
+        self.assertEqual(self.kind("採納並修"), "adopt")
+        self.assertEqual(self.kind("不採納", "那不是問題"), "reject")
+        for near in ("尚未採納", "採納", "已採納並修", "部分採納並修", "採納並修（晚點）", "不採納？", "不 採納", "**採納並修**", "採納並修，不採納", "adopt", ""):
+            self.assertEqual(self.kind(near), "other", near)
+        findings = [{"id": 7, "severity": "P0"}]
+        self.assertEqual(R.responses_problems(findings, self.rows(["| 7 | P0 | a.py:1 | 尚未採納 | 之後再說 |"])), ([7], []))     # 沒回覆，不是「採納」
+
+    def test_the_reason_column_must_say_something(self):
+        """對照組：不看理由那一欄 → 紅。"""
+        for blank in ("", " ", "—", "-", "＿＿", "...", "…", "（）", "/"):
+            self.assertEqual(self.kind("採納並修", blank), "other", repr(blank))
+            self.assertEqual(self.kind("不採納", blank), "other", repr(blank))
+        self.assertEqual(self.rows(["| 7 | P0 | a.py:1 | 採納並修 |"])[7]["response"], "other")                              # 少一欄
+        self.assertEqual(self.kind("採納並修", "x"), "adopt")
+        self.assertTrue(R.blank_reason("— ＿ …"))
+        self.assertFalse(R.blank_reason("commit abc1234"))
+
+    def test_two_different_answers_for_one_finding_count_as_none(self):
+        """對照組：以最後一列為準 → 紅。"""
+        both = ["| 7 | P0 | a.py:1 | 不採納 | 那不是問題 |", "| 7 | P0 | a.py:1 | 採納並修 | commit abc1234 |"]
+        self.assertEqual(self.rows(both)[7]["response"], "other")
+        self.assertEqual(self.rows(both + ["| 7 | P0 | a.py:1 | 採納並修 | 再寫一次 |"])[7]["response"], "other")           # 之後再寫也救不回來，要把表改乾淨
+        same = ["| 7 | P0 | a.py:1 | 採納並修 | commit abc1234 |", "| 7 | P0 | a.py:1 | 採納並修 | 另補測試 |"]
+        self.assertEqual(self.rows(same)[7]["response"], "adopt")                                                        # 同一種回覆寫兩次沒關係
+        self.assertEqual(self.rows(["| 5409995249-1 | P0 | a.py:1 | 採納並修 | commit abc1234 |"])["5409995249-1"]["response"], "adopt")
+
+
 def _bot_comment(cid, body, line, commit="{sha}"):
     return {"id": cid, "user": {"login": BOT_LOGIN}, "body": body, "path": "js/app.js", "line": line, "commit_id": commit, "original_commit_id": commit}
 
@@ -2251,6 +2295,21 @@ class TestGate(FlowBase):
         self.assertIn("對不上", "".join(self.errs))
         with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
             fh.write("Ran 830 tests in 100.0s\n\nOK\n")
+        self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_replies_must_be_exact_and_a_p0_marked_not_yet_adopted_blocks_ready(self):
+        """Codex 對 P2 的第二次審查（P0）：回覆欄原本只要「包含」採納兩個字就算，「尚未採納」也被當成採納；理由那一欄也不看。
+        現在只認「採納並修」「不採納」、一字不差，最後一欄不能空，同一條不能有兩種回覆。對照組見 TestResponseTable。"""
+        sb = self.sb
+        self.ready_setup()
+        self.fake_gh(comments=[_bot_comment(301, "[P0] 一條重大意見", 3)])
+        for row in ("| 301 | P0 | js/app.js:3 | 尚未採納 | 之後再說 |", "| 301 | P0 | js/app.js:3 | 採納並修 |  |"):
+            _resp_file(sb, [row])
+            self.errs = []
+            self.assertEqual(self.send("ready"), 3, row)
+            self.assertIn("還有 1 條沒有回覆", "".join(self.errs), row)
+            self.assertIn("一字不差", "".join(self.errs))
+        _resp_file(sb, ["| 301 | P0 | js/app.js:3 | 採納並修 | commit abc1234 |"])
         self.assertEqual(self.send("ready"), 0, self.errs)
 
     def test_a_missing_local_test_record_blocks_ready(self):

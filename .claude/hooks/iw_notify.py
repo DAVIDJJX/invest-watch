@@ -538,7 +538,8 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                 rows = R.parse_responses(os.path.join(runs_dir, cfg["externalReview"]["responsesFile"]))
                 missing, rejected = R.responses_problems(ext.get("findings") or [], rows)
                 if missing:
-                    return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。每一條都要在 .autopilot/runs/%s/%s 的表裡寫「採納並修」或「不採納」加理由。"
+                    return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。每一條都要在 .autopilot/runs/%s/%s 的表裡回覆：回覆那一欄只能是「採納並修」或「不採納」（一字不差），"
+                                "最後一欄的理由或修在哪不能空；同一條不能有兩種回覆。"
                                 % (len(missing), "、".join(str(x) for x in missing), stage, cfg["externalReview"]["responsesFile"]))
                 if rejected:
                     return fail("有重大意見（P0／P1）被判「不採納」：%s。不能寄「可以合併」的信；請改寄 --kind stop（等級「要你決定」），由 David 與 Cowork 裁決。"
