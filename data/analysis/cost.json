@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-02T15:30:51+08:00",
+ "generatedAt": "2026-10-05T15:30:52+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -21,29 +21,29 @@
    "windows": {
     "1y": {
      "weeks": 52,
-     "from": "2025-09-22",
-     "through": "2026-09-21",
-     "fromWeek": "2025-09-22",
-     "throughWeek": "2026-09-21",
-     "r646Pct": 22.073,
-     "rBenchPct": 17.919,
-     "rFxPct": 4.146,
-     "rBenchTwdPct": 22.808,
-     "diffPct": -0.735,
-     "annualizedDiffPct": -0.598
+     "from": "2025-09-29",
+     "through": "2026-09-28",
+     "fromWeek": "2025-09-29",
+     "throughWeek": "2026-09-28",
+     "r646Pct": 20.327,
+     "rBenchPct": 16.334,
+     "rFxPct": 4.891,
+     "rBenchTwdPct": 22.025,
+     "diffPct": -1.697,
+     "annualizedDiffPct": -1.391
     },
     "3y": {
      "weeks": 156,
-     "from": "2023-09-25",
-     "through": "2026-09-21",
-     "fromWeek": "2023-09-25",
-     "throughWeek": "2026-09-21",
-     "r646Pct": 79.669,
-     "rBenchPct": 87.794,
-     "rFxPct": -1.518,
-     "rBenchTwdPct": 84.942,
-     "diffPct": -5.273,
-     "annualizedDiffPct": -0.96
+     "from": "2023-10-02",
+     "through": "2026-09-28",
+     "fromWeek": "2023-10-02",
+     "throughWeek": "2026-09-28",
+     "r646Pct": 81.295,
+     "rBenchPct": 86.362,
+     "rFxPct": -1.149,
+     "rBenchTwdPct": 84.221,
+     "diffPct": -2.926,
+     "annualizedDiffPct": -0.532
     }
    },
    "notes": [
@@ -59,29 +59,29 @@
    "windows": {
     "1y": {
      "weeks": 52,
-     "from": "2025-09-22",
-     "through": "2026-09-21",
-     "fromWeek": "2025-09-22",
-     "throughWeek": "2026-09-21",
-     "r646Pct": 22.073,
-     "rBenchPct": 16.553,
-     "rFxPct": 4.146,
-     "rBenchTwdPct": 21.384,
-     "diffPct": 0.688,
-     "annualizedDiffPct": 0.567
+     "from": "2025-09-29",
+     "through": "2026-09-28",
+     "fromWeek": "2025-09-29",
+     "throughWeek": "2026-09-28",
+     "r646Pct": 20.327,
+     "rBenchPct": 14.993,
+     "rFxPct": 4.891,
+     "rBenchTwdPct": 20.618,
+     "diffPct": -0.291,
+     "annualizedDiffPct": -0.241
     },
     "3y": {
      "weeks": 156,
-     "from": "2023-09-25",
-     "through": "2026-09-21",
-     "fromWeek": "2023-09-25",
-     "throughWeek": "2026-09-21",
-     "r646Pct": 79.669,
-     "rBenchPct": 80.581,
-     "rFxPct": -1.518,
-     "rBenchTwdPct": 77.839,
-     "diffPct": 1.83,
-     "annualizedDiffPct": 0.342
+     "from": "2023-10-02",
+     "through": "2026-09-28",
+     "fromWeek": "2023-10-02",
+     "throughWeek": "2026-09-28",
+     "r646Pct": 81.295,
+     "rBenchPct": 79.244,
+     "rFxPct": -1.149,
+     "rBenchTwdPct": 77.185,
+     "diffPct": 4.11,
+     "annualizedDiffPct": 0.767
     }
    },
    "notes": [
@@ -99,37 +99,37 @@
    ],
    "status": "接了（每個交易日存一筆）",
    "today": {
-    "d": "2026-10-02",
-    "time": "15:30:15",
+    "d": "2026-10-05",
+    "time": "15:30:45",
     "price": 77.25,
-    "estNav": 76.91,
-    "prevOfficialNav": 77.15
+    "estNav": 77.12,
+    "prevOfficialNav": 77.35
    },
-   "rows": 6,
+   "rows": 8,
    "latest": [
     {
-     "d": "2026-10-02",
+     "d": "2026-10-05",
      "price": 77.25,
-     "nav": 76.91,
-     "premiumPct": 0.442,
+     "nav": 77.12,
+     "premiumPct": 0.169,
      "tag": "預估"
     },
     {
-     "d": "2026-10-01",
-     "price": 77.5,
-     "nav": 77.15,
-     "premiumPct": 0.454,
+     "d": "2026-10-04",
+     "price": 77.25,
+     "nav": 77.35,
+     "premiumPct": -0.129,
      "tag": "確定"
     }
    ],
    "estimated": {
-    "n": 5,
-    "reason": "累積不到 20 個交易日（目前 5），先不顯示中位數",
+    "n": 6,
+    "reason": "累積不到 20 個交易日（目前 6），先不顯示中位數",
     "label": "估算"
    },
    "official": {
-    "n": 5,
-    "reason": "累積不到 20 個交易日（目前 5），先不顯示中位數",
+    "n": 6,
+    "reason": "累積不到 20 個交易日（目前 6），先不顯示中位數",
     "label": "單一來源"
    },
    "label": "預估口徑「估算」；確定口徑「單一來源」"
@@ -143,37 +143,37 @@
    ],
    "status": "接了（每個交易日存一筆）",
    "today": {
-    "d": "2026-10-02",
-    "time": "15:30:15",
-    "price": 24.61,
-    "estNav": 24.5497,
-    "prevOfficialNav": 24.6983
+    "d": "2026-10-05",
+    "time": "15:30:45",
+    "price": 24.5,
+    "estNav": 24.4852,
+    "prevOfficialNav": 24.4999
    },
-   "rows": 6,
+   "rows": 8,
    "latest": [
     {
-     "d": "2026-10-02",
-     "price": 24.61,
-     "nav": 24.5497,
-     "premiumPct": 0.246,
+     "d": "2026-10-05",
+     "price": 24.5,
+     "nav": 24.4852,
+     "premiumPct": 0.06,
      "tag": "預估"
     },
     {
-     "d": "2026-10-01",
-     "price": 24.639999,
-     "nav": 24.6983,
-     "premiumPct": -0.236,
+     "d": "2026-10-04",
+     "price": 24.655,
+     "nav": 24.4999,
+     "premiumPct": 0.633,
      "tag": "確定"
     }
    ],
    "estimated": {
-    "n": 5,
-    "reason": "累積不到 20 個交易日（目前 5），先不顯示中位數",
+    "n": 6,
+    "reason": "累積不到 20 個交易日（目前 6），先不顯示中位數",
     "label": "估算"
    },
    "official": {
-    "n": 5,
-    "reason": "累積不到 20 個交易日（目前 5），先不顯示中位數",
+    "n": 6,
+    "reason": "累積不到 20 個交易日（目前 6），先不顯示中位數",
     "label": "單一來源"
    },
    "label": "預估口徑「估算」；確定口徑「單一來源」"
@@ -182,10 +182,10 @@
  "goldSpread": {
   "label": "單一來源",
   "latest": {
-   "d": "2026-10-02",
-   "buy": 4267.0,
-   "sell": 4314.0,
-   "spreadPct": 1.095
+   "d": "2026-10-05",
+   "buy": 4217.0,
+   "sell": 4264.0,
+   "spreadPct": 1.108
   },
   "daily": [
    {
@@ -1783,12 +1783,18 @@
     "buy": 4267.0,
     "sell": 4314.0,
     "spreadPct": 1.095
+   },
+   {
+    "d": "2026-10-05",
+    "buy": 4217.0,
+    "sell": 4264.0,
+    "spreadPct": 1.108
    }
   ],
   "summary": {
-   "n": 266,
+   "n": 267,
    "from": "2025-09-01",
-   "through": "2026-10-02",
+   "through": "2026-10-05",
    "medianPct": 1.095,
    "meanPct": 1.095,
    "minPct": 1.054,
@@ -1800,47 +1806,47 @@
  },
  "barPremium": {
   "label": "單一來源",
-  "n": 16,
+  "n": 17,
   "from": "2026-08-31",
-  "through": "2026-10-02",
+  "through": "2026-10-05",
   "latest": {
-   "d": "2026-10-02",
-   "goldSell": 4314.0,
+   "d": "2026-10-05",
+   "goldSell": 4264.0,
    "rows": [
     {
      "spec": "1 公斤",
      "grams": 1000.0,
-     "price": 4345249.0,
-     "perGram": 4345.25,
-     "premiumPct": 0.724
+     "price": 4297741.0,
+     "perGram": 4297.74,
+     "premiumPct": 0.791
     },
     {
      "spec": "500 公克",
      "grams": 500.0,
-     "price": 2176333.0,
-     "perGram": 4352.67,
-     "premiumPct": 0.896
+     "price": 2152548.0,
+     "perGram": 4305.1,
+     "premiumPct": 0.964
     },
     {
      "spec": "250 公克",
      "grams": 250.0,
-     "price": 1090281.0,
-     "perGram": 4361.12,
-     "premiumPct": 1.092
+     "price": 1078372.0,
+     "perGram": 4313.49,
+     "premiumPct": 1.161
     },
     {
      "spec": "100 公克",
      "grams": 100.0,
-     "price": 437401.0,
-     "perGram": 4374.01,
-     "premiumPct": 1.391
+     "price": 432628.0,
+     "perGram": 4326.28,
+     "premiumPct": 1.461
     },
     {
      "spec": "金鑽 1 台兩",
      "grams": 37.5,
-     "price": 164215.0,
-     "perGram": 4379.07,
-     "premiumPct": 1.508
+     "price": 162424.0,
+     "perGram": 4331.31,
+     "premiumPct": 1.578
     }
    ]
   },
@@ -1983,11 +1989,20 @@
    {
     "d": "2026-10-02",
     "goldSell": 4314.0,
-    "g1000Pct": 0.724,
-    "g500Pct": 0.896,
-    "g250Pct": 1.092,
-    "g100Pct": 1.391,
-    "taelPct": 1.508
+    "g1000Pct": 0.789,
+    "g500Pct": 0.961,
+    "g250Pct": 1.157,
+    "g100Pct": 1.455,
+    "taelPct": 1.573
+   },
+   {
+    "d": "2026-10-05",
+    "goldSell": 4264.0,
+    "g1000Pct": 0.791,
+    "g500Pct": 0.964,
+    "g250Pct": 1.161,
+    "g100Pct": 1.461,
+    "taelPct": 1.578
    }
   ],
   "notes": [
@@ -2004,10 +2019,10 @@
  "goldSpreadCny": {
   "label": "單一來源",
   "latest": {
-   "d": "2026-10-02",
-   "buy": 897.25,
-   "sell": 906.9,
-   "spreadPct": 1.07
+   "d": "2026-10-05",
+   "buy": 890.6,
+   "sell": 900.2,
+   "spreadPct": 1.072
   },
   "daily": [
    {
@@ -3605,12 +3620,18 @@
     "buy": 897.25,
     "sell": 906.9,
     "spreadPct": 1.07
+   },
+   {
+    "d": "2026-10-05",
+    "buy": 890.6,
+    "sell": 900.2,
+    "spreadPct": 1.072
    }
   ],
   "summary": {
-   "n": 266,
+   "n": 267,
    "from": "2025-09-01",
-   "through": "2026-10-02",
+   "through": "2026-10-05",
    "medianPct": 1.064,
    "meanPct": 1.065,
    "minPct": 1.03,

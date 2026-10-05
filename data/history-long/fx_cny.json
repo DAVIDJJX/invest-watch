@@ -12,10 +12,10 @@
   "crossCheck": "有對照（2026-09-18 逐日稽核 136 天，FinMind 轉載值與台銀 CSV 完全一致）",
   "note": "c 是即期賣出；每個 ISO 週取最後一個營業日那一筆，抓取當週還沒走完所以不收。FinMind 用 -1 代表沒有牌價，那些列在解析時就丟掉了。",
   "fullFetch": {"sourceRows": 5131, "validRows": 3393, "droppedRows": 1738, "firstValidDate": "2013-01-02", "startDate": "2006-01-01"},
-  "count": 710,
+  "count": 711,
   "firstDate": "2013-01-04",
-  "lastDate": "2026-09-24",
-  "updatedAt": "2026-09-30T00:50:49+08:00",
+  "lastDate": "2026-10-02",
+  "updatedAt": "2026-10-05T15:31:09+08:00",
   "points": [
     {"d":"2013-01-04","c":4.6559,"spotBuy":4.6559,"spotSell":4.6559,"dateSource":"finmind"},
     {"d":"2013-01-11","c":4.6584,"spotBuy":4.6584,"spotSell":4.6584,"dateSource":"finmind"},
@@ -726,6 +726,7 @@
     {"d":"2026-09-04","c":4.739,"spotBuy":4.689,"spotSell":4.739,"dateSource":"finmind"},
     {"d":"2026-09-11","c":4.74,"spotBuy":4.69,"spotSell":4.74,"dateSource":"finmind"},
     {"d":"2026-09-18","c":4.774,"spotBuy":4.724,"spotSell":4.774,"dateSource":"finmind"},
-    {"d":"2026-09-24","c":4.758,"spotBuy":4.708,"spotSell":4.758,"dateSource":"finmind"}
+    {"d":"2026-09-24","c":4.758,"spotBuy":4.708,"spotSell":4.758,"dateSource":"finmind"},
+    {"d":"2026-10-02","c":4.776,"spotBuy":4.726,"spotSell":4.776,"dateSource":"finmind"}
   ]
 }

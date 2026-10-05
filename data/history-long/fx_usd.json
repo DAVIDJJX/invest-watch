@@ -11,10 +11,10 @@
   "dateSourceNote": "FinMind TaiwanExchangeRate 回應自己的 date 欄（台銀每日牌價）；每週取最後一個營業日",
   "crossCheck": "有對照（2026-09-18 逐日稽核 136 天，FinMind 轉載值與台銀 CSV 完全一致）",
   "note": "c 是即期賣出；每個 ISO 週取最後一個營業日那一筆，抓取當週還沒走完所以不收。FinMind 用 -1 代表沒有牌價，那些列在解析時就丟掉了。",
-  "count": 1071,
+  "count": 1072,
   "firstDate": "2006-01-06",
-  "lastDate": "2026-09-24",
-  "updatedAt": "2026-09-28T15:31:09+08:00",
+  "lastDate": "2026-10-02",
+  "updatedAt": "2026-10-05T15:31:08+08:00",
   "points": [
     {"d":"2006-01-06","c":32.23,"spotBuy":32.13,"spotSell":32.23,"dateSource":"finmind"},
     {"d":"2006-01-13","c":32.045,"spotBuy":31.945,"spotSell":32.045,"dateSource":"finmind"},
@@ -1086,6 +1086,7 @@
     {"d":"2026-09-04","c":31.68,"spotBuy":31.58,"spotSell":31.68,"dateSource":"finmind"},
     {"d":"2026-09-11","c":31.69,"spotBuy":31.59,"spotSell":31.69,"dateSource":"finmind"},
     {"d":"2026-09-18","c":31.855,"spotBuy":31.755,"spotSell":31.855,"dateSource":"finmind"},
-    {"d":"2026-09-24","c":31.83,"spotBuy":31.73,"spotSell":31.83,"dateSource":"finmind"}
+    {"d":"2026-09-24","c":31.83,"spotBuy":31.73,"spotSell":31.83,"dateSource":"finmind"},
+    {"d":"2026-10-02","c":31.895,"spotBuy":31.795,"spotSell":31.895,"dateSource":"finmind"}
   ]
 }

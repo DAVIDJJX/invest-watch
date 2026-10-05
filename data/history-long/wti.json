@@ -11,10 +11,10 @@
   "note": "只收已完成的週（起始＋7 天 ≤ 抓取當下）；存檔最後一根早於最近一個完成週的週一才補抓（每週一次）。period1 用 1970-01-05（星期一）：Yahoo 把週的起點對齊 period1 的星期幾，用 0 會讓 ^GSPC 變成週四起的週；所以只回 1970 以後（Yahoo 對 ^GSPC 其實從 1927 就有，分析用不到更早）。",
   "barsStartOn": "Mon",
   "firstTradeDateAtYahoo": "2000-08-23",
-  "count": 1362,
+  "count": 1363,
   "firstDate": "2000-08-21",
-  "lastDate": "2026-09-21",
-  "updatedAt": "2026-09-28T15:31:08+08:00",
+  "lastDate": "2026-09-28",
+  "updatedAt": "2026-10-05T15:31:08+08:00",
   "points": [
     {"d":"2000-08-21","c":32.049999,"dateSource":"yahoo-week"},
     {"d":"2000-08-28","c":33.380001,"dateSource":"yahoo-week"},
@@ -1377,6 +1377,7 @@
     {"d":"2026-08-31","c":91.480003,"dateSource":"yahoo-week"},
     {"d":"2026-09-07","c":100.050003,"dateSource":"yahoo-week"},
     {"d":"2026-09-14","c":100.300003,"dateSource":"yahoo-week"},
-    {"d":"2026-09-21","c":92.410004,"dateSource":"yahoo-week"}
+    {"d":"2026-09-21","c":92.410004,"dateSource":"yahoo-week"},
+    {"d":"2026-09-28","c":91.110001,"dateSource":"yahoo-week"}
   ]
 }
