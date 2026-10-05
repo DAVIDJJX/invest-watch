@@ -547,7 +547,10 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                 if not vs.get("green"):                                     # 免除只免外部審查：驗收機照樣要綠
                     return fail("David 免了外部審查，但驗收機%s（%s）。免除不包括驗收機，不能寄。" % ("還在跑" if vs.get("pending") else "不綠", vs.get("why")))
             local_ran = local_test_count(os.path.join(runs_dir, "tests.txt"))
-            if local_ran is not None and local_ran != vs.get("ran"):
+            if local_ran is None:                                      # 沒有證據不能當成對得上（2026-10-05 Codex 的審查意見：原本缺檔就略過比對）
+                return fail("找不到本機的測試紀錄，或讀不出條數：.autopilot/runs/%s/tests.txt 要有全套測試的輸出（「Ran N tests」那一行）。"
+                            "本機的條數要跟驗收機的（%s）對得上才能寄「可以合併」的信。" % (stage, vs.get("ran")))
+            if local_ran != vs.get("ran"):
                 return fail("本機的測試條數（%s，tests.txt）跟驗收機的（%s）對不上。數字以驗收機為準，對不上是「要你決定」：請改寄 --kind stop。" % (local_ran, vs.get("ran")))
         cand = {"sha": head, "tag_sha": tag_sha, "branch": branch, "registered_at": C.iso()}
         slug = github_slug(main_root, cfg)

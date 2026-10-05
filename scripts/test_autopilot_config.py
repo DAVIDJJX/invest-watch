@@ -430,6 +430,22 @@ class TestNewFilesHaveNoPrivateInformation(unittest.TestCase):
 class TestThirdPartyGate(unittest.TestCase):
     """P2：驗收機與外部審查的設定、保護清單、文件、突變清單都要在、而且互相一致。"""
 
+    def test_every_job_that_runs_branch_code_is_locked_down(self):
+        """全套測試、每一片突變、跟 main 比（會載入分支上的突變定義）都會執行分支上的程式碼：流程檔裡這幾步都要排在「封鎖」之後、
+        「解除封鎖並收集」之前（Codex 對 P2 的意見：突變分片原本沒有封鎖，對外請求也沒有收集）。對照組：拿掉突變分片的封鎖 → 紅。"""
+        text = read(".github/workflows/verify.yml")
+        verify_job = text[text.index("\n  verify:"):text.index("\n  mutations:")]
+        mut_job = text[text.index("\n  mutations:"):text.index("\n  collect:")]
+
+        def pos(job, word):
+            self.assertEqual(job.count('verify_ci.py" %s ' % word), 1, word)
+            return job.index('verify_ci.py" %s ' % word)
+        self.assertLess(pos(verify_job, "lockdown"), pos(verify_job, "run-tests"))
+        self.assertLess(pos(verify_job, "run-tests"), pos(verify_job, "compare"))
+        self.assertLess(pos(verify_job, "compare"), pos(verify_job, "unlock"))
+        self.assertLess(pos(mut_job, "lockdown"), pos(mut_job, "mutations"))
+        self.assertLess(pos(mut_job, "mutations"), pos(mut_job, "unlock"))
+
     def test_the_real_gitignore_ignores_python_bytecode(self):
         """hook 是用子程序跑的，會在主目錄的保護程式資料夾裡留下 __pycache__/；寄「可以合併」前「主目錄要乾淨」那一關靠 .gitignore 忽略它。
         沙盒測試把寫快取關掉了（沙盒的 .gitignore 沒有這一行），所以這件事在這裡另外釘住。第一次在 GitHub 的執行機上跑才發現的。"""

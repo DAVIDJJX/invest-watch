@@ -15,7 +15,11 @@ test_verify_ci.py — 停點 P2「第三方審核」：驗收機（scripts/verif
   5. 分支改了驗收機本身→結果標 verifier_changed（判定照 main 的版本做；關卡那邊不認）。
   6. Python 層：任何對外的名稱解析與連線都被拒絕並記下來；loopback 照常。
   7. 突變清單：每個錨點在倉庫裡剛好出現一次；已知例外的鍵都是真的突變編號。
+  8.（2026-10-05，Codex 對 P2 的意見）系統層擋下的連線只留下 IP、看不出是連誰→紅；突變分片也在封鎖裡跑，
+     每一段的對外請求合起來判定，少一片的封鎖紀錄→紅；跟 main 比（會載入分支上的突變定義）也在封鎖裡跑。
 """
+import argparse
+import contextlib
 import io
 import json
 import os
@@ -88,10 +92,13 @@ class TestJudge(unittest.TestCase):
         self.assertEqual(self.green(egress=e), [])
         self.assertEqual(e["browser_hosts"], ["safebrowsing.googleapis.com", "update.googleapis.com"])
 
-    def test_blocked_ips_are_listed_not_red(self):
+    def test_blocked_ips_are_red(self):
+        """系統層擋下的連線（不是 Python 的名稱解析、也不是瀏覽器記到的，例如測試叫了 curl）只留下 IP，看不出是連誰：一律紅。
+        原本只列出來、不算紅（Codex 對 P2 的意見）。對照組：不看 blocked_ips → 紅。"""
         e = egress([], blocked=[{"ip": "1.1.1.1", "proto": "TCP", "port": "443", "count": 3}])
-        self.assertEqual(self.green(egress=e), [])
-        self.assertEqual(e["blocked_ips"][0]["ip"], "1.1.1.1")
+        reasons = self.green(egress=e)
+        self.assertTrue(any("系統層擋下了對外連線" in r and "1.1.1.1:443" in r for r in reasons), reasons)
+        self.assertEqual(self.green(egress=egress([], blocked=[])), [])
 
     def test_failing_tests_and_no_tests_are_red(self):
         self.assertTrue(any("測試有 1 條紅" in r for r in self.green(tests=dict(GREEN_TESTS, failed=["x.y"], ok=False))))
@@ -120,6 +127,122 @@ class TestJudge(unittest.TestCase):
 
     def test_verifier_changed_is_a_flag_not_a_reason(self):
         self.assertEqual(self.green(cmp_=dict(GREEN_CMP, verifier_changed=True)), [])
+
+
+class TestEveryJobRunsUnderLockdown(unittest.TestCase):
+    """2026-10-05 Codex 對 P2 的意見：突變分片原本沒有封鎖、對外請求也沒有收集。凡是會執行分支上程式碼的步驟
+    （全套測試、每一片突變、跟 main 比時載入突變定義）都要在封鎖裡跑；判定要看每一段。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="iw-collect-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        saved = (V.sudo, V.run)
+
+        def restore():
+            V.sudo, V.run = saved
+        self.addCleanup(restore)
+
+    def test_the_locked_command_carries_the_guard_and_uses_the_test_user(self):
+        V.sudo = lambda cmd, timeout=120: (0, "")
+        out = os.path.join(self.tmp, "out")
+        cmd, env = V.locked_command(out, {"user": "iwtest", "browser": "/x/wrapper.sh"}, ["python", "x.py"])
+        self.assertEqual(cmd[:6], ["sudo", "-n", "-u", "iwtest", "-H", "env"])
+        self.assertEqual(cmd[-2:], ["python", "x.py"])
+        self.assertIn("PYTHONPATH=" + os.path.join(out, "pyguard"), cmd)
+        self.assertIn("IW_EGRESS_LOG=" + os.path.join(out, "egress", "python.jsonl"), cmd)
+        self.assertIn("IW_BROWSER=/x/wrapper.sh", cmd)
+        self.assertIsNone(env)
+        cmd, env = V.locked_command(out, {"user": None, "browser": "/x/wrapper.sh"}, ["python", "x.py"])     # 沒有測試用的使用者：Python 層與瀏覽器層照樣帶上
+        self.assertEqual(cmd, ["python", "x.py"])
+        self.assertEqual((env["PYTHONPATH"], env["IW_BROWSER"]), (os.path.join(out, "pyguard"), "/x/wrapper.sh"))
+
+    def test_mutations_and_compare_run_inside_the_lockdown(self):
+        """對照組：突變不進封鎖、或跟 main 比不進封鎖 → 紅。"""
+        ran = []
+        V.sudo = lambda cmd, timeout=120: (0, "")
+        V.run = lambda cmd, cwd=None, timeout=120, env=None, inp=None: ran.append(list(cmd)) or (0, "")
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out)
+        a = argparse.Namespace(repo=self.tmp, out=out, shard="1/2", main_ref="origin/main", copy_dir=self.tmp, timeout=5, inner=False)
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            V.cmd_mutations(a)                                                           # 沒有封鎖紀錄：照樣跑，但會說出來（判定時這一片算紅）
+            self.assertIn("沒有封鎖紀錄", said.getvalue())
+            self.assertNotEqual(ran[-1][0], "sudo")
+            V.write_json(os.path.join(out, "lockdown.json"), {"user": "iwtest", "level": "3/3", "layers": GREEN_LOCK["layers"], "browser": "/x/w.sh"})
+            V.cmd_mutations(a)
+            cmd = ran[-1]
+            self.assertEqual(cmd[:4], ["sudo", "-n", "-u", "iwtest"])
+            self.assertTrue(any(str(x).endswith("run_mutations.py") for x in cmd))
+            self.assertIn("PYTHONPATH=" + os.path.join(out, "pyguard"), cmd)
+            n = len(ran)
+            V.cmd_compare(a)                                                             # 會載入分支上的突變定義：也進封鎖，再用 --inner 真的做
+            self.assertEqual(len(ran), n + 1)
+            cmd = ran[-1]
+            self.assertEqual(cmd[:4], ["sudo", "-n", "-u", "iwtest"])
+            self.assertIn("compare", cmd)
+            self.assertEqual(cmd[-1], "--inner")
+
+    def test_judge_wants_a_lockdown_record_for_every_mutation_shard(self):
+        mut = dict(GREEN_MUT, shards=["1/2", "2/2"])
+
+        def j(mut_lockdowns):
+            return V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, [], mut_lockdowns=mut_lockdowns)
+        self.assertEqual(j([GREEN_LOCK, GREEN_LOCK]), [])
+        self.assertTrue(any("1 片突變沒有封鎖紀錄" in r for r in j([GREEN_LOCK])))
+        self.assertTrue(any("Python 層封鎖沒有生效" in r for r in j([GREEN_LOCK, {"layers": {"python": None}, "level": "0/3"}])))
+        self.assertEqual(V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, []), [])               # 舊的呼叫方式（沒給這一項）不檢查
+
+    def test_egress_from_every_job_is_merged(self):
+        a = {"hosts": {"update.googleapis.com": {"count": 2, "via": ["browser"]}}, "blocked_ips": [], "python_events": 1, "browser_netlogs": 3}
+        b = {"hosts": {"rate.bot.com.tw": {"count": 1, "via": ["python"]}, "update.googleapis.com": {"count": 1, "via": ["python"]}},
+             "blocked_ips": [{"ip": "9.9.9.9", "proto": "TCP", "port": "443", "count": 2}], "python_events": 2}
+        c = {"hosts": {}, "blocked_ips": [{"ip": "9.9.9.9", "proto": "TCP", "port": "443", "count": 1}]}
+        m = V.merge_egress_raw([a, b, {}, c])
+        self.assertEqual(m["jobs"], 3)
+        self.assertEqual(m["hosts"]["update.googleapis.com"], {"count": 3, "via": ["browser", "python"]})
+        self.assertEqual(m["blocked_ips"], [{"ip": "9.9.9.9", "proto": "TCP", "port": "443", "count": 3}])
+        self.assertEqual((m["python_events"], m["browser_netlogs"]), (3, 3))
+        self.assertEqual(V.judge_egress(m, ALLOWED)["bot_hits"], 1)                                          # 突變那一片裡的一次台銀，合起來之後照樣算
+        self.assertEqual(V.weakest_level([{"level": "3/3"}, {"level": "2/3"}]), "2/3")
+        self.assertEqual(V.weakest_level([{"level": "3/3"}, None]), "0/3")
+
+    def collect(self, shard_egress=None, shard2_lock=True):
+        inp = os.path.join(self.tmp, "in")
+        shutil.rmtree(inp, True)
+        raw = {"hosts": {}, "blocked_ips": [], "python_events": 0, "browser_netlogs": 0}
+        main = os.path.join(inp, "verify-partial")
+        os.makedirs(main)
+        V.write_json(os.path.join(main, "tests.json"), GREEN_TESTS)
+        V.write_json(os.path.join(main, "compare.json"), dict(GREEN_CMP, mutations_total=2, mutations_main=None))
+        V.write_json(os.path.join(main, "lockdown.json"), GREEN_LOCK)
+        V.write_json(os.path.join(main, "egress.json"), raw)
+        for i in (1, 2):
+            d = os.path.join(inp, "verify-mutations-%d" % i)
+            os.makedirs(d)
+            V.write_json(os.path.join(d, "mut-%d-of-2.json" % i), {"shard": "%d/2" % i, "results": [{"id": "M0%d" % i, "ok": True, "red": ["x"], "ran": 1}]})
+            V.write_json(os.path.join(d, "egress.json"), shard_egress if (i == 1 and shard_egress) else raw)
+            if i == 1 or shard2_lock:
+                V.write_json(os.path.join(d, "lockdown.json"), GREEN_LOCK)
+        out = tempfile.mkdtemp(prefix="out-", dir=self.tmp)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = V.cmd_collect(argparse.Namespace(repo=ROOT, out=out, inputs=inp, main_ref="origin/main", summary=None))
+        return rc, V.read_json(os.path.join(out, "verify-result.json"), {})
+
+    def test_collect_reads_every_job_and_reds_on_a_shard_that_went_out_or_had_no_lockdown(self):
+        """對照組：判定只看全套測試那一段、或少一片封鎖紀錄也不紅 → 紅。"""
+        rc, res = self.collect()
+        self.assertEqual((rc, res["red"], res["egress"]["jobs"], len(res["lockdown"]["mutation_shards"]), res["egress"]["level"]),
+                         (0, False, 3, 2, "3/3"), res.get("reasons"))
+        rc, res = self.collect(shard_egress={"hosts": {"rate.bot.com.tw": {"count": 1, "via": ["python"]}}, "blocked_ips": [], "python_events": 1})
+        self.assertEqual(rc, 1)                                                          # 突變那一片連了台銀
+        self.assertTrue(any("台銀" in r for r in res["reasons"]), res["reasons"])
+        rc, res = self.collect(shard_egress={"hosts": {}, "blocked_ips": [{"ip": "9.9.9.9", "proto": "TCP", "port": "443", "count": 1}]})
+        self.assertEqual(rc, 1)                                                          # 突變那一片有一個系統層擋下的連線
+        self.assertTrue(any("系統層擋下了對外連線" in r for r in res["reasons"]), res["reasons"])
+        rc, res = self.collect(shard2_lock=False)                                        # 有一片沒有封鎖紀錄
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("1 片突變沒有封鎖紀錄" in r for r in res["reasons"]), res["reasons"])
+        self.assertEqual(res["egress"]["level"], "0/3")
 
 
 class TestCompareHelpers(unittest.TestCase):
@@ -382,6 +505,26 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         self.assertEqual(RM.shard_of(items, "3/3"), [2, 5, 8])
         with self.assertRaises(SystemExit):
             RM.shard_of(items, "4/3")
+
+    def test_the_anchor_checks_do_not_count_as_catching_a_mutation(self):
+        """檢查錨點的那兩條測試在任何突變底下都會紅（原文被改掉了），不能算成證據：只有它們紅＝這個突變沒有被抓到。
+        對照組：把它們也算進去 → 這一條會紅。"""
+        tmp = tempfile.mkdtemp(prefix="iw-mut-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        repo, copy = os.path.join(tmp, "repo"), os.path.join(tmp, "copy")
+        os.makedirs(repo)
+        with io.open(os.path.join(repo, "a.py"), "w", encoding="utf-8") as fh:
+            fh.write("X = 1\nY = 1\n")
+        with io.open(os.path.join(repo, "t.py"), "w", encoding="utf-8") as fh:
+            fh.write("import unittest\nimport a\n\n\nclass T(unittest.TestCase):\n"
+                     "    def %s(self):\n        self.assertEqual((a.X, a.Y), (1, 1))\n\n"
+                     "    def test_real(self):\n        self.assertEqual(a.Y, 1)\n" % RM.ANCHOR_SELF_TESTS[0])
+        RM.fresh_copy(repo, copy)
+        only_anchor = RM.run_one(("Z1", "只有檢查錨點的測試會紅", "a.py", "X = 1", "X = 2", ["t.py"]), repo, copy, [sys.executable], None, 120)
+        self.assertEqual((only_anchor["ok"], only_anchor["red"], only_anchor.get("error")), (False, [], None))
+        self.assertEqual(only_anchor["incidental"], [RM.ANCHOR_SELF_TESTS[0]])
+        real = RM.run_one(("Z2", "真的測試也紅", "a.py", "Y = 1", "Y = 2", ["t.py"]), repo, copy, [sys.executable], None, 120)
+        self.assertEqual((real["ok"], real["red"]), (True, ["test_real"]))
 
     def test_known_survivors_file_ignores_the_about_key(self):
         tmp = tempfile.mkdtemp(prefix="iw-known-")

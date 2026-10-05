@@ -10,11 +10,11 @@ verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實�
   run-tests         用封鎖中的環境跑全套測試（子程序）→ tests.json、tests-verbose.txt
   unlock            收集對外請求的紀錄（Python 層的名稱、瀏覽器的名稱、iptables 擋下的 IP）→ egress.json；還原規則
   compare           跟 main 比：測試數、被刪改的測試、突變數、被刪改的突變、動到的保護範圍檔、驗收機本身有沒有改 → compare.json
-  mutations         跑一片突變（執行器與例外清單用 main 的，定義用分支的）→ mut-*.json
+  mutations         跑一片突變（封鎖中；執行器與例外清單用 main 的，定義用分支的）→ mut-*.json
   collect           合併、判定紅綠、結果檔過隱私掃描、寫 job summary → verify-result.json；紅＝非零結束
 
 判定規則（David 2026-10-04 的裁決）：台銀與資料來源網域出現→紅；未知主機→紅；Chrome 自己的背景連線→列出、不紅（名單在下面，算保護範圍）；
-測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅；沒有系統層的封鎖→不紅，但結果寫「封鎖層級 2／3」。
+系統層擋下的連線（只留下 IP）→紅；突變分片沒有封鎖→紅；測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅；沒有系統層的封鎖→不紅，但結果寫「封鎖層級 2／3」。
 分支改了驗收機本身（verify.yml、這個檔、突變執行器、例外清單）→ 結果標 verifier_changed，判定照 main 的版本做；寄「可以合併」那一關不認這種綠。
 
 只用標準函式庫；離線測試在 scripts/test_verify_ci.py（判定、比對、解析、掃描都是純函式）。
@@ -344,10 +344,9 @@ def cmd_lockdown(a):
 
 # ---------------------------------------------------------------- 3. 跑全套
 
-def cmd_run_tests(a):
-    out = os.path.abspath(a.out)
-    repo = os.path.abspath(a.repo)
-    lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
+def locked_command(out, lock, inner):
+    """把 inner 包成「在封鎖裡跑」的指令：帶上 Python 層的守門與紀錄檔、瀏覽器的包裝，有測試用的使用者就用那個使用者跑。回傳 (cmd, env)。
+    凡是會執行分支上程式碼的步驟（全套測試、每一片突變、跟 main 比時載入突變定義）都走這裡。"""
     egress = os.path.join(out, "egress")
     os.makedirs(egress, exist_ok=True)
     env_items = {"PYTHONPATH": os.path.join(out, "pyguard"), "IW_EGRESS_LOG": os.path.join(egress, "python.jsonl"),
@@ -356,22 +355,27 @@ def cmd_run_tests(a):
     for k in ("LD_LIBRARY_PATH", "pythonLocation", "Python_ROOT_DIR", "Python3_ROOT_DIR"):      # setup-python 裝的 Python 要靠這幾個才找得到自己的函式庫
         if os.environ.get(k):
             env_items[k] = os.environ[k]
-    browser = lock.get("browser") or find_chrome()
+    browser = (lock or {}).get("browser") or find_chrome()
     if browser:
         env_items["IW_BROWSER"] = browser
-    user = lock.get("user")
-    inner = [sys.executable, "-X", "utf8", "-W", "ignore", os.path.join(HERE, "verify_ci.py"), "run-tests-inner", "--repo", repo,
-             "--out", os.path.join(out, "tests.json"), "--log", os.path.join(out, "tests-verbose.txt")]
+    user = (lock or {}).get("user")
     if user:
         home = "/tmp/%s-home" % user
         env_items["HOME"] = home
         sudo(["mkdir", "-p", home])
         sudo(["chown", "-R", user, home])
-        cmd = ["sudo", "-n", "-u", user, "-H", "env"] + ["%s=%s" % (k, v) for k, v in env_items.items()] + inner
-        env = None
-    else:
-        cmd = inner
-        env = dict(os.environ, **env_items)
+        return ["sudo", "-n", "-u", user, "-H", "env"] + ["%s=%s" % (k, v) for k, v in env_items.items()] + list(inner), None
+    return list(inner), dict(os.environ, **env_items)
+
+
+def cmd_run_tests(a):
+    out = os.path.abspath(a.out)
+    repo = os.path.abspath(a.repo)
+    lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
+    user = lock.get("user")
+    inner = [sys.executable, "-X", "utf8", "-W", "ignore", os.path.join(HERE, "verify_ci.py"), "run-tests-inner", "--repo", repo,
+             "--out", os.path.join(out, "tests.json"), "--log", os.path.join(out, "tests-verbose.txt")]
+    cmd, env = locked_command(out, lock, inner)
     print("跑全套測試（%s）…" % ("使用者 %s、封鎖層級 %s" % (user, lock.get("level")) if user else "封鎖層級 %s" % lock.get("level", "?")))
     t0 = time.time()
     rc, o = run(cmd, cwd=repo, timeout=a.timeout, env=env)
@@ -611,6 +615,14 @@ def branch_test_sources(repo):
 def cmd_compare(a):
     repo, out = os.path.abspath(a.repo), os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
+    lock = read_json(os.path.join(out, "lockdown.json"), None)
+    if lock and not getattr(a, "inner", False):                    # 這一步會載入分支上的突變定義（＝執行分支的程式碼）：有封鎖就在封鎖裡跑
+        inner = [sys.executable, "-X", "utf8", os.path.join(HERE, "verify_ci.py"), "compare", "--out", out, "--repo", repo,
+                 "--main-ref", a.main_ref, "--inner"]
+        cmd, env = locked_command(out, lock, inner)
+        rc, o = run(cmd, cwd=repo, timeout=600, env=env)
+        print(o[-4000:])
+        return rc
     main_ref = a.main_ref
     rc, main_sha = git(repo, ["rev-parse", main_ref])
     rc2, head_sha = git(repo, ["rev-parse", "HEAD"])
@@ -673,8 +685,11 @@ def cmd_compare(a):
 # ---------------------------------------------------------------- 6. 突變（一片）
 
 def cmd_mutations(a):
+    """跑一片突變。突變會載入分支上的定義、反覆開 unittest 子程序，所以跟全套測試一樣要在封鎖裡跑、對外請求一樣要收集
+    （2026-10-05 Codex 的審查意見；原本這一段沒有封鎖）。沒有封鎖紀錄時照樣跑，但判定時這一片算沒有封鎖＝紅。"""
     repo, out = os.path.abspath(a.repo), os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
+    lock = read_json(os.path.join(out, "lockdown.json"), None)
     runner = os.path.join(HERE, "run_mutations.py")
     known = os.path.join(HERE, "known_survivors.json")
     if not os.path.exists(runner):
@@ -683,12 +698,18 @@ def cmd_mutations(a):
         known = os.path.join(repo, "scripts", "mutations", "known_survivors.json")
     defs = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
     tag = a.shard.replace("/", "-of-")
-    cmd = [sys.executable, "-X", "utf8", runner, "--defs", defs, "--known", known, "--repo", repo, "--copy", os.path.join(a.copy_dir, "mutcopy-" + tag),
+    cmd = [sys.executable, "-X", "utf8", runner, "--defs", defs, "--known", known, "--repo", repo, "--copy", os.path.join(a.copy_dir, "iw-mutcopy-" + tag),
            "--shard", a.shard, "--no-baseline", "--out", os.path.join(out, "mut-%s.json" % tag), "--timeout", str(a.timeout)]
-    chrome = find_chrome()
-    if chrome:
-        cmd += ["--browser", chrome]
-    rc, o = run(cmd, cwd=repo, timeout=a.timeout * 3, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    browser = (lock or {}).get("browser") or find_chrome()
+    if browser:
+        cmd += ["--browser", browser]
+    if lock is None:
+        print("注意：這一片沒有封鎖紀錄（lockdown.json）——突變是在沒有封鎖的情況下跑的，判定時會算紅。")
+        rc, o = run(cmd, cwd=repo, timeout=a.timeout * 3, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+    else:
+        lcmd, env = locked_command(out, lock, cmd)
+        print("跑這一片突變（%s、封鎖層級 %s）…" % ("使用者 %s" % lock.get("user") if lock.get("user") else "原本的使用者", lock.get("level")))
+        rc, o = run(lcmd, cwd=repo, timeout=a.timeout * 3, env=env)
     print(o[-6000:])
     return rc
 
@@ -729,6 +750,35 @@ def judge_egress(raw, allowed_hosts):
     return out
 
 
+def merge_egress_raw(raws):
+    """各段（全套測試、每一片突變）收集到的對外請求合成一份：主機名稱的次數相加、被擋的 IP 相加。"""
+    out = {"hosts": {}, "blocked_ips": [], "python_events": 0, "browser_netlogs": 0, "jobs": 0}
+    blocked = {}
+    for r in raws:
+        if not r:
+            continue
+        out["jobs"] += 1
+        for h, rec in sorted((r.get("hosts") or {}).items()):
+            cur = out["hosts"].setdefault(h, {"count": 0, "via": []})
+            cur["count"] += int((rec or {}).get("count") or 0)
+            for v in (rec or {}).get("via") or []:
+                if v not in cur["via"]:
+                    cur["via"].append(v)
+        for b in r.get("blocked_ips") or []:
+            key = (str(b.get("ip") or ""), str(b.get("proto") or ""), str(b.get("port") or ""))
+            blocked[key] = blocked.get(key, 0) + int(b.get("count") or 0)
+        out["python_events"] += int(r.get("python_events") or 0)
+        out["browser_netlogs"] += int(r.get("browser_netlogs") or 0)
+    out["blocked_ips"] = [{"ip": k[0], "proto": k[1], "port": k[2], "count": v} for k, v in sorted(blocked.items())]
+    return out
+
+
+def weakest_level(lockdowns):
+    """幾段封鎖裡最弱的層級（「2/3」比「3/3」弱）；有一段沒有紀錄就是 0/3。"""
+    levels = [str((x or {}).get("level") or "0/3") for x in lockdowns]
+    return min(levels) if levels else None
+
+
 def merge_mutations(shards, known, expected_total=None):
     results, shards_seen = [], []
     for s in shards:
@@ -745,8 +795,9 @@ def merge_mutations(shards, known, expected_total=None):
             "seconds": round(sum(float(r.get("seconds") or 0) for r in results), 1)}
 
 
-def judge(tests, egress, cmp_, mut, lockdown, privacy):
-    """回傳紅的原因清單（空的＝綠）。每一條規則在 scripts/test_verify_ci.py 都有「改壞→紅」的對照。"""
+def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
+    """回傳紅的原因清單（空的＝綠）。每一條規則在 scripts/test_verify_ci.py 都有「改壞→紅」的對照。
+    mut_lockdowns：每一片突變的封鎖紀錄（None＝舊的呼叫方式，不檢查這一項）。"""
     reasons = []
     tests = tests or {}
     cmp_ = cmp_ or {}
@@ -780,8 +831,18 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy):
         reasons.append("測試期間連了資料來源或 GitHub（測試應該全部離線）：%s" % "、".join(egress["source_hosts"]))
     if egress.get("unknown_hosts"):
         reasons.append("測試期間連了名單外的主機：%s" % "、".join(egress["unknown_hosts"]))
+    if egress.get("blocked_ips"):                                   # 不是 Python、也不是瀏覽器發的連線（例如測試叫了 curl）：只留下 IP，看不出是誰，一律紅
+        reasons.append("系統層擋下了對外連線（測試應該全部離線；這種連線只留下 IP，看不出是連誰）：%s" % "、".join(
+            "%s%s／%s×%s" % (b.get("ip"), (":%s" % b.get("port")) if b.get("port") else "", b.get("proto"), b.get("count"))
+            for b in egress["blocked_ips"])[:300])
     if not ((lockdown or {}).get("layers") or {}).get("python"):
         reasons.append("Python 層的封鎖沒有生效")
+    if mut_lockdowns is not None:                                   # 突變也會執行分支上的程式碼：每一片都要在封鎖裡跑
+        shards = len(mut.get("shards") or [])
+        if len(mut_lockdowns) < shards:
+            reasons.append("有 %d 片突變沒有封鎖紀錄（突變也要在封鎖裡跑）" % (shards - len(mut_lockdowns)))
+        if any(not ((x or {}).get("layers") or {}).get("python") for x in mut_lockdowns):
+            reasons.append("有突變分片的 Python 層封鎖沒有生效")
     if privacy:
         reasons.append("結果檔含不該公開的字串：%s" % "；".join(privacy)[:300])
     return reasons
@@ -838,9 +899,9 @@ def summary_md(res):
              "- 突變：跑了 %s 個，紅 %s；存活 %s（已知例外 %s、沒解釋的 %s）；定義 %s（main %s）" % (m.get("total_ran"), m.get("red"), len(m.get("survivors") or []),
                                                                                  len(m.get("known_exceptions") or []), len(m.get("unexplained_survivors") or []),
                                                                                  c.get("mutations_total"), c.get("mutations_main")),
-             "- 對外連線：封鎖層級 %s；台銀 %s 次；資料來源／GitHub %d 個；未知主機 %d 個；瀏覽器自己的 %d 個；被擋的 IP %d 個" % (
-                 e.get("level"), e.get("bot_hits", 0), len(e.get("source_hosts") or []), len(e.get("unknown_hosts") or []), len(e.get("browser_hosts") or []),
-                 len(e.get("blocked_ips") or [])),
+             "- 對外連線（全套測試＋每一片突變，共 %s 段，都在封鎖裡跑）：封鎖層級 %s；台銀 %s 次；資料來源／GitHub %d 個；未知主機 %d 個；瀏覽器自己的 %d 個；被擋的 IP %d 個" % (
+                 e.get("jobs"), e.get("level"), e.get("bot_hits", 0), len(e.get("source_hosts") or []), len(e.get("unknown_hosts") or []),
+                 len(e.get("browser_hosts") or []), len(e.get("blocked_ips") or [])),
              "- 動到的保護範圍檔：第一層 %d、自己的檔 %d、第二層 %d" % tuple(len((c.get("protected_touched") or {}).get(k) or []) for k in ("tier1", "self", "tier2"))]
     if res.get("reasons"):
         lines += ["", "**紅的原因**", ""] + ["- " + r for r in res["reasons"]]
@@ -862,21 +923,38 @@ def summary_md(res):
         lines += ["", "**對外請求（主機名稱）**", ""]
         for k, label in (("bot_hosts", "台銀"), ("source_hosts", "資料來源／GitHub"), ("unknown_hosts", "未知"), ("browser_hosts", "瀏覽器自己的")):
             lines += ["- %s：`%s`" % (label, h) for h in e.get(k) or []]
+    if e.get("blocked_ips"):
+        lines += ["", "**系統層擋下的連線（只有 IP）**", ""] + ["- `%s`　%s　埠 %s　%s 次" % (b.get("ip"), b.get("proto"), b.get("port") or "?", b.get("count"))
+                                                    for b in e["blocked_ips"]]
     return "\n".join(lines) + "\n"
+
+
+def job_dirs(inputs):
+    """下載下來的每一段結果各在一個資料夾。回傳 (全套測試那一段的資料夾或 None, [每一片突變的資料夾])。"""
+    main_dir, shard_dirs = None, []
+    for base, _dirs, names in sorted(os.walk(inputs)):
+        if main_dir is None and ("tests.json" in names or "compare.json" in names):
+            main_dir = base
+        if any(n.startswith("mut-") and n.endswith(".json") for n in names):
+            shard_dirs.append(base)
+    return main_dir, sorted(shard_dirs)
 
 
 def cmd_collect(a):
     repo, out, inputs = os.path.abspath(a.repo), os.path.abspath(a.out), os.path.abspath(a.inputs)
     os.makedirs(out, exist_ok=True)
+    main_dir, shard_dirs = job_dirs(inputs)
 
-    def pick(name):
-        found = _find_files(inputs, name)
-        return read_json(found[0], {}) if found else {}
-    tests = pick("tests.json")
-    egress_raw = pick("egress.json")
-    cmp_ = pick("compare.json")
-    lockdown = pick("lockdown.json")
+    def pick(d, name):
+        return (read_json(os.path.join(d, name), {}) or {}) if d else {}
+    tests = pick(main_dir, "tests.json")
+    cmp_ = pick(main_dir, "compare.json")
+    lockdown = pick(main_dir, "lockdown.json")
     shards = [read_json(p, {}) or {} for p in _find_files(inputs, "mut-*")]
+    mut_lockdowns = [x for x in (read_json(os.path.join(d, "lockdown.json"), None) for d in shard_dirs) if x]
+    egress_raw = merge_egress_raw([pick(main_dir, "egress.json")] + [pick(d, "egress.json") for d in shard_dirs])
+    egress_raw["layers"] = lockdown.get("layers") or {}
+    egress_raw["level"] = weakest_level([lockdown] + mut_lockdowns + [None] * max(0, len(shard_dirs) - len(mut_lockdowns)))
     allowed = []
     guards = None
     try:
@@ -890,6 +968,7 @@ def cmd_collect(a):
     known = read_json(os.path.join(HERE, "known_survivors.json"), {}) or {}
     known = dict((k, v) for k, v in known.items() if not k.startswith("_"))
     egress = judge_egress(egress_raw, allowed)
+    egress["jobs"] = egress_raw.get("jobs")
     mut = merge_mutations(shards, known, expected_total=cmp_.get("mutations_total"))
     verbose = ""
     for p in _find_files(inputs, "tests-verbose.txt"):
@@ -898,21 +977,22 @@ def cmd_collect(a):
            "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
            "run_url": "%s/%s/actions/runs/%s" % (os.environ.get("GITHUB_SERVER_URL", "https://github.com"), os.environ.get("GITHUB_REPOSITORY", "?"),
                                                  os.environ.get("GITHUB_RUN_ID", "?")),
-           "tests": tests, "egress": egress, "compare": cmp_, "mutations": mut, "lockdown": {"level": lockdown.get("level"), "layers": lockdown.get("layers"),
-                                                                                       "selftest": lockdown.get("selftest"), "notes": lockdown.get("notes")},
+           "tests": tests, "egress": egress, "compare": cmp_, "mutations": mut,
+           "lockdown": {"level": lockdown.get("level"), "layers": lockdown.get("layers"), "selftest": lockdown.get("selftest"), "notes": lockdown.get("notes"),
+                        "mutation_shards": [{"level": x.get("level"), "layers": x.get("layers"), "selftest": x.get("selftest")} for x in mut_lockdowns]},
            "verifier_changed": bool(cmp_.get("verifier_changed")), "verifier_source": cmp_.get("verifier_source"),
            "allowed_hosts_from": "main" if allowed else "（讀不到 net_policy，白名單為空）", "privacy_scanner": "main" if guards is not None else "（讀不到）",
-           "generated_at": now_iso(), "schema": 1}
+           "generated_at": now_iso(), "schema": 2}
     privacy = privacy_scan({"verify-result": json.dumps(res, ensure_ascii=False), "tests-verbose": verbose,
                             "egress-hosts": "\n".join(sorted((egress_raw.get("hosts") or {}).keys()))}, guards)
     if guards is None:
         privacy = privacy + ["隱私掃描器讀不到（main 上的 test_analysis_guards.py）"]
-    reasons = judge(tests, egress, cmp_, mut, lockdown, privacy)
+    reasons = judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=mut_lockdowns)
     res["reasons"] = reasons
     res["red"] = bool(reasons)
     if privacy:
         res = {"commit": res["commit"], "ref": res["ref"], "run_id": res["run_id"], "run_url": res["run_url"], "red": True, "reasons": reasons,
-               "privacy_hits": [h.split("：", 1)[0] for h in privacy], "note": "結果檔含不該公開的字串，內容沒有寫出來", "generated_at": now_iso(), "schema": 1}
+               "privacy_hits": [h.split("：", 1)[0] for h in privacy], "note": "結果檔含不該公開的字串，內容沒有寫出來", "generated_at": now_iso(), "schema": 2}
     write_json(os.path.join(out, "verify-result.json"), res)
     md = summary_md(res) if not privacy else "### 驗收機：🔴 紅\n\n結果檔含不該公開的字串（%s），內容沒有寫出來。\n" % "、".join(res["privacy_hits"])
     write_text(os.path.join(out, "summary.md"), md)
@@ -949,6 +1029,7 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
     p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--inner", action="store_true", help="（內部用）已經在封鎖裡了，直接做")
     p = sub.add_parser("mutations")
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())

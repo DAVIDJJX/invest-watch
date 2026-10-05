@@ -59,13 +59,14 @@ jobs:
       - name: 全套測試（封鎖中；台銀 0 由這裡證明）
         run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" run-tests --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE"
 
+      # 這一步會載入分支上的突變定義（＝執行分支的程式碼），所以也在封鎖裡跑、排在解除封鎖之前
+      - name: 跟 main 比（封鎖中；測試數、突變數、被刪改的測試、動到的保護範圍檔、驗收機本身有沒有改）
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" compare --out "$RUNNER_TEMP/verify-out" --main-ref origin/main --repo "$GITHUB_WORKSPACE"
+
       - name: 解除封鎖並收集對外請求的紀錄
         if: always()
         run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" unlock --out "$RUNNER_TEMP/verify-out"
-
-      - name: 跟 main 比（測試數、突變數、被刪改的測試、動到的保護範圍檔、驗收機本身有沒有改）
-        if: always()
-        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" compare --out "$RUNNER_TEMP/verify-out" --main-ref origin/main --repo "$GITHUB_WORKSPACE"
 
       - name: 上傳這一段的結果
         if: always()
@@ -78,7 +79,7 @@ jobs:
           overwrite: true
 
   mutations:
-    name: 突變對照（分片 ${{ matrix.shard }}/6）
+    name: 突變對照（分片 ${{ matrix.shard }}/6；封鎖中）
     runs-on: ubuntu-latest
     timeout-minutes: 40
     strategy:
@@ -103,8 +104,16 @@ jobs:
         id: verifier
         run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
 
-      - name: 跑這一片的突變（執行器與例外清單用 main 的，定義用分支的）
-        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" mutations --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE" --shard "${{ matrix.shard }}/6" --main-ref origin/main --copy-dir "$RUNNER_TEMP"
+      # 突變會載入分支上的定義、反覆開測試的子程序：跟全套測試一樣先封鎖，對外請求一樣收集、一樣判定
+      - name: 封鎖對外連線（跟全套測試那一段一樣的三層）
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" lockdown --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE"
+
+      - name: 跑這一片的突變（封鎖中；執行器與例外清單用 main 的，定義用分支的）
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" mutations --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE" --shard "${{ matrix.shard }}/6" --main-ref origin/main
+
+      - name: 解除封鎖並收集對外請求的紀錄
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" unlock --out "$RUNNER_TEMP/verify-out"
 
       - name: 上傳這一片的結果
         if: always()

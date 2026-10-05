@@ -93,6 +93,24 @@ def gh_json(args, timeout=25, runner=None, hints=None):
         return None, "gh 回的不是 JSON：%s" % text[:120]
 
 
+def gh_pages(path, runner=None, hints=None, per_page=100, max_pages=30):
+    """GitHub 的清單一頁最多 100 筆：一頁一頁讀到不滿一頁為止，合成一個清單。
+    2026-10-05 Codex 的審查意見：原本只讀第一頁，第 101 則之後的意見就不必回覆、關卡照樣過。
+    任何一頁讀不到、或讀到上限還沒完，回 (None, 原因)——寧可說查不完，也不要漏掉後面的。"""
+    out = []
+    sep = "&" if "?" in path else "?"
+    for page in range(1, max_pages + 1):
+        obj, err = gh_json(["api", "%s%sper_page=%d&page=%d" % (path, sep, per_page, page)], runner=runner, hints=hints)
+        if obj is None:
+            return None, err
+        if not isinstance(obj, list):
+            return None, "GitHub 回的不是清單"
+        out.extend(obj)
+        if len(obj) < per_page:
+            return out, None
+    return None, "超過 %d 頁還沒讀完" % max_pages
+
+
 def slug(main_root, cfg):
     """這個倉庫在 GitHub 的名字（owner/repo）。沙盒的遠端是本機資料夾，沒有名字：測試模式（IW_TEST_FAKE_GH）給一個假的。"""
     rc, out = C.git(["remote", "get-url", cfg["remote"]], main_root)
@@ -238,9 +256,42 @@ def verify_status(main_root, sd, cfg, stage, sha, runner=None, now=None):
 
 # ---------------------------------------------------------------- Codex（外部審查）
 
+_BADGE = re.compile(r"!\[P(\d) Badge\]")                          # Codex 標等級的寫法：![P0 Badge](…)
+_BLOB_LINE = re.compile(r"^\s*https://github\.com/[^/\s]+/[^/\s]+/blob/[0-9a-f]{7,40}/(\S+?)#L(\d+)(?:-L\d+)?\s*$")
+
+
 def severity_of(body, ext):
+    m = _BADGE.search(body or "")
+    if m:
+        return "P%s" % m.group(1)
     m = re.search(ext.get("severityPattern") or r"\[?P([01])\]?", body or "")
     return "P%s" % m.group(1) if m else "P1"
+
+
+def body_findings(review, ext):
+    """review 本文裡的意見。Codex 把釘不到 diff 行上的意見寫在 review 的本文裡（一行檔案連結＋一行等級徽章與標題＋說明），
+    不是行內留言——P2 自己的 PR 第一次審查就有一條 P0 是這樣來的。只讀行內留言會漏掉它們。
+    編號是「review 編號-第幾條」。只有檔案連結、沒有徽章的段落也算一條（沒標等級的當 P1）。結尾的說明區塊（<details>）不看。"""
+    body = (review.get("body") or "").split("<details")[0]
+    found, pending = [], None
+
+    def add(path, line, text, badge):
+        clean = re.sub(r"<[^>]+>|\*\*|!\[[^\]]*\]\([^)]*\)", "", text or "").strip()
+        found.append({"id": "%s-%d" % (review.get("id"), len(found) + 1), "severity": severity_of(badge or "", ext), "path": path, "line": line,
+                      "excerpt": clean[:160], "where": "review 本文"})
+    for line in body.replace("\r\n", "\n").split("\n"):
+        m = _BLOB_LINE.match(line)
+        if m:
+            if pending is not None:                                 # 上一個連結後面一直沒有徽章：也算一條
+                add(pending[0], pending[1], pending[2], None)
+            pending = (m.group(1), int(m.group(2)), line.strip())
+            continue
+        if _BADGE.search(line):
+            add(pending[0] if pending else None, pending[1] if pending else None, line, line)
+            pending = None
+    if pending is not None:
+        add(pending[0], pending[1], pending[2], None)
+    return found
 
 
 def find_pr(main_root, cfg, branch, runner=None, hints=None):
@@ -263,8 +314,8 @@ def codex_status(main_root, cfg, pr_number, head, runner=None):
     bot = ext["botLogin"]
     s = slug(main_root, cfg)
     hints = {"sha": head}
-    revs, err1 = gh_json(["api", "repos/%s/pulls/%s/reviews?per_page=100" % (s, pr_number)], runner=runner, hints=hints)
-    coms, err2 = gh_json(["api", "repos/%s/pulls/%s/comments?per_page=100" % (s, pr_number)], runner=runner, hints=hints)
+    revs, err1 = gh_pages("repos/%s/pulls/%s/reviews" % (s, pr_number), runner=runner, hints=hints)
+    coms, err2 = gh_pages("repos/%s/pulls/%s/comments" % (s, pr_number), runner=runner, hints=hints)
     if revs is None or coms is None:
         return {"complete": False, "why": "查不到 PR 的審查（%s）" % (err1 or err2), "reviews": [], "findings": [], "others": [], "major": []}
     reviews, others = [], set()
@@ -288,6 +339,9 @@ def codex_status(main_root, cfg, pr_number, head, runner=None):
             continue
         findings.append({"id": c.get("id"), "severity": severity_of(c.get("body") or "", ext), "path": c.get("path"),
                          "line": c.get("line") or c.get("original_line"), "excerpt": (c.get("body") or "")[:160]})
+    inline = set((f.get("path"), f.get("line")) for f in findings)
+    for r in reviews:                                               # review 本文裡的意見也算（同一個檔同一行已經有行內留言的不重複算）
+        findings += [f for f in body_findings(r, ext) if (f.get("path"), f.get("line")) not in inline]
     return {"complete": bool(reviews),
             "why": None if reviews else "Codex（%s）還沒有針對 commit %s 發出 review" % (bot, head[:7]),
             "reviews": [{"id": r.get("id"), "state": r.get("state"), "body": (r.get("body") or "")[:200], "submitted_at": r.get("submitted_at")} for r in reviews],
@@ -306,7 +360,7 @@ def parse_responses(path):
         if not s.startswith("|"):
             continue
         cells = [c.strip() for c in s.strip("|").split("|")]
-        if len(cells) < 4 or not re.match(r"^\d+$", cells[0]):
+        if len(cells) < 4 or not re.match(r"^\d+(-\d+)?$", cells[0]):     # 行內留言的編號是數字；review 本文裡的意見是「review 編號-第幾條」
             continue
         resp = cells[3]
         if "不採納" in resp:
@@ -315,7 +369,8 @@ def parse_responses(path):
             kind = "adopt"
         else:
             kind = "other"
-        rows[int(cells[0])] = {"severity": cells[1], "response": kind, "reason": cells[4] if len(cells) > 4 else ""}
+        key = int(cells[0]) if cells[0].isdigit() else cells[0]
+        rows[key] = {"severity": cells[1], "response": kind, "reason": cells[4] if len(cells) > 4 else ""}
     return rows
 
 

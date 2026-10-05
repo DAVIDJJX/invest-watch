@@ -1744,6 +1744,32 @@ class TestPullRequestWrites(Base):
         self.allowed(self.bash("gh api %s/contents/AGENTS.md --jq .sha" % repo))                               # 讀：可以（一般模式）
         self.allowed(self.bash("gh api -X GET %s/contents/.github/workflows/verify.yml" % repo))
 
+    def test_gh_api_options_must_be_recognizable_as_read_only(self):
+        """gh 接受把短旗標黏在一起（-fbody=x、-XPOST、-iXPOST）；帶了欄位又沒寫方法就自動變成 POST。逐種去認是認不完的，
+        所以每一個選項都要是認得的寫法，認不得的一律擋（Codex 對 P2 的意見：-fbody=x 原本漏掉、可以直接在 PR 上留言）。
+        對照組：認不得的選項放行 → 紅。"""
+        repo = "repos/davidjjx/invest-watch"
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh api %s/issues/7/comments -fbody=x" % repo,                    # 黏在一起的欄位：其實是 POST
+                        "gh api %s/issues/7/comments -Fbody=@x.txt" % repo,
+                        "gh api %s/pulls/7/reviews -fevent=APPROVE" % repo,
+                        "gh api -XPOST %s/pulls/7/comments" % repo,
+                        "gh api -iXPOST %s/pulls/7/comments" % repo,                      # 兩個短旗標黏在一起
+                        "gh api -X GET -iXDELETE %s/pulls/comments/1" % repo,             # 前面寫 GET、後面黏一個 DELETE
+                        "gh api %s/contents/AGENTS.md -fmessage=x -fcontent=eA==" % repo,
+                        "gh api %s/pulls/7/comments --no-such-option" % repo,             # 認不得的選項
+                        "gh api %s/pulls/7/comments -Z" % repo):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh api %s/pulls/7/comments --paginate" % repo,
+                    "gh api --paginate --slurp %s/pulls/7/reviews" % repo,
+                    "gh api %s/pulls/7/reviews -q '.[].state'" % repo,
+                    "gh api %s/pulls/7/reviews --jq='.[].state'" % repo,
+                    "gh api -H 'Accept: application/vnd.github+json' %s/pulls/7" % repo,
+                    "gh api -i %s/pulls/7" % repo,
+                    "gh api -X GET %s/pulls -f state=open -f per_page=5" % repo,           # 明寫 GET：欄位只是查詢參數
+                    "gh api -XGET %s/pulls -fstate=open" % repo):
+            self.allowed(self.bash(cmd), msg=cmd)
+
     def test_autopilot_cannot_touch_the_verifier_the_workflows_or_agents_md(self):
         """2026-10-05 裁決二：自動駕駛期間，守門擋下所有寫入 .github/workflows/、驗收程式、突變與已知例外清單、AGENTS.md 的動作（停止條件 3）。
         對照組：把它們從第一層拿掉 → 這一條會紅。"""

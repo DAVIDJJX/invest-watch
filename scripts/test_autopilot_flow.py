@@ -165,7 +165,13 @@ class FlowBase(unittest.TestCase):
                                 last_assistant_message="（已交回報告）"), self.env())
         return 0, self.state()["reviews"][-1]
 
-    def send(self, kind, stage="X1", report=None, extra=None):
+    def send(self, kind, stage="X1", report=None, extra=None, tests_txt=True):
+        if kind == "ready" and tests_txt:                                       # P2：本機的測試紀錄要在、條數要跟驗收機一樣（假的驗收機預設回 830）
+            runs = os.path.join(self.sb.main, ".autopilot", "runs", stage)
+            if not os.path.exists(os.path.join(runs, "tests.txt")):
+                os.makedirs(runs, exist_ok=True)
+                with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+                    fh.write("Ran 830 tests in 100.0s\n\nOK\n")
         p = os.path.join(self.sb.tmp, "report-%s.md" % kind)
         with io.open(p, "w", encoding="utf-8") as fh:
             fh.write(report if report is not None else good_report(stage, kind))
@@ -2246,6 +2252,75 @@ class TestGate(FlowBase):
         with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
             fh.write("Ran 830 tests in 100.0s\n\nOK\n")
         self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_a_missing_local_test_record_blocks_ready(self):
+        """本機沒有 tests.txt、或讀不出條數＝沒有證據，不能當成「對得上」：不寄 ready（Codex 對 P2 的意見；原本缺檔就略過比對）。
+        對照組：缺檔就略過 → 紅。"""
+        self.ready_setup()
+        self.errs = []
+        self.assertEqual(self.send("ready", tests_txt=False), 3)
+        self.assertIn("找不到本機的測試紀錄", "".join(self.errs))
+        runs = os.path.join(self.sb.main, ".autopilot", "runs", "X1")
+        os.makedirs(runs, exist_ok=True)
+        with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+            fh.write("全部通過\n")                                                      # 有檔，但沒有「Ran N tests」那一行
+        self.errs = []
+        self.assertEqual(self.send("ready", tests_txt=False), 3)
+        self.assertIn("讀不出條數", "".join(self.errs))
+        self.assertIsNone(self.state().get("candidate"))
+        with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+            fh.write("Ran 830 tests in 100.0s\n\nOK\n")
+        self.assertEqual(self.send("ready", tests_txt=False), 0, self.errs)
+
+    def test_findings_in_the_review_body_count_too(self):
+        """Codex 把釘不到 diff 行上的意見寫在 review 的本文裡（一行檔案連結＋一行等級徽章），不是行內留言——P2 自己的 PR 就有一條 P0 是這樣來的。
+        它們也要逐條回覆；編號是「review 編號-第幾條」。說明文字裡的連結、結尾說明區塊裡的連結不算；同一個檔同一行已經有行內留言的不重複算。
+        對照組：只讀行內留言 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        blob = "https://github.com/fake/invest-watch/blob/{sha}/"
+        badge = "**<sub><sub>![P%d Badge](https://img.shields.io/badge/P%d-red?style=flat)</sub></sub>  %s**"
+        body = "\n".join(["### Codex Review", "", blob + "scripts/x.py#L10-L12", badge % (0, 0, "本文裡的第一條"), "", "說明文字……", "",
+                          "AGENTS.md reference: [AGENTS.md:L1-L2](" + blob + "AGENTS.md#L1-L2)", "",
+                          blob + "js/app.js#L7", badge % (2, 2, "本文裡的第二條"), "",
+                          blob + "js/app.js#L3", badge % (1, 1, "跟行內留言同一行的那一條"), "",
+                          "<details> <summary>About</summary>", blob + "README.md#L1", "</details>", ""])
+        self.fake_gh(review_body=body, comments=[_bot_comment(201, "![P1 Badge](x) 行內的一條", 3)])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("還有 3 條沒有回覆", msg)                                           # 行內 1 條＋本文 2 條
+        self.assertIn("1-1", msg)
+        self.assertIn("1-2", msg)
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P0 | scripts/x.py:10 | 不採納 | 理由 |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("有重大意見（P0／P1）被判「不採納」", "".join(self.errs))         # 本文裡的 P0 判不採納，照樣擋
+        self.assertIn("1-1", "".join(self.errs))
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P0 | scripts/x.py:10 | 採納並修 | b |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)                             # 標了 P2 的可以不採納
+        self.assertIn("重大 2 條", body_of(self.sent[-1]))
+
+    def test_every_page_of_reviews_and_comments_is_read(self):
+        """留言超過一頁（100 則）時要一頁一頁讀完，第二頁的意見也要回覆；任何一頁讀不到＝查不到，不寄（Codex 對 P2 的意見）。
+        對照組：只讀第一頁 → 紅。"""
+        self.ready_setup()
+        page1 = [_bot_comment(1000 + i, "[P1] 舊 commit 的", 1, commit="0" * 40) for i in range(100)]      # 第一頁塞滿不相干的
+        entries = fake_gh_entries(comments=page1)
+        entries.insert(0, {"match": "/pulls/7/comments?per_page=100&page=2", "rc": 0, "text": json.dumps([_bot_comment(2001, "[P1] 第二頁才出現的意見", 5)])})
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("還有 1 條沒有回覆", "".join(self.errs))
+        self.assertIn("2001", "".join(self.errs))
+        entries[0] = {"match": "/pulls/7/comments?per_page=100&page=2", "rc": 1, "text": "HTTP 502"}
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("外部審查還沒完成", "".join(self.errs))
+        self.assertIn("查不到", "".join(self.errs))
 
     def test_stop_mails_also_carry_the_two_lines(self):
         """停止信固定多兩行，由程式寫。對照組：拿掉 gate_lines → 紅。"""

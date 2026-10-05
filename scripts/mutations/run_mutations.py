@@ -35,6 +35,9 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 DEFAULT_DEFS = os.path.join(HERE, "autopilot_mutations.py")
 DEFAULT_KNOWN = os.path.join(HERE, "known_survivors.json")
 IGNORE = (".git", "__pycache__", ".autopilot", "node_modules", "worktrees", ".verify-out", ".verify-in", "mutcopy")
+# 這兩條測試檢查的是「清單裡每個錨點在倉庫裡剛好出現一次」。任何突變把原文改掉之後它們一定會紅，
+# 所以不能拿來當「這個突變被測試抓到」的證據（2026-10-05 發現；當時沒有任何一個突變是只靠它們紅的）。
+ANCHOR_SELF_TESTS = ("test_the_real_definitions_load_and_their_anchors_are_unique", "test_mutation_list_lives_in_the_repo_and_its_anchors_hold")
 
 
 def load_defs(path):
@@ -165,12 +168,16 @@ def run_one(m, repo, copy, python, browser, timeout):
         rc, ran, fails, tail, out = run_tests(copy, python, tests, browser, timeout)
     finally:
         shutil.copyfile(src, dst)
+    incidental = [f for f in fails if f in ANCHOR_SELF_TESTS]
+    fails = [f for f in fails if f not in ANCHOR_SELF_TESTS]
     red = rc != 0 and bool(fails)
     rec = {"id": mid, "desc": desc, "file": rel, "rc": rc, "ran": ran, "red": fails, "ok": red, "tail": tail,
            "seconds": round(time.time() - t0, 1)}
+    if incidental:
+        rec["incidental"] = incidental
     if ran == 0:                                                   # 一條測試都沒跑到：篩選字寫錯、或改壞之後連載入都失敗——算定義錯誤，不算紅也不算存活
         rec.update({"ok": False, "error": "沒有跑到任何測試（%s）" % (tail or "?")[:80]})
-    if rc != 0 and not fails:
+    if rc != 0 and not fails and not incidental:
         rec["output_tail"] = out[-1500:]
     return rec
 

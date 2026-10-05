@@ -64,7 +64,7 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
-                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None):
+                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
     沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
     event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。"""
@@ -76,7 +76,7 @@ def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}",
     reviews = []
     if codex:
         reviews.append({"id": 1, "user": {"login": BOT_LOGIN}, "state": "COMMENTED", "commit_id": review_commit,
-                        "body": "Codex Review: Didn't find any major issues.", "submitted_at": "2026-10-04T00:10:00Z"})
+                        "body": review_body or "Codex Review: Didn't find any major issues.", "submitted_at": "2026-10-04T00:10:00Z"})
     for login in (others or []):
         reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
                         "submitted_at": "2026-10-04T00:11:00Z"})

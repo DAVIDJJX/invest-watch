@@ -6,7 +6,7 @@
 
 1. **等驗收機**：`py -3.12 .claude/hooks/iw_notify.py verify --stage <階段> --wait`（每 60 秒查一次，上限 40 分鐘）。紅就先修（修完是新 commit，重推、重等）；結果檔會抓到 `.autopilot/runs/<階段>/verify/<commit>/verify-result.json`。
 2. **開 PR**（只准這一支開）：先寫 `.autopilot/runs/<階段>/pr-body.md`——只寫改了什麼，**不放規格原文**、不放本機路徑、不放任何個人資料——再 `py -3.12 .claude/hooks/iw_notify.py pr open --stage <階段> --title "停點 <階段>：一句話" --body-file .autopilot/runs/<階段>/pr-body.md`。程式先過隱私掃描才送。改標題內文用 `pr edit`。
-3. **等 Codex**：`py -3.12 .claude/hooks/iw_notify.py review-status --stage <階段> --wait`（上限 60 分鐘）。Codex 設了 Automatic review 會自己審；10 分鐘沒動靜就 `py -3.12 .claude/hooks/iw_notify.py pr request-review --stage <階段>`（留言內容寫死是 `@codex review`，之後有新 commit 要重審也只用這一句）。
+3. **等 Codex**：`py -3.12 .claude/hooks/iw_notify.py review-status --stage <階段> --wait`（上限 60 分鐘）。Codex 設了 Automatic review 會自己審；10 分鐘沒動靜就 `py -3.12 .claude/hooks/iw_notify.py pr request-review --stage <階段>`（留言內容寫死是 `@codex review`，之後有新 commit 要重審也只用這一句）。Codex 有意見才發 review；沒有意見時它只按 👍、不發 review——那種情況 `--wait` 會等到逾時、程式記成「外部審查未完成」，照下面那一節處理，不要自己當成通過。
 4. **回覆意見**：讀 `review-status` 印出來的 findings，寫 `.autopilot/runs/<階段>/03_第三方審查.md`，固定一張表、一行一條：
 
        | 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |
@@ -14,9 +14,10 @@
        | 1234567 | P1 | js/app.js:42 | 採納並修 | commit abc1234 |
        | 1234568 | P1 | scripts/x.py:9 | 不採納 | 理由… |
 
+   Codex 的意見有兩種：行內留言（編號是一串數字），以及寫在 review 本文裡的（釘不到改動行上的意見；編號是「review 編號-第幾條」，例如 `5409995249-1`）。`review-status` 兩種都會列，兩種都要回覆。
    每一條都要有；「採納並修」就修在標籤之後的 commit、重推、回到第 1 步（驗收機與 Codex 都要再過一次）。只認 Codex 機器人對 PR 最新 commit 的意見；別人的留言忽略（信裡會列出來）。沒標等級的意見當 P1。
    **不在 PR 上回覆、不爭論、不 resolve、不刪、不隱藏、不駁回**——守門會擋，那也不是我們的做法。
-5. **審查代理驗收**（第 6 步）→ **寄 ready**（第 7 步）。寄之前程式自己查關卡四件：驗收機綠、外部審查完成、每條意見有回覆、沒有 P0／P1 被判不採納；本機 `tests.txt` 的條數要等於驗收機的。
+5. **審查代理驗收**（第 6 步）→ **寄 ready**（第 7 步）。寄之前程式自己查關卡四件：驗收機綠、外部審查完成、每條意見有回覆、沒有 P0／P1 被判不採納；本機 `tests.txt` 一定要在（全套測試的輸出，要有「Ran N tests」那一行），條數要等於驗收機的——缺檔或讀不出條數都寄不出去。
 
 ## 外部審查未完成（逾時、額度用完、設定被關）
 

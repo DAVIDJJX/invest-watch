@@ -1741,6 +1741,9 @@ def _git_push(args, words, cdir, ctx, auto):
 _GH_VALUE_OPTS = set("""-R --repo -f --field -F --raw-field -X --method -H --header -q --jq -t --template --json -L --limit -b --body
 --ref -r -w --workflow -e --event -s --status -u --user --created -c --commit --input -p --preview --cache --hostname --job -j --attempt
 -a -i --interval --branch -B --title --label -l --assignee -m --milestone --body-file""".split())
+# gh api：只有這些選項算「看得懂、而且不會寫」。其他的不是方法、不是欄位、就是認不得——認不得的一律擋。
+_GH_API_SAFE_FLAGS = set(["--paginate", "--slurp", "-i", "--include", "--silent", "--verbose"])
+_GH_API_SAFE_VALUE_OPTS = set(["-H", "--header", "-q", "--jq", "-t", "--template", "--cache", "--hostname", "-p", "--preview"])
 
 
 def _gh_positional(argv):
@@ -1771,21 +1774,47 @@ def _gh(argv, ctx, auto, cwd=None):
     if sub == "issue" and sub2 in GH_ISSUE_WRITES:
         raise Block("gh issue %s 會寫 issue；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。" % sub2, 1)
     if sub == "api":
-        method = None
-        for i, a in enumerate(argv):
-            if a in ("-X", "--method") and i + 1 < len(argv):
-                method = argv[i + 1].upper()
-            elif a.startswith("--method="):
+        # gh 接受把短旗標黏在一起寫（-fbody=x、-XPOST、-iXPOST），帶了欄位又沒寫方法就自動變成 POST。逐種寫法去認是認不完的
+        # （2026-10-05 Codex 的審查意見：-fbody=x 就這樣漏掉了），所以反過來：每一個選項都要是認得的寫法；認不得的一律擋。
+        method, has_fields, unknown, i = None, False, None, 1
+        while i < len(argv):
+            a = argv[i]
+            i += 1
+            if not a.startswith("-") or a == "-":
+                continue
+            if a in _GH_API_SAFE_FLAGS:
+                continue
+            if a in _GH_API_SAFE_VALUE_OPTS:
+                i += 1
+                continue
+            if any(a.startswith(o + "=") for o in _GH_API_SAFE_VALUE_OPTS if o.startswith("--")):
+                continue
+            if a in ("-X", "--method"):
+                method = argv[i].upper() if i < len(argv) else "?"
+                i += 1
+                continue
+            if a.startswith("--method="):
                 method = a.split("=", 1)[1].upper()
-            elif a.startswith("-X") and len(a) > 2:
+                continue
+            if a.startswith("-X") and not a.startswith("--") and a[2:].isalpha():
                 method = a[2:].upper()
-        has_fields = any(a in ("-f", "-F", "--field", "--raw-field", "--input") or a.startswith("--field=") or a.startswith("--raw-field=")
-                         or a.startswith("--input=") for a in argv)
+                continue
+            if a in ("-f", "-F", "--field", "--raw-field", "--input"):
+                has_fields = True
+                i += 1
+                continue
+            if a.startswith(("--field=", "--raw-field=", "--input=")) or (a[:2] in ("-f", "-F") and len(a) > 2):
+                has_fields = True
+                continue
+            unknown = unknown or a
         writing = (method not in (None, "GET")) or (has_fields and method != "GET")
         path = " ".join(pos[1:])
         if writing:                                                 # 第一版只擋幾種路徑，建立發行版、觸發流程就漏掉了：寫入一律擋
             raise Block("用 GitHub API 做寫入（改分支、合併、改檔、建立發行版、觸發流程…：%s），不允許。要改東西請用對應的 gh 指令；合併要經過放行。"
                         % (path[:60] or "?"), 1)
+        if unknown:
+            raise Block("gh api 帶了看不出是不是唯讀的選項（%s）。gh 接受把短旗標黏在一起的寫法，逐種去認是認不完的，所以認不得的一律擋。"
+                        "唯讀請只用這幾種：--jq／-q、-t、--paginate、--slurp、-H、-i、-X GET。" % unknown[:30], 1)
     if sub == "repo" and sub2 in ("delete", "rename", "edit", "archive", "unarchive", "sync", "create", "fork", "deploy-key"):
         raise Block("gh repo %s 會改倉庫本身，不允許。" % sub2, 3)
     if sub in ("secret", "variable") and sub2 in ("set", "delete", "remove"):
