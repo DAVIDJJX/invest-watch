@@ -674,6 +674,16 @@ M += [
     ("R60", "關卡：寄信前不核對 PR 內文的保護範圍清單", H + "iw_notify.py",
      "                if stale:\n                    return fail(\"PR 內文最後那一段", "                if False:\n                    return fail(\"PR 內文最後那一段",
      FLOW + ["-k", "test_the_pr_body_must_list_every_protected_file_touched_now"]),
+    # ---- Codex 對 P2 的第四次審查（commit c9e027a，2026-10-06）採納的兩條
+    ("R61", "驗收機：讀不到隱私掃描器也照樣把結果帶出去上傳", "scripts/verify_ci.py",
+     "    if guards is None:\n        # 讀不到 main 上的隱私掃描器：只剩幾條通用的樣式可用", "    if False:\n        # 讀不到 main 上的隱私掃描器：只剩幾條通用的樣式可用",
+     VERIFY + ["-k", "test_nothing_leaves_the_job_when_the_scanner_cannot_be_read"]),
+    ("R62", "驗收機：判定不看「有一段讀不到隱私掃描器」", "scripts/verify_ci.py",
+     "        if rep.get(\"scanner_missing\"):", "        if False:",
+     VERIFY + ["-k", "test_nothing_leaves_the_job_when_the_scanner_cannot_be_read"]),
+    ("R63", "關卡：動到保護範圍而沒有 PR 也照樣寄（免了外部審查就不查）", H + "iw_notify.py",
+     "            if pr_now is None and touched:", "            if False:",
+     FLOW + ["-k", "test_protected_changes_need_a_pr_even_when_the_external_review_is_waived"]),
 ]
 
 MUTATIONS = [m[:5] + (NARROW.get(m[0], m[5]),) for m in M]

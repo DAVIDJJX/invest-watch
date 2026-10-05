@@ -556,6 +556,11 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             # PR 內文最後那一段「動到的保護範圍檔」是開 PR、改內文的那個當下列的；之後為了回應審查又加的 commit 可能動到別的保護檔
             # （2026-10-06 Codex 的審查意見：原本寄信前不看 PR 內文，舊清單漏了檔也照樣放行）。寄之前拿現在的 diff 再對一次。
             pr_now = ext.get("pr") if isinstance(ext.get("pr"), dict) else None
+            touched = t1 + sf + t2
+            if pr_now is None and touched:                             # 沒有 PR（例如找不到 PR、David 免了外部審查）：免除只免外部審查，保護範圍還是要揭露
+                return fail("這個階段動到了保護範圍檔（%d 個：%s），但找不到這個分支的 PR。免除外部審查只免審查，保護範圍還是要寫在 PR 內文裡："
+                            "請先用 iw_notify.py pr open 開 PR（程式會列出清單），再寄。"
+                            % (len(touched), "、".join(touched[:8]) + ("……" if len(touched) > 8 else "")))
             if pr_now is not None:
                 stale = protected_list_missing(pr_now.get("body"), t1 + sf + t2)
                 if stale:

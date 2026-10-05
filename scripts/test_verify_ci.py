@@ -314,6 +314,34 @@ class TestScanBeforeUpload(unittest.TestCase):
         self.assertEqual(rep["privacy_hits"], ["tests.json"])
         self.assertNotIn("someone", self.read(dest, "export.json"))
 
+    def test_nothing_leaves_the_job_when_the_scanner_cannot_be_read(self):
+        """讀不到 main 上的隱私掃描器時，只剩幾條通用的樣式，專案自己的規則掃不到：什麼都不帶出去，這一步以失敗結束，判定是紅
+        （2026-10-06 Codex 的審查意見：原本照樣把檔案交出去上傳）。對照組：讀不到也照樣帶出去 → 紅。"""
+        saved = list(V._GUARDS)
+
+        def restore():
+            V._GUARDS[:] = saved
+        self.addCleanup(restore)
+        V.main_guards()
+        V._GUARDS[:] = [None]                                                            # 假裝讀不到
+        out, dest = os.path.join(self.tmp, "out"), os.path.join(self.tmp, "export")
+        os.makedirs(out)
+        V.write_json(os.path.join(out, "tests.json"), GREEN_TESTS)
+        V.write_json(os.path.join(out, "mut-1-of-2.json"), {"shard": "1/2", "results": []})
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = V.cmd_export(argparse.Namespace(out=out, export=dest))
+        self.assertEqual(rc, 1)
+        self.assertEqual(os.listdir(dest), ["export.json"])
+        self.assertTrue(V.read_json(os.path.join(dest, "export.json"), {})["scanner_missing"])
+        V._GUARDS[:] = saved
+        inp = os.path.join(self.tmp, "in")                                                 # 判定那一段：有一段說讀不到掃描器 → 紅
+        rc, res = self.collect()
+        self.assertEqual(rc, 0, res.get("reasons"))
+        V.write_json(os.path.join(inp, "verify-mutations-1", "export.json"), {"scanner_missing": True, "privacy_hits": [], "exported": []})
+        with contextlib.redirect_stdout(io.StringIO()):
+            rc = V.cmd_collect(argparse.Namespace(repo=ROOT, out=tempfile.mkdtemp(prefix="out-", dir=self.tmp), inputs=inp, main_ref="origin/main", summary=None))
+        self.assertEqual(rc, 1)
+
     def test_scan_reports_never_carry_the_matched_text(self):
         """掃描的回報會進紅的原因、結果檔、摘要與執行紀錄，所以只寫類別與處數。對照組：把命中的字帶出來 → 紅。"""
         planted = "持有 " + "10 股"

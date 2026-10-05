@@ -1394,6 +1394,25 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         self.assertEqual(N.protected_list_missing("x\n\n" + N.PROTECTED_HEAD + "\n- 第一層：`a.py`、`b.py`\n", ["a.py", "b.py", "c.py"]), ["c.py"])
         self.assertEqual(N.protected_list_missing("`a.py` 寫在別的地方，不在那一段裡", ["a.py"]), ["a.py"])
 
+    def test_protected_changes_need_a_pr_even_when_the_external_review_is_waived(self):
+        """「免外部審查」只免審查，不免保護範圍的揭露：動到保護檔而找不到 PR 時，就算 David 免了外部審查也不寄
+        （2026-10-06 Codex 的審查意見：原本只在有 PR 時才核對清單，沒有 PR 反而直接放行）。對照組：沒有 PR 就不查 → 紅。"""
+        head = self.protected_commit()
+        self.push_branch()
+        self.review("acceptance", head)
+        self.fake_gh(pr=False)                                                   # 找不到這個分支的 PR
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("外部審查還沒完成", "".join(self.errs))
+        self.assertIn("已免外部審查", self.say("免外部審查 X1")["systemMessage"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("找不到這個分支的 PR", msg)
+        self.assertIn("保護範圍", msg)
+        self.assertIn(".gitignore", msg)
+        self.assertIsNone(self.state().get("candidate"))
+
     def test_an_attended_stage_may_touch_them_but_the_mail_says_so(self):
         """不是自動駕駛跑的階段（David 在場）動到這些檔：可以登記要合併的 commit，但信裡一定寫出來。"""
         sb = self.sb

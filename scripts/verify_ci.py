@@ -596,6 +596,13 @@ def cmd_export(a):
         shutil.rmtree(dest)
     os.makedirs(dest)
     guards = main_guards()
+    if guards is None:
+        # 讀不到 main 上的隱私掃描器：只剩幾條通用的樣式可用，專案自己的規則掃不到。這時候什麼都不帶出去
+        # （2026-10-06 Codex 的審查意見：原本只在報告裡標「讀不到」，檔案照樣交出去上傳，之後判紅也收不回來）。
+        write_json(os.path.join(dest, "export.json"), {"exported": [], "dropped": ["（全部）"], "privacy_hits": [], "scanner": "（讀不到）",
+                                                      "scanner_missing": True, "at": now_iso()})
+        print("讀不到 main 上的隱私掃描器：這一段什麼都沒有帶出去（判定會是紅）。")
+        return 1
     names = [n for n in EXPORT_FILES if os.path.exists(os.path.join(out, n))]
     names += sorted(n for n in (os.listdir(out) if os.path.isdir(out) else []) if n.startswith("mut-") and n.endswith(".json"))
     texts = dict((n, _read(os.path.join(out, n))) for n in names)
@@ -1056,6 +1063,8 @@ def cmd_collect(a):
         if rep is None:
             job_privacy.append("%s：這一段沒有上傳前的掃描紀錄（export.json）" % label)
             continue
+        if rep.get("scanner_missing"):
+            job_privacy.append("%s：這一段讀不到隱私掃描器，什麼都沒有帶出來" % label)
         job_privacy += ["%s：%s 含不該公開的字串（上傳前就擋下了）" % (label, n) for n in rep.get("privacy_hits") or []]
     res = {"commit": os.environ.get("GITHUB_SHA") or cmp_.get("head_sha"), "ref": os.environ.get("GITHUB_REF_NAME") or os.environ.get("GITHUB_REF"),
            "run_id": os.environ.get("GITHUB_RUN_ID"), "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
