@@ -31,6 +31,10 @@
 
 P0／P1 判不採納，ready 寄不出去。寄 `--kind stop`（要你決定），把那幾條意見與你不採納的理由寫進信，由 David 與 Cowork 裁決（他們的答覆會以「裁決：<階段>」存下來）。
 
+## 驗收機本身有改（只會發生在一般模式的階段）
+
+程式用 git 比對這個 commit 上的 `verify.yml`、`scripts/verify_ci.py`、`scripts/mutations/run_mutations.py`、`known_survivors.json` 跟 main 上的內容；不一樣，驗收機的綠就不算，`verify`／寄 ready 都會說「驗收機本身有改」並記下來。這時寄 `--kind stop`（信裡程式會附完整的 diff），請 David 看過後在一般模式手打「驗收機變更 <階段>」（一次性、綁這個 commit；有新 commit 或「修改」就作廢）。它只讓這個 commit 可以用驗收機的綠；外部審查、審查代理、放行照舊。只認 push 觸發、流程檔路徑是 `.github/workflows/verify.yml` 的那一次執行；手動觸發的不算。
+
 ## 分支上出現不是你推的 commit
 
 推送前的檢查會擋（遠端的頭不是你推過的）、自動駕駛中立刻暫停並寄「要你決定」。不要覆蓋、不要合併它；寫停止報告說明是哪一個 commit，等 David 看過 PR 之後「繼續」。

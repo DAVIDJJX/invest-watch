@@ -64,7 +64,8 @@ def read_text(path):
 
 
 def check_anchors(repo, defs):
-    """每個錨點在 repo 裡剛好出現一次。回傳問題清單（空的＝都對）。"""
+    """每個錨點在 repo 裡剛好出現一次，而且改壞之後的檔還讀得懂（.py 編譯得過、.json 解析得過）。回傳問題清單（空的＝都對）。
+    為什麼連語法也查：2026-10-04 有一個突變的錨點切在註解中間，改完變成語法錯——測試一條都沒跑到，看起來像「沒有紅」，其實是定義寫錯。"""
     problems = []
     ids = [m[0] for m in defs]
     if len(ids) != len(set(ids)):
@@ -75,10 +76,28 @@ def check_anchors(repo, defs):
             problems.append("%s：檔案不存在 %s" % (m[0], m[2]))
             continue
         text = read_text(path)
-        for old, _new in pairs_of(m):
+        mutated, ok = text, True
+        for old, new in pairs_of(m):
             n = text.count(old)
             if n != 1:
                 problems.append("%s：錨點在 %s 出現 %d 次（要剛好 1 次）" % (m[0], m[2], n))
+                ok = False
+                continue
+            if old == new:
+                problems.append("%s：改成的內容跟原文一樣" % m[0])
+                ok = False
+            mutated = mutated.replace(old, new)
+        if not ok:
+            continue
+        try:
+            if m[2].endswith(".py"):
+                compile(mutated, m[2], "exec")
+            elif m[2].endswith(".json"):
+                json.loads(mutated)
+        except (SyntaxError, ValueError) as e:
+            problems.append("%s：改壞之後 %s 讀不懂了（%s）——這是突變定義寫錯，不是「改壞→紅」" % (m[0], m[2], str(e)[:80]))
+        if not [t for t in m[5] if t.endswith(".py")]:
+            problems.append("%s：沒有指定要跑哪個測試檔" % m[0])
     return problems
 
 
@@ -149,6 +168,8 @@ def run_one(m, repo, copy, python, browser, timeout):
     red = rc != 0 and bool(fails)
     rec = {"id": mid, "desc": desc, "file": rel, "rc": rc, "ran": ran, "red": fails, "ok": red, "tail": tail,
            "seconds": round(time.time() - t0, 1)}
+    if ran == 0:                                                   # 一條測試都沒跑到：篩選字寫錯、或改壞之後連載入都失敗——算定義錯誤，不算紅也不算存活
+        rec.update({"ok": False, "error": "沒有跑到任何測試（%s）" % (tail or "?")[:80]})
     if rc != 0 and not fails:
         rec["output_tail"] = out[-1500:]
     return rec
@@ -234,7 +255,8 @@ def main(argv=None):
                 print("○ %s 沒有紅（已知例外：%s）" % (rec["id"], known[rec["id"]][:60]))
             else:
                 bad += 1
-        print("%s %s %-58s 跑 %d 條、紅 %d 條%s" % ("✓" if rec["ok"] else "✗ 沒有紅", rec["id"], rec["desc"][:58], rec["ran"], len(rec["red"]),
+        mark = "✓" if rec["ok"] else ("○ 沒有紅（已知例外）" if rec["id"] in known else "✗ 沒有紅")
+        print("%s %s %-58s 跑 %d 條、紅 %d 條%s" % (mark, rec["id"], rec["desc"][:58], rec["ran"], len(rec["red"]),
                                                  "" if rec["ok"] else "  ← " + rec.get("tail", "")))
     _dump(a, defs, results, known)
     n = len([r for r in results if not r["id"].startswith("基準")])

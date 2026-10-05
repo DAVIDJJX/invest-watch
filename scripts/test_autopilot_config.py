@@ -81,8 +81,10 @@ def autopilot_files():
 class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
     def test_settings_match_the_config(self):
         """對照組（規格第 11 節）：把設定裡的模型改掉 → 這一條會紅。"""
-        self.assertEqual(CFG["requiredModel"], "claude-fable-5-1")
+        self.assertEqual(CFG["requiredModel"], "claude-opus-5-5")               # 2026-10-05 的模型分工：施工＝Opus 5.5、Extra high
         self.assertEqual(CFG["requiredEffort"], "xhigh")
+        self.assertEqual(CFG["requiredModelLabel"], "Opus 5.5")
+        self.assertEqual(CFG["approvableEfforts"], ["max"])                      # 中途能由「放行模型」臨時放行的強度只有 Max
         self.assertEqual(SETTINGS["model"], CFG["requiredModel"])
         self.assertEqual(SETTINGS["effortLevel"], CFG["requiredEffort"])
         self.assertIs(SETTINGS["switchModelsOnFlag"], False)                     # 訊息被標記時暫停，不自動換模型
@@ -94,9 +96,12 @@ class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
         """對照組（規格第 11 節）：把審查代理改成 inherit → 這一條會紅；多給它改檔或執行指令的工具 → 也會紅。"""
         fm, body = frontmatter(read(".claude/agents/iw-reviewer.md"))
         self.assertEqual(fm["name"], CFG["reviewer"]["agentType"])
-        self.assertEqual(fm["model"], CFG["requiredModel"])
+        self.assertEqual(CFG["reviewer"]["model"], "claude-fable-5-1")           # 審查代理固定 Fable 5.1，不跟著施工模型換
+        self.assertEqual(fm["model"], CFG["reviewer"]["model"])
+        self.assertNotEqual(fm["model"], CFG["requiredModel"])                   # 施工與審查不是同一個模型
         self.assertNotIn(fm["model"], ("inherit", "fable", "opus", "sonnet", "haiku", "best", "default"))
-        self.assertEqual(fm["effort"], CFG["requiredEffort"])
+        self.assertEqual(CFG["reviewer"]["effort"], "xhigh")
+        self.assertEqual(fm["effort"], CFG["reviewer"]["effort"])
         self.assertEqual([t.strip() for t in fm["tools"].split(",")], ["Read", "Grep", "Glob"])
         for key in ("permissionMode", "hooks", "skills", "mcpServers", "disallowedTools", "isolation", "background"):
             self.assertNotIn(key, fm)
@@ -108,7 +113,7 @@ class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
     def test_the_constants_are_not_repeated_in_the_code(self):
         for path in sorted(glob.glob(os.path.join(ROOT, ".claude", "hooks", "*.py"))):
             text = io.open(path, encoding="utf-8").read()
-            for literal in ("claude-fable", "xhigh", "invest-data"):
+            for literal in ("claude-fable", "claude-opus", "xhigh", "invest-data"):
                 self.assertFalse(literal in text, "%s 裡寫死了 %s（應該從 config.json 讀）" % (os.path.basename(path), literal))
 
 
@@ -338,7 +343,7 @@ class TestDocsAndSkill(unittest.TestCase):
         text = read("docs/AUTOPILOT.md")
         for must in ("自動駕駛：", "放行 <階段>", "修改 <階段>：", "繼續 <階段>", "放行模型", "結束自動駕駛",
                      "三道保護", "擋不住的事", "出問題的時候", "名詞解釋", "第一次設定",
-                     "Fable 5.1＋Extra high 用得比較兇", "不會偷偷換模型",
+                     "Opus 5.5＋Extra high 用得比較兇", "不會偷偷換模型", "模型分工",
                      "額度幾點恢復", "disableAllHooks", "--no-verify", "autopilot_install.py --uninstall"):
             self.assertIn(must, text, must)
         for path in CFG["tier1"]["paths"] + CFG["tier2"]["paths"]:
@@ -431,9 +436,13 @@ class TestThirdPartyGate(unittest.TestCase):
         self.assertEqual(sorted(v["files"]), [".github/workflows/verify.yml", "scripts/mutations/known_survivors.json", "scripts/mutations/run_mutations.py",
                                               "scripts/verify_ci.py"])
         for f in v["files"]:
-            if f.startswith(".github/"):
-                continue                                           # verify.yml 由 David 在 GitHub 網頁上貼進分支；本機的副本在合併前不一定有
             self.assertTrue(os.path.exists(os.path.join(ROOT, *f.split("/"))), f)
+        # 自動駕駛期間擋推送的範圍：都在第一層裡（守門擋寫入），而且蓋住「比 blob」的那幾個檔
+        self.assertEqual(sorted(v["protected"]), [".github/workflows/**", "AGENTS.md", "scripts/mutations/**", "scripts/verify_ci.py"])
+        for pat in v["protected"]:
+            self.assertIn(pat, CFG["tier1"]["paths"], pat)
+        for f in v["files"]:
+            self.assertTrue(C.glob_match(f, v["protected"]), f)
         self.assertEqual(e["botLogin"], "chatgpt-codex-connector[bot]")
         self.assertEqual(e["trigger"], "@codex review")
         self.assertEqual((e["timeoutMinutes"], e["waiverHours"], e["responsesFile"]), (60, 24, "03_第三方審查.md"))
@@ -454,11 +463,20 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertNotIn("no-review", read(rel), rel)
 
     def test_agents_md_is_public_safe_and_has_the_review_rules(self):
+        """給 Codex 的審查準則（公開檔）：官方文件要的段落名、繁體中文、只審不改，以及 2026-10-05 裁決七點名的八點。
+        隱私掃描另外涵蓋這個檔（autopilot_files）；所以第 1 點裡個人資料的類別用不會被掃描擋下的講法寫。"""
         text = read("AGENTS.md")
         for must in ("## Code Review Rules", "繁體中文", "P0", "P1", "只做程式碼審查", "scripts/net_policy.py", "scripts/verify_ci.py", "scripts/mutations/"):
             self.assertIn(must, text, must)
         self.assertLess(len(text.encode("utf-8")), 32 * 1024)                    # Codex 合併 AGENTS.md 的上限是 32 KiB
-        self.assertEqual(G.judgement_hits(text), [])                                # 不出現投資判斷用語
+        rules = text.split("## Code Review Rules", 1)[1]
+        for n, must in enumerate(("隱私", "擋字串", "門檻常數", "DOM 與請求數", "測試數與突變數", "資料狀態", "保護範圍", "對外請求"), 1):
+            self.assertRegex(rules, r"(?m)^%d\. \*\*%s\*\*" % (n, re.escape(must)))
+        for word in G.JUDGEMENT_WORDS:                                             # 第 2 點要把不准出現的字列給 Codex 看（這個檔不在擋字串的掃描範圍）
+            self.assertIn(word, rules, word)
+        for must in ("首屏請求數", "資料不足", "不適用", "PR 內文", "bot.com.tw", "commit 訊息", "fixture"):
+            self.assertIn(must, rules, must)
+        self.assertEqual(G.privacy_hits(text) + G.profile_key_hits(text) + G.fxplan_key_hits(text), [])
 
     def test_docs_and_skill_cover_the_third_party(self):
         skill = read(".claude/skills/iw-autopilot/SKILL.md")
@@ -470,8 +488,13 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertIn(must, steps, must)
         guide = read("docs/AUTOPILOT.md")
         for must in ("驗收機", "Codex", "免外部審查 <階段>", "AGENTS.md", "scripts/verify_ci.py", "scripts/mutations/", "互動限制", "Run failed",
-                     "@codex review", "本階段未經外部審查", "八句話"):
+                     "@codex review", "本階段未經外部審查", "九句話", "驗收機變更 <階段>", "模型分工", "Cowork回覆",
+                     "https://chatgpt.com/settings/code-review", "流程檔檢查", "推得動流程檔"):
             self.assertIn(must, guide, must)
+        for must in (CFG["requiredModelLabel"], CFG["requiredModel"], CFG["reviewer"]["model"], "Max"):          # 模型分工表跟設定檔一致
+            self.assertIn(must, guide, must)
+        self.assertIn(CFG["requiredModel"], skill)
+        self.assertIn("驗收機變更", skill)
         criteria = read(".claude/skills/iw-autopilot/review-criteria.md")
         for must in ("驗收機", "外部審查（GPT）", "03_第三方審查.md"):
             self.assertIn(must, criteria, must)
@@ -490,11 +513,16 @@ class TestThirdPartyGate(unittest.TestCase):
         self.assertIn("verify", [b[0] for b in baselines])
 
     def test_the_verify_workflow_when_present_is_read_only_and_never_runs_on_main(self):
-        """verify.yml 由 David 貼進分支；本機的副本（有的話）要符合：只讀、不觸發於 main、沒有 secret、沒有 models 權限（GitHub Models 已退役）。"""
-        p = os.path.join(ROOT, ".github", "workflows", "verify.yml")
-        if not os.path.exists(p):
-            self.skipTest("verify.yml 還沒貼進這個分支（由 David 在 GitHub 網頁上貼）")
+        """驗收機的流程檔：只讀、不觸發於 main（黃金排程與資料更新不受影響）、沒有 secret、沒有 models 權限（GitHub Models 已退役）、
+        不用 pull_request_target、判定用 main 上的驗收程式。"""
         text = read(".github/workflows/verify.yml")
+        self.assertRegex(text, r'(?m)^  push:\n    branches: \["feat/\*\*"\]\n    tags: \["stop\*"\]\n  workflow_dispatch:')
+        self.assertNotIn("schedule:", text)
+        self.assertNotRegex(text, r"(?m)^\s*pull_request")
+        self.assertIn("--main-ref origin/main", text)
+        self.assertEqual(sorted(set(re.findall(r"uses: (\S+)", text))),
+                         ["actions/checkout@v4", "actions/download-artifact@v4", "actions/setup-python@v5", "actions/upload-artifact@v4"])   # 只用 GitHub 自家的 action
+        self.assertNotIn("github.event.", text)                                    # 不把事件裡的字串塞進指令列
         self.assertRegex(text, r"(?m)^permissions:\n  contents: read\n")
         for bad in ("models:", "secrets.", "pull_request_target", "contents: write"):
             self.assertNotIn(bad, text, bad)

@@ -1,0 +1,158 @@
+name: 驗收機（verify）
+
+# ──────────────────────────────────────────────────────────────────────────
+# 停點 P2：從 GitHub 上的實際 commit 重跑全套測試、三種掃描與突變對照，結果綁定 commit、存成 artifact。
+#
+# 邏輯都在 scripts/verify_ci.py；這裡只做固定的幾步。判定一律用 main 上的驗收程式
+# （main 上還沒有的那一次＝P2 建立期，用分支的，結果會標 verifier_source=branch）。
+#
+# 這個檔是驗收機本身。建立期（P2）由 Claude 推；之後任何分支只要改了它、驗收程式、突變的執行器或已知例外清單，
+# 本機的檢查程式會用 git 比對跟 main 上的 blob 一不一樣——不一樣，這裡的綠就不算，
+# 除非倉庫主人在一般模式親手輸入「驗收機變更 <階段>」（見 docs/AUTOPILOT.md「第三方審核」）。
+#
+# 只在 feat/** 分支與 stop* 標籤推送時跑（也可手動；手動跑的結果只供參考，關卡只認 push 觸發的那一次）。
+# main 不跑：黃金排程與資料更新不受影響。只讀、沒有任何密鑰、不推任何東西、不寫 issue 或 PR。
+# ──────────────────────────────────────────────────────────────────────────
+on:
+  push:
+    branches: ["feat/**"]
+    tags: ["stop*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  verify:
+    name: 全套測試＋掃描＋封鎖對外連線
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: 取出倉庫（含 main，供比對）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 安裝套件
+        run: pip install requests
+
+      # 驗收程式一律用 main 上的版本（P2 第一次建立：main 上還沒有，用分支的，結果會標 verifier_source=branch）
+      - name: 取 main 上的驗收程式
+        id: verifier
+        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+
+      - name: 封鎖對外連線（三層：另一個使用者＋iptables、瀏覽器的名稱解析、Python 的 socket）
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" lockdown --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE"
+
+      - name: 全套測試（封鎖中；台銀 0 由這裡證明）
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" run-tests --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE"
+
+      - name: 解除封鎖並收集對外請求的紀錄
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" unlock --out "$RUNNER_TEMP/verify-out"
+
+      - name: 跟 main 比（測試數、突變數、被刪改的測試、動到的保護範圍檔、驗收機本身有沒有改）
+        if: always()
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" compare --out "$RUNNER_TEMP/verify-out" --main-ref origin/main --repo "$GITHUB_WORKSPACE"
+
+      - name: 上傳這一段的結果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-partial
+          path: ${{ runner.temp }}/verify-out
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
+
+  mutations:
+    name: 突變對照（分片 ${{ matrix.shard }}/6）
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    steps:
+      - name: 取出倉庫（含 main）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 安裝套件
+        run: pip install requests
+
+      - name: 取 main 上的驗收程式
+        id: verifier
+        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+
+      - name: 跑這一片的突變（執行器與例外清單用 main 的，定義用分支的）
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" mutations --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE" --shard "${{ matrix.shard }}/6" --main-ref origin/main --copy-dir "$RUNNER_TEMP"
+
+      - name: 上傳這一片的結果
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-mutations-${{ matrix.shard }}
+          path: ${{ runner.temp }}/verify-out
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true
+
+  collect:
+    name: 判定與結果檔
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [verify, mutations]
+    if: always()
+    steps:
+      - name: 取出倉庫（含 main）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: 取 main 上的驗收程式
+        id: verifier
+        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+
+      - name: 下載各段的結果
+        uses: actions/download-artifact@v4
+        with:
+          pattern: verify-*
+          path: ${{ runner.temp }}/verify-in
+
+      # 紅＝這一步以非零結束（GitHub 會寄 Run failed 信）。結果檔先過隱私掃描才上傳。
+      - name: 合併、判定、寫結果檔與摘要
+        run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" collect --inputs "$RUNNER_TEMP/verify-in" --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE" --main-ref origin/main --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: 上傳結果檔（verify-result.json）
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-result
+          path: ${{ runner.temp }}/verify-out/verify-result.json
+          retention-days: 90
+          if-no-files-found: error
+          overwrite: true

@@ -61,11 +61,13 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
-                    comments=None, others=None, ran=830):
+                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
-    沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。"""
+    沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
+    event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。"""
     run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
-           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": 1, "created_at": "2026-10-04T00:00:00Z"}
+           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": 1, "created_at": "2026-10-04T00:00:00Z",
+           "event": event, "path": path}
     result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [],
               "tests": {"ran": ran, "defined": ran, "passed": ran, "failed": [], "errors": [], "skipped": []}, "egress": {"bot_hits": 0}, "schema": 1}
     reviews = []
@@ -76,7 +78,7 @@ def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}",
         reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
                         "submitted_at": "2026-10-04T00:11:00Z"})
     prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "head": {"sha": "{sha}"}, "title": "x"}] if pr else []
-    return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": [run] if runs else []})},
+    return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": ([run] if runs else []) + list(extra_runs or [])})},
             {"match": "run download", "rc": 0, "text": json.dumps(result)},
             {"match": "pulls?head=", "rc": 0, "text": json.dumps(prs)},
             {"match": "/pulls/7/reviews", "rc": 0, "text": json.dumps(reviews)},
@@ -734,6 +736,40 @@ class TestPrePush(unittest.TestCase):
         self.assertEqual(st["foreign_commit"]["sha"], foreign)
         self.assertEqual(sb.rev("refs/heads/feat/stopX1", sb.remote), foreign)                   # 沒有覆蓋別人的 commit
         ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (mine, sb.cand)])    # 遠端頭是自己推過的：放行
+        self.assertTrue(ok, msgs)
+
+    def test_autopilot_cannot_push_anything_that_touches_the_verifier_or_the_workflows(self):
+        """2026-10-05 裁決二：自動駕駛期間，推送前的檢查擋下所有動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md 的推送（分支與標籤都算）。
+        啟動之前、David 在場時改好而且沒再變的不算；不在自動駕駛就不管（一般模式另有 blob 比對把關）。對照組：拿掉這一道 → 這一條會紅。"""
+        sb = self.sb
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: run_git(["tag", "-d", "stopX1-probe"], sb.wt, check=False))
+        active = {"version": 1, "active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 1}
+        for rel in (".github/workflows/verify.yml", ".github/workflows/other.yml", "scripts/verify_ci.py", "scripts/mutations/known_survivors.json",
+                    "scripts/mutations/autopilot_mutations.py", "AGENTS.md"):
+            run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+            sb.write(rel, "changed\n", sb.wt)
+            sha = sb.commit("touch " + rel, sb.wt)
+            ST.save(sb.sd, dict(active))
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertFalse(ok, rel)
+            self.assertIn("自動駕駛期間不能推", " ".join(msgs))
+            self.assertIn(rel, " ".join(msgs))
+            ok, msgs = sb.check(["refs/tags/stopX1-probe %s refs/tags/stopX1-probe %s" % (sha, "0" * 40)])          # 標籤也一樣
+            self.assertFalse(ok, rel)
+            blob = run_git(["rev-parse", "%s:%s" % (sha, rel)], sb.wt)[1]
+            ST.save(sb.sd, dict(active, preexisting={rel: blob}))                                # 啟動前就改好、內容沒變：不算
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertTrue(ok, msgs)
+            ST.save(sb.sd, dict(active, preexisting={rel: "0" * 40}))                            # 啟動後又改過：算
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertFalse(ok, rel)
+            ST.save(sb.sd, dict(active, active=False))                                           # 不在自動駕駛：這一道不管
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertTrue(ok, msgs)
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        ST.save(sb.sd, dict(active))
+        ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sb.cand, "0" * 40)])       # 沒動到那些檔：照常
         self.assertTrue(ok, msgs)
 
 

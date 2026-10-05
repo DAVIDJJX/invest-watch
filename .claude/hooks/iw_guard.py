@@ -121,7 +121,7 @@ GIT_DASH_C_OK = set(["core.quotepath", "color.ui", "advice.detachedhead", "core.
 # 會替我送訊息、排程、或開別的工作階段的工具：內容裡出現放行詞就擋（永遠有效）
 MESSAGING_TOOLS = re.compile(r"^(CronCreate|ScheduleWakeup|SendMessage|RemoteTrigger|PushNotification|"
                              r"mcp__scheduled-tasks__.*|mcp__ccd_session_mgmt__send_message|mcp__ccd_session__spawn_task)$")
-APPROVAL_WORDS = ("放行", "自動駕駛", "裁決")
+APPROVAL_WORDS = ("放行", "自動駕駛", "裁決", "免外部審查", "驗收機變更")
 
 # 暫停（或停在合併前）期間，除了讀檔與搜尋之外還准用的工具：都不會動到任何檔。清單寫死、越窄越好（test_pause_allowed_list_is_narrow）。
 PAUSE_TOOLS = ("Skill", "ToolSearch", "TodoWrite", "SubagentHandback")
@@ -440,8 +440,10 @@ def _autopilot_gate(tool, ti, ctx):
     effort = ((ctx.inp.get("effort") or {}).get("level")) if isinstance(ctx.inp.get("effort"), dict) else None
     model = ST.norm_model(ctx.inp.get("_observed_model") or "") or None
     approved_models = set([need_model] + list(st.get("model_approved") or []))
+    approved_efforts = set([need_effort] + list(st.get("effort_approved") or []))      # 中途由 David 手打「放行模型」臨時放行的強度（只有 Max 可以）
+    approvable = list(cfg.get("approvableEfforts") or [])
 
-    first_start = st.get("status") == "pending" and not st.get("activated_at")
+    first_start =st.get("status") == "pending" and not st.get("activated_at")
     if first_start:                                                 # 啟動後的第一個動作：這時才看得到強度
         if effort is not None and effort != need_effort:
             ctx.effects.append(("deactivate", "思考強度是 %s，不是 %s" % (effort, need_effort)))
@@ -461,10 +463,12 @@ def _autopilot_gate(tool, ti, ctx):
             ctx.effects.append(("model_violation", model))
             raise Block("模型被換成「%s」，自動駕駛已暫停（已寄信）。要用它繼續，請 David 輸入「放行模型」；"
                         "或等額度恢復後輸入「繼續 %s」。" % (model, st.get("stage")), 9)
-        if effort is not None and effort != need_effort:
-            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）" % (effort, need_effort), 9, True))
-            raise Block("思考強度被改成「%s」（規定是 %s），自動駕駛已暫停（已寄信）。請 David 用思考強度選單（Ctrl+Shift+E）改回 %s，再輸入「繼續 %s」。"
-                        % (effort, need_effort, effort_label, st.get("stage")), 9)
+        if effort is not None and effort not in approved_efforts:
+            can = effort in approvable
+            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）%s" % (effort, need_effort, "；這個強度可以臨時放行：輸入「放行模型」" if can else ""), 9, True))
+            ctx.effects.append(("effort_violation", effort))
+            raise Block("思考強度被改成「%s」（規定是 %s），自動駕駛已暫停（已寄信）。%s請 David 用思考強度選單（Ctrl+Shift+E）改回 %s，再輸入「繼續 %s」。"
+                        % (effort, need_effort, "要用它跑這一輪（卡住的難題才用），請 David 輸入「放行模型」；不然" if can else "", effort_label, st.get("stage")), 9)
         if st.get("status") == "pending":                           # 「繼續／修改」之後的第一個動作：模型與強度都對，接著做
             ctx.effects.append(("activate", {"effort": effort, "model": model}))
 

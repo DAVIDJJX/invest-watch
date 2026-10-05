@@ -101,6 +101,26 @@ def verify_gate(main_root, sd, cfg, stage, sha, now):
     return None if vs.get("green") else vs.get("why")
 
 
+def protected_push_problem(repo, lsha, st, cfg):
+    """自動駕駛期間，推上去的東西（分支或標籤）相對於正式版不可以動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md（2026-10-05 裁決二）。
+    啟動之前、David 在場時就改好、而且內容到現在沒變的不算（跟第一道同一條規則）。可以推回 None；不行回一句原因。"""
+    pats = (cfg.get("verify") or {}).get("protected") or []
+    if not pats or not st.get("active"):
+        return None
+    base = "refs/remotes/%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    rc, out = C.git(["-c", "core.quotepath=false", "diff", "--name-only", "%s...%s" % (base, lsha)], repo, timeout=60)
+    if rc != 0:
+        return "查不出這次推送相對於正式版動了哪些檔；自動駕駛期間先不推。"
+    files = [f for f in out.split("\n") if f.strip() and C.glob_match(f.strip(), pats)]
+    pre = st.get("preexisting") or {}
+    blobs = C.head_blobs(repo, lsha) or {}
+    hot = [f for f in files if not (f in pre and blobs.get(f, "(deleted)") == pre[f])]
+    if hot:
+        return ("自動駕駛期間不能推動到流程檔、驗收程式、突變與已知例外清單或 AGENTS.md 的東西（%s）。這是停止條件 3：寫停止報告、寄信，由 David 決定。"
+                % "、".join(hot[:6]))
+    return None
+
+
 def foreign_ok(st, rref, rsha):
     """P2 第 2 節：feat 分支的遠端頭要是自己上一次推的（任何一次都算）；第一次推、或還沒有紀錄就放行。"""
     pushes = (st.get("branch_pushes") or {}).get(rref) or []
@@ -231,6 +251,10 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
                 ok, why = False, "不能刪除遠端的標籤 %s（停止條件 4）。" % rref[10:]
             elif rsha != ZERO and rsha != lsha:
                 ok, why = False, "不能移動既有的標籤 %s（停止條件 4）。" % rref[10:]
+            else:
+                problem = protected_push_problem(repo, lsha, st, cfg)
+                if problem:
+                    ok, why = False, problem
         elif rref == main_ref:
             ok, why = check_main(repo, lsha, rsha, st, cfg, environ, now, sd, main_root)
             st = ST.load(sd)
@@ -248,6 +272,10 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
                     ok, why = False, "遠端的 %s 有這台電腦還沒有的 commit。先 git fetch 再試。" % rref[11:]
                 elif not is_ancestor(repo, rsha, lsha):
                     ok, why = False, "這個推送會改寫遠端 %s 的歷史（強推），不允許。" % rref[11:]
+            if ok and lsha != ZERO:
+                problem = protected_push_problem(repo, lsha, st, cfg)
+                if problem:
+                    ok, why = False, problem
             if ok and lsha != ZERO:
                 remember_push(sd, rref, lsha)
         ST.log(sd, {"event": "prepush", "ref": rref, "local": lsha[:12], "remote": rsha[:12], "ok": ok, "why": why,

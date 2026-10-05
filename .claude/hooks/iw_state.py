@@ -303,7 +303,7 @@ def clean_prompt(text):
 def parse_command(prompt):
     """看一則訊息是不是你的指令詞。回傳 dict(kind=…, stage=…, rest=…) 或 None。
 
-    整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛
+    整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛、免外部審查 <階段>、驗收機變更 <階段>
     第一行相符：      自動駕駛：<階段>（下面是規格）、修改 <階段>：＿＿、裁決：<階段>（下面是 Cowork 寫的內容）
     為什麼不能用「訊息裡有這幾個字就算」：規格本身就寫著「放行 P1」；代理回報、背景工作通知也會經過同一個 hook（外面包著標籤）。"""
     t = clean_prompt(prompt)
@@ -326,6 +326,9 @@ def parse_command(prompt):
     m = re.match(r"^免外部審查\s+(\S+)$", t)
     if m:
         return {"kind": "waive", "stage": m.group(1), "rest": ""}
+    m = re.match(r"^驗收機變更\s+(\S+)$", t)
+    if m:
+        return {"kind": "verifier_change", "stage": m.group(1), "rest": ""}
     m = re.match(r"^放行\s+(\S+)$", t)
     if m and m.group(1) != "模型":
         return {"kind": "approve", "stage": m.group(1), "rest": ""}
@@ -382,7 +385,7 @@ def near_miss(prompt, stage=None):
     colon = "[:" + chr(0xFF1A) + "]"
     shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("approve_model", r"^放行\s*模型"),
               ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛"), ("ruling", r"^裁決\s*" + colon + r"?\s*[A-Za-z0-9]"),
-              ("waive", r"^免外部審查(\s*[A-Za-z0-9]|$)")]
+              ("waive", r"^免外部審查(\s*[A-Za-z0-9]|$)"), ("verifier_change", r"^驗收機變更(\s*[A-Za-z0-9]|$)")]
     if stage:
         end = r"(?![A-Za-z0-9._-])"                                 # 階段名稱要完整（P1 不可以對到 P10）；後面接中文字沒關係
         shapes += [("resume", r"^繼續\s*" + re.escape(stage) + end), ("revise", r"^修改\s*" + re.escape(stage) + end)]
@@ -391,7 +394,8 @@ def near_miss(prompt, stage=None):
             return {"kind": kind, "where": "shape"}
     if len(lines) == 1 and len(first) <= _SHORT:                    # 一句話裡提到了（「請幫我 放行 P1」「我想結束自動駕駛」）
         for kind, pat in (("approve_model", r"放行\s*模型"), ("approve", r"放行\s*[A-Za-z0-9]"),
-                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛"), ("waive", r"免外部審查\s*[A-Za-z0-9]")):
+                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛"), ("waive", r"免外部審查\s*[A-Za-z0-9]"),
+                          ("verifier_change", r"驗收機變更\s*[A-Za-z0-9]")):
             if re.search(pat, first):
                 return {"kind": kind, "where": "shape"}
     return None

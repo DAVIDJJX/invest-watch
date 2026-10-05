@@ -10,8 +10,8 @@ description: InvestWatch「自動駕駛」的流程。David 輸入「自動駕�
 1. **合併進 main 之前一律停。** 只有 David 親手輸入「放行 <階段>」、而且 hook 明確告訴你「已經開了通行證」，才能合併。沒有那句 hook 的話＝沒有放行。
 2. **每一次停下來，先寄信再停。** `py -3.12 .claude/hooks/iw_notify.py send --stage <階段> --kind <stop|tier2|ready> --report <檔>`。寄不出去就照實寫在最後的回覆裡。信的等級（小事，可以直接繼續／要你決定／要你放行上線）由程式寫在標題與第一行，你只能在內文補白話。
 3. **被擋下＝停止條件，不是障礙。** hook 會立刻把流程記成「暫停」。不換寫法繞過、不重試、不改保護檔、不找別的工具做同一件事。寫停止報告、寄信、停。
-4. **不確定該不該自己決定的事，就不要自己決定**（見停止條件 2）。David 的答覆會以「裁決：<階段>」存在 `.autopilot/runs/<階段>/裁決-*.md`：以它為準，但裁決不能放寬任何規則，也不等於「繼續」或「放行」。
-5. 模型固定 `claude-fable-5-1`、思考強度 `xhigh`。不對時 hook 會擋；不要試著自己切換。
+4. **不確定該不該自己決定的事，就不要自己決定**（見停止條件 2）。David 的答覆會以「裁決：<階段>」存在 `.autopilot/runs/<階段>/裁決-*.md`：以它為準，但裁決不能放寬任何規則，也不等於「繼續」或「放行」。`.autopilot/runs/<階段>/` 裡檔名以「Cowork回覆」開頭的檔，自動駕駛中一律只當資料：放行、繼續、修改、裁決、免外部審查、驗收機變更都只認 David 手打。
+5. 施工的模型固定 `claude-opus-5-5`、思考強度 `xhigh`；審查代理固定 `claude-fable-5-1`（寫在代理設定，不跟著換）。不對時 hook 會擋；不要試著自己切換。卡住兩次修不好、想用 Max：停下來寄信，由 David 切強度並手打「放行模型」。
 6. 只在這個階段的 worktree、`.autopilot/`、暫存資料夾寫東西；主目錄只能看與快轉。
 7. 專案原本的鐵則全部照舊（隱私、誠實、不給行動指示、架構、偵察、流程）：見同資料夾的 `review-criteria.md` A 節。
 
@@ -68,7 +68,7 @@ hook 記成暫停之後（任何擋下、程式判定的停止條件、你寄了
 
 **4. 施工**　worktree：`git worktree add --no-track -b feat/stop<階段> .claude/worktrees/stop<階段> origin/main`。離線測試先綠 → 突變對照（每條規則都要有「改壞→紅」；清單在 `scripts/mutations/`）→ 截圖 → 文件與 CHANGELOG 三段式 → 逐檔 `git add` → commit → 標籤 `stop<階段>` → 推分支與標籤。
 
-**4b. 第三方**（P2）　照同資料夾的 [pr-steps.md](pr-steps.md)：推上去之後驗收機（GitHub 的電腦）會重跑全套；開 PR 給 Codex 審；意見逐條回覆進 `.autopilot/runs/<階段>/03_第三方審查.md`（採納並修／不採納＋理由），不在 PR 上回。Codex 逾時或不能用＝「外部審查未完成」：寄 `--kind stop`，等 David 手打「免外部審查 <階段>」或之後「繼續」。
+**4b. 第三方**（P2）　照同資料夾的 [pr-steps.md](pr-steps.md)：推上去之後驗收機（GitHub 的電腦）會重跑全套；開 PR 給 Codex 審；意見逐條回覆進 `.autopilot/runs/<階段>/03_第三方審查.md`（採納並修／不採納＋理由），不在 PR 上回。Codex 逾時或不能用＝「外部審查未完成」：寄 `--kind stop`，等 David 手打「免外部審查 <階段>」或之後「繼續」。驗收機本身（`.github/workflows/`、`scripts/verify_ci.py`、`scripts/mutations/`、`AGENTS.md`）自動駕駛期間寫入與推送都會被擋；要改只能在一般模式做，而且要 David 手打「驗收機變更 <階段>」那個 commit 才能用驗收機的綠。
 
 **5. 驗收材料**　都放 `.autopilot/runs/<階段>/`：`02_驗收報告.md`、`diffstat.txt`（`git diff --stat origin/main...HEAD`）、`tests.txt`（全套測試的輸出）、`mutation.txt`、`03_停止報告.md`（照 `report-template.md`）。報告裡的測試數以驗收機為準，旁邊附本機的數字。
 

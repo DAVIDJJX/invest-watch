@@ -9,7 +9,7 @@ verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實�
   lockdown          封鎖對外連線：另一個使用者＋iptables（第 1 層）、瀏覽器的名稱解析規則（第 2 層）、Python 的 socket（第 3 層）
   run-tests         用封鎖中的環境跑全套測試（子程序）→ tests.json、tests-verbose.txt
   unlock            收集對外請求的紀錄（Python 層的名稱、瀏覽器的名稱、iptables 擋下的 IP）→ egress.json；還原規則
-  compare           跟 main 比：測試數、被刪改的測試、突變數、被刪改的突變、動到的保護範圖檔、驗收機本身有沒有改 → compare.json
+  compare           跟 main 比：測試數、被刪改的測試、突變數、被刪改的突變、動到的保護範圍檔、驗收機本身有沒有改 → compare.json
   mutations         跑一片突變（執行器與例外清單用 main 的，定義用分支的）→ mut-*.json
   collect           合併、判定紅綠、結果檔過隱私掃描、寫 job summary → verify-result.json；紅＝非零結束
 
@@ -42,7 +42,7 @@ DEST_NAMES = {".github/workflows/verify.yml": "verify.yml", "scripts/verify_ci.p
               "scripts/mutations/run_mutations.py": "run_mutations.py", "scripts/mutations/known_survivors.json": "known_survivors.json"}
 
 BOT_HOST_PARTS = ("bot.com.tw",)
-# Chrome 自己的背景連線（更新、安全瀏覽、字型…）：列出來、不算紅。這份名單在 main 上才算數（算保護範圖）。
+# Chrome 自己的背景連線（更新、安全瀏覽、字型…）：列出來、不算紅。這份名單在 main 上才算數（算保護範圍）。
 BROWSER_NOISE = [r"(^|\.)google\.com$", r"(^|\.)googleapis\.com$", r"(^|\.)gstatic\.com$", r"(^|\.)gvt1\.com$", r"(^|\.)gvt2\.com$",
                  r"(^|\.)googleusercontent\.com$", r"(^|\.)doubleclick\.net$", r"(^|\.)chromium\.org$", r"(^|\.)google-analytics\.com$",
                  r"(^|\.)googlezip\.net$"]
@@ -50,6 +50,7 @@ GITHUB_HOSTS = [r"(^|\.)github\.com$", r"(^|\.)githubusercontent\.com$", r"(^|\.
 LOOPBACK_RE = re.compile(r"^(127\.|::1$|localhost$|localhost\.|0\.0\.0\.0$|::$|lockdown-selftest\.invalid$)")
 IPTABLES_PREFIX = "IWEGRESS "
 TEST_USER = "iwtest"
+SELFTEST_IP = "1.1.1.1"                        # 封鎖之後故意連一次，確認真的連不出去；這一筆不算進「被擋的 IP」
 
 SITECUSTOMIZE = r'''# iw-verify：第 3 層封鎖。所有 Python 程序（含測試開的子程序）一啟動就載入；記下每一個對外的名稱與連線，然後拒絕。
 import io, json, os, socket, time
@@ -242,7 +243,8 @@ def cmd_lockdown(a):
     if info["selftest"]["python"] != "blocked+logged":
         info["layers"]["python"] = None
         info["notes"].append("Python 層的自我測試沒過")
-    # 第 1 層：另一個使用者＋iptables（Linux、免密碼 sudo 才有）
+    # 第 1 層：另一個使用者＋iptables（Linux、免密碼 sudo 才有）。只擋那個使用者的對外封包——
+    # 直接把整台執行機的對外連線封掉，會弄斷它自己跟 GitHub 的連線（紀錄傳不回去、工作可能被判失聯）。
     if sys.platform.startswith("linux"):
         rc, o = sudo(["-v"])
         if rc != 0:
@@ -251,23 +253,55 @@ def cmd_lockdown(a):
             rc, o = sudo(["useradd", "-m", "-s", "/bin/bash", TEST_USER])
             if rc == 0 or "already exists" in o:
                 info["user"] = TEST_USER
-                sudo(["chmod", "-R", "a+rwX", os.path.abspath(a.repo)], timeout=300)
+                home = "/tmp/%s-home" % TEST_USER
+                repo = os.path.abspath(a.repo)
+                sudo(["chmod", "-R", "a+rwX", repo], timeout=300)
                 sudo(["chmod", "-R", "a+rwX", out], timeout=120)
-                rules = [["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", TEST_USER, "-o", "lo", "-j", "ACCEPT"],
-                         ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "LOG", "--log-prefix", IPTABLES_PREFIX],
-                         ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "DROP"]]
-                ok4 = all(sudo(["iptables"] + r)[0] == 0 for r in rules)
-                ok6 = all(sudo(["ip6tables"] + r)[0] == 0 for r in rules)
-                info["iptables"] = {"ipv4": ok4, "ipv6": ok6, "rules": rules}
+                for base in (repo, out, HERE):                      # 讓那個使用者走得到倉庫、結果資料夾與驗收程式（上層資料夾預設別人進不去）
+                    d = os.path.dirname(base)
+                    while d and d != os.path.dirname(d):
+                        sudo(["chmod", "o+x", d])
+                        d = os.path.dirname(d)
+                sudo(["chmod", "-R", "a+rX", HERE])
+                sudo(["mkdir", "-p", home])
+                sudo(["chown", "-R", TEST_USER, home])
+                # 倉庫是別的使用者的：git 預設會拒絕（dubious ownership）。只對這個測試用的使用者放行。
+                sudo(["-u", TEST_USER, "env", "HOME=" + home, "git", "config", "--global", "--add", "safe.directory", "*"])
+                accept = ["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", TEST_USER, "-o", "lo", "-j", "ACCEPT"]
+                log = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "LOG", "--log-prefix", IPTABLES_PREFIX]
+                drop = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "DROP"]
+                applied = {"iptables": [], "ip6tables": []}
+                for table in ("iptables", "ip6tables"):
+                    if sudo([table] + accept)[0] == 0:
+                        applied[table].append(accept)
+                        if sudo([table] + log)[0] == 0:             # 記錄被擋的封包（拿不到 LOG 模組就只擋不記）
+                            applied[table].append(log)
+                        if sudo([table] + drop)[0] == 0:
+                            applied[table].append(drop)
+                ok4 = accept in applied["iptables"] and drop in applied["iptables"]
+                ok6 = accept in applied["ip6tables"] and drop in applied["ip6tables"]
+                info["iptables"] = {"ipv4": ok4, "ipv6": ok6, "applied": applied, "log": log in applied["iptables"]}
                 if ok4:
-                    info["layers"]["ip"] = "iptables(uid-owner %s)" % TEST_USER
-                    rc, o = sudo(["-u", TEST_USER, "curl", "-sS", "--max-time", "5", "http://1.1.1.1/"], timeout=30)
+                    info["layers"]["ip"] = "iptables(uid-owner %s%s%s)" % (TEST_USER, "" if ok6 else "；沒有 IPv6 規則", "" if log in applied["iptables"] else "；只擋不記")
+                    rc, o = sudo(["-u", TEST_USER, "curl", "-sS", "--max-time", "5", "http://%s/" % SELFTEST_IP], timeout=30)
                     info["selftest"]["ip"] = "blocked" if rc != 0 else "NOT blocked"
                     if rc == 0:
                         info["layers"]["ip"] = None
-                        info["notes"].append("系統層自我測試沒過：以 %s 連 1.1.1.1 竟然成功" % TEST_USER)
+                        info["notes"].append("系統層自我測試沒過：以 %s 連 %s 竟然成功" % (TEST_USER, SELFTEST_IP))
                 else:
-                    info["notes"].append("iptables 加規則失敗：%s" % o[-200:])
+                    info["notes"].append("iptables 加規則失敗（沒有系統層的封鎖）")
+                if chrome:                                          # 瀏覽器在那個使用者底下開不開得起來；開不起來就加 --no-sandbox 再試（結果寫進紀錄）
+                    probe = ["-u", TEST_USER, "env", "HOME=" + home, info["browser"], "--headless=new", "--disable-gpu", "--no-first-run",
+                             "--user-data-dir=/tmp/%s-probe" % TEST_USER, "--dump-dom", "about:blank"]
+                    rc, o = sudo(probe, timeout=90)
+                    info["selftest"]["browser"] = "ok" if (rc == 0 and "<html" in o.lower()) else "failed"
+                    if info["selftest"]["browser"] != "ok":
+                        write_text(info["browser"], CHROME_WRAPPER.replace('exec "%(chrome)s"', 'exec "%(chrome)s" --no-sandbox')
+                                   % {"chrome": chrome, "egress": egress}, mode=0o755)
+                        rc, o = sudo(probe, timeout=90)
+                        info["selftest"]["browser"] = "ok(--no-sandbox)" if (rc == 0 and "<html" in o.lower()) else "failed"
+                        info["notes"].append("瀏覽器在測試用的使用者底下要加 --no-sandbox 才開得起來" if info["selftest"]["browser"].startswith("ok")
+                                             else "瀏覽器在測試用的使用者底下開不起來：%s" % o[-200:])
             else:
                 info["notes"].append("建不出使用者 %s：%s" % (TEST_USER, o[-200:]))
     else:
@@ -291,7 +325,11 @@ def cmd_run_tests(a):
     egress = os.path.join(out, "egress")
     os.makedirs(egress, exist_ok=True)
     env_items = {"PYTHONPATH": os.path.join(out, "pyguard"), "IW_EGRESS_LOG": os.path.join(egress, "python.jsonl"),
-                 "PYTHONIOENCODING": "utf-8", "PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8", "TMPDIR": "/tmp"}
+                 "PYTHONIOENCODING": "utf-8", "PATH": os.environ.get("PATH", ""), "LANG": "C.UTF-8", "TMPDIR": "/tmp",
+                 "IW_TEST_NO_SIDE_EFFECTS": "1"}
+    for k in ("LD_LIBRARY_PATH", "pythonLocation", "Python_ROOT_DIR", "Python3_ROOT_DIR"):      # setup-python 裝的 Python 要靠這幾個才找得到自己的函式庫
+        if os.environ.get(k):
+            env_items[k] = os.environ[k]
     browser = lock.get("browser") or find_chrome()
     if browser:
         env_items["IW_BROWSER"] = browser
@@ -397,15 +435,18 @@ def parse_python_log(text):
 
 
 _NETLOG_HOST = re.compile(r'"host"\s*:\s*"([^"\\]+)"')
-_NETLOG_URL = re.compile(r'"url"\s*:\s*"[a-z]+://([^/"\\:]+)')
+_NETLOG_URL = re.compile(r'"url"\s*:\s*"(?:https?|wss?)://([^/"\\]+)')          # 只看會連出去的網址；file://、chrome://、data: 不算
+_HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
 
 
 def parse_netlog_hosts(text):
+    """Chrome 的 netlog 裡出現過的主機名稱（它想連誰；名稱解析規則會讓它一個都連不到）。"""
     hosts = {}
     for m in list(_NETLOG_HOST.finditer(text or "")) + list(_NETLOG_URL.finditer(text or "")):
         h = m.group(1).strip().lower().rstrip(".")
+        h = h.split("@")[-1]
         h = h.rsplit(":", 1)[0] if re.search(r":\d+$", h) else h
-        if h:
+        if h and _HOSTNAME.match(h) and ("." in h or h == "localhost"):
             hosts[h] = hosts.get(h, 0) + 1
     return hosts
 
@@ -442,23 +483,27 @@ def cmd_unlock(a):
             hosts[h]["count"] += n
             if "browser" not in hosts[h]["via"]:
                 hosts[h]["via"].append("browser")
-    blocked, counters = [], None
+    blocked, counters, selftest_seen = [], None, False
     if (lock.get("layers") or {}).get("ip"):
         rc, o = sudo(["dmesg"], timeout=60)
         if rc != 0:
             rc, o = sudo(["journalctl", "-k", "--no-pager"], timeout=60)
-        blocked = parse_iptables_log(o if rc == 0 else "")
+        for b in parse_iptables_log(o if rc == 0 else ""):
+            if b["ip"] == SELFTEST_IP and b["port"] == "80":        # 封鎖時自己故意連的那一次：證明「擋下而且記到了」，不列進清單
+                selftest_seen = True
+                continue
+            blocked.append(b)
         rc, counters = sudo(["iptables", "-L", "OUTPUT", "-v", "-n", "-x"], timeout=30)
-        for table in ("iptables", "ip6tables"):                     # 還原（倒著刪）
-            for r in reversed((lock.get("iptables") or {}).get("rules") or []):
-                rr = list(r)
-                rr[0] = "-D"
-                if rr[1] == "OUTPUT" and rr[2] == "1":
-                    del rr[2]
-                sudo([table] + rr)
+    for table, rules in sorted(((lock.get("iptables") or {}).get("applied") or {}).items()):   # 還原（倒著刪）
+        for r in reversed(rules):
+            rr = list(r)
+            rr[0] = "-D"
+            if rr[1] == "OUTPUT" and rr[2] == "1":
+                del rr[2]
+            sudo([table] + rr)
     res = {"hosts": hosts, "blocked_ips": blocked, "python_events": py_events, "browser_netlogs": len(netlogs), "layers": lock.get("layers") or {},
-           "level": lock.get("level"), "selftest": lock.get("selftest") or {}, "notes": lock.get("notes") or [], "counters": (counters or "")[-2000:],
-           "collected_at": now_iso()}
+           "level": lock.get("level"), "selftest": dict(lock.get("selftest") or {}, ip_logged=selftest_seen), "notes": lock.get("notes") or [],
+           "counters": (counters or "")[-2000:], "collected_at": now_iso()}
     write_json(os.path.join(out, "egress.json"), res)
     print("對外請求：%d 個主機名稱、%d 個被擋的 IP（封鎖層級 %s）" % (len(hosts), len(blocked), res["level"]))
     return 0

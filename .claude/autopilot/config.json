@@ -4,10 +4,12 @@
 
   "protectionVersion": "P2",
 
-  "requiredModel": "claude-fable-5-1",
+  "modelRoles": "模型分工（2026-10-05，P2）：施工（Claude Code）＝requiredModel＋requiredEffort；審查代理＝reviewer.model＋reviewer.effort，固定寫在代理設定，不跟著施工模型換；外部審查（Codex）的模型由 OpenAI 指定，不在這裡。approvableEfforts：施工中途可以由 David 手打「放行模型」臨時放行的思考強度（只有 Max）；其他強度要改回來再「繼續」。",
+  "requiredModel": "claude-opus-5-5",
   "requiredEffort": "xhigh",
-  "requiredModelLabel": "Fable 5.1",
+  "requiredModelLabel": "Opus 5.5",
   "requiredEffortLabel": "Extra high",
+  "approvableEfforts": ["max"],
   "maxHours": 8,
 
   "stopLevels": {
@@ -38,7 +40,9 @@
 
   "reviewer": {
     "agentType": "iw-reviewer",
-    "maxRounds": 2
+    "maxRounds": 2,
+    "model": "claude-fable-5-1",
+    "effort": "xhigh"
   },
 
   "notify": {
@@ -51,12 +55,13 @@
   },
 
   "verify": {
-    "about": "驗收機（P2）：GitHub 的電腦從實際的 commit 重跑全套測試、掃描、突變，結果綁 commit 存成 artifact。寄「可以合併」的信、放行、合併前各查一次；查不到就擋。files：分支改了這幾個檔，CI 的綠不算（判定要用 main 上的驗收機）。",
+    "about": "驗收機（P2）：GitHub 的電腦從實際的 commit 重跑全套測試、掃描、突變，結果綁 commit 存成 artifact。寄「可以合併」的信、放行、合併前各查一次；查不到就擋。只認流程檔路徑是 .github/workflows/<workflow>、head_sha 是那個 commit、由 push 觸發的那一次執行。files：這個 commit 上的這幾個檔跟 main 上的 blob 不一樣，驗收機的綠就不算（除非 David 在一般模式手打「驗收機變更 <階段>」）。protected：自動駕駛期間，推送前的檢查擋下任何動到這些檔的推送（它們也都在 tier1 裡，守門擋寫入）。",
     "workflow": "verify.yml",
     "artifact": "verify-result",
     "timeoutMinutes": 40,
     "pollSeconds": 60,
-    "files": [".github/workflows/verify.yml", "scripts/verify_ci.py", "scripts/mutations/run_mutations.py", "scripts/mutations/known_survivors.json"]
+    "files": [".github/workflows/verify.yml", "scripts/verify_ci.py", "scripts/mutations/run_mutations.py", "scripts/mutations/known_survivors.json"],
+    "protected": [".github/workflows/**", "scripts/verify_ci.py", "scripts/mutations/**", "AGENTS.md"]
   },
 
   "externalReview": {

@@ -360,13 +360,21 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         try:
             with io.open(os.path.join(tmp, "f.py"), "w", encoding="utf-8", newline="\n") as fh:
                 fh.write("a = 1\nb = 2\nb = 2\n")
-            defs = [("X1", "ok", "f.py", "a = 1", "a = 0", ["t"]), ("X2", "twice", "f.py", "b = 2", "b = 0", ["t"]),
-                    ("X3", "missing file", "g.py", "x", "y", ["t"]), ("X1", "dup id", "f.py", "a = 1", "a = 9", ["t"])]
+            defs = [("X1", "ok", "f.py", "a = 1", "a = 0", ["t.py"]), ("X2", "twice", "f.py", "b = 2", "b = 0", ["t.py"]),
+                    ("X3", "missing file", "g.py", "x", "y", ["t.py"]), ("X1", "dup id", "f.py", "a = 1", "a = 9", ["t.py"])]
             problems = RM.check_anchors(tmp, defs)
             self.assertTrue(any("X2" in p and "2 次" in p for p in problems), problems)
             self.assertTrue(any("X3" in p for p in problems))
             self.assertTrue(any("編號重複" in p for p in problems))
             self.assertEqual(RM.check_anchors(tmp, defs[:1]), [])
+            # 改壞之後連語法都不對＝定義寫錯（2026-10-04 的 Q18：錨點切在註解中間，測試一條都沒跑到，看起來像「沒有紅」）
+            broken = RM.check_anchors(tmp, [("X5", "syntax", "f.py", "a = 1", "a = (", ["t.py"])])
+            self.assertTrue(any("X5" in p and "讀不懂" in p for p in broken), broken)
+            self.assertTrue(any("X6" in p and "一樣" in p for p in RM.check_anchors(tmp, [("X6", "noop", "f.py", "a = 1", "a = 1", ["t.py"])])))
+            self.assertTrue(any("X7" in p and "測試檔" in p for p in RM.check_anchors(tmp, [("X7", "no tests", "f.py", "a = 1", "a = 0", ["-k", "x"])])))
+            with io.open(os.path.join(tmp, "c.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"a": [1]}\n')
+            self.assertTrue(any("讀不懂" in p for p in RM.check_anchors(tmp, [("X8", "json", "c.json", "[1]", "[1", ["t.py"])])))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
         items = list(range(10))

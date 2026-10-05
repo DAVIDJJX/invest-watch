@@ -142,7 +142,7 @@ class Base(unittest.TestCase):
         rec = {"type": "user", "promptId": prompt_id, "message": {"role": "user", "content": text},
                "origin": {"kind": "human" if human else "task-notification"}, "turnOrigin": "human" if human else "task_notification"}
         with io.open(p, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({"type": "assistant", "message": {"model": "claude-fable-5-1"}}) + "\n")
+            fh.write(json.dumps({"type": "assistant", "message": {"model": CFG["requiredModel"]}}) + "\n")
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return p
 
@@ -163,7 +163,7 @@ class Base(unittest.TestCase):
         st["credential"] = cred
         return st
 
-    def run_tool(self, tool, ti, state=None, cwd=WT, session="S1", effort="xhigh", model="claude-fable-5-1", now=NOW):
+    def run_tool(self, tool, ti, state=None, cwd=WT, session="S1", effort="xhigh", model=CFG["requiredModel"], now=NOW):
         inp = {"session_id": session, "cwd": cwd, "tool_name": tool, "tool_input": ti, "scratchpad_dir": SCRATCH,
                "permission_mode": "auto", "hook_event_name": "PreToolUse", "_observed_model": model}
         if effort is not None:
@@ -824,30 +824,44 @@ class TestAutopilotOnly(Base):
         self.assertEqual(effects[0][0], "activate")
 
     def test_start_is_refused_on_another_model(self):
-        block, effects = self.bash("ls", state=self.state(status="pending"), model="claude-opus-5-5")
+        block, effects = self.bash("ls", state=self.state(status="pending"), model="claude-sonnet-5-5")
         self.assertIsNotNone(block)
-        self.assertIn("claude-opus-5-5", block.reason)
+        self.assertIn("claude-sonnet-5-5", block.reason)
+        self.assertIn(CFG["requiredModel"], block.reason)                              # 訊息裡說規定的是哪一個（施工＝Opus 5.5）
+        block, effects = self.bash("ls", state=self.state(status="pending"), model=CFG["reviewer"]["model"])
+        self.assertIsNotNone(block, "審查代理的模型（Fable 5.1）不是施工的模型")
         self.assertEqual([e[0] for e in effects], ["deactivate"])
 
     def test_model_swap_mid_run_pauses_everything(self):
         st = self.state()
-        block, effects = self.bash("ls", state=st, model="claude-opus-5")
+        block, effects = self.bash("ls", state=st, model="claude-sonnet-5")
         self.assertIsNotNone(block)
-        self.assertIn(("model_violation", "claude-opus-5"), effects)
+        self.assertIn(("model_violation", "claude-sonnet-5"), effects)
         self.assertIn("放行模型", block.reason)
-        st = self.state(model_violation={"model": "claude-opus-5", "at": C.iso(NOW)})
+        st = self.state(model_violation={"model": "claude-sonnet-5", "at": C.iso(NOW)})
         for tool, ti in (("Bash", {"command": "ls"}), ("Write", {"file_path": MAIN + "/.autopilot/runs/X1/x.md", "content": "x"}),
                          ("Agent", {"subagent_type": "iw-reviewer", "prompt": "REVIEW-KIND: acceptance\nSTAGE: X1\nCOMMIT: none\n"})):
             self.blocked(self.run_tool(tool, ti, state=st), has="放行模型", msg=tool)
-        st = self.state(model_violation={"model": "claude-opus-5", "at": C.iso(NOW)}, model_approved=["claude-opus-5"])
-        self.allowed(self.bash("ls", state=st, model="claude-opus-5"))
-        self.allowed(self.bash("ls", state=self.state(), model="claude-fable-5-1[1m]"))               # 只是上下文長度不同
+        st = self.state(model_violation={"model": "claude-sonnet-5", "at": C.iso(NOW)}, model_approved=["claude-sonnet-5"])
+        self.allowed(self.bash("ls", state=st, model="claude-sonnet-5"))
+        self.allowed(self.bash("ls", state=self.state(), model=CFG["requiredModel"] + "[1m]"))        # 只是上下文長度不同
         self.allowed(self.bash("ls", state=self.state(), model=None))                                  # 還讀不到就先放行，下一個動作再看
 
     def test_effort_change_mid_run_pauses(self):
+        """中途改思考強度＝暫停。Max 可以由 David 手打「放行模型」臨時放行（config 的 approvableEfforts）；其他強度只能改回來。
+        對照組：拿掉中途的強度檢查 → 這一條會紅。"""
         block, effects = self.bash("ls", state=self.state(), effort="max")
         self.assertIsNotNone(block)
         self.assertEqual(effects[0][0], "pause")
+        self.assertIn(("effort_violation", "max"), effects)
+        self.assertIn("放行模型", block.reason)
+        block, effects = self.bash("ls", state=self.state(), effort="low")
+        self.assertIsNotNone(block)
+        self.assertIn(("effort_violation", "low"), effects)
+        self.assertNotIn("放行模型", block.reason)                                      # 不能放行的強度：只說改回來
+        self.allowed(self.bash("ls", state=self.state(effort_approved=["max"]), effort="max"))         # 放行過的 Max：可以
+        self.allowed(self.bash("ls", state=self.state(effort_approved=["max"]), effort="xhigh"))       # 切回規定的強度：不需要任何指令
+        self.blocked(self.bash("ls", state=self.state(effort_approved=["max"]), effort="high"))        # 放行的是 Max，不是別的
 
     def test_time_limit_is_stop_condition_9(self):
         late = self.state(clock_started_at=C.iso(NOW - datetime.timedelta(hours=8, minutes=1)))
@@ -1707,6 +1721,53 @@ class TestPullRequestWrites(Base):
         self.assertIn(("pause_retry",), effects)
         self.allowed(self.bash(self.NOTIFY + " review-status --stage X1", state=paused))
         self.allowed(self.bash(self.NOTIFY + " verify --stage X1", state=paused))
+
+    def test_file_contents_cannot_be_written_through_the_github_api(self):
+        """2026-10-05 裁決二：不論哪種模式，用 gh api（或 curl 打 api.github.com）寫入或刪除檔案內容（contents）一律擋——
+        那條路不經過 git、不經過推送前的檢查，流程檔與驗收程式可以直接被改掉。對照組：gh api 的寫入不擋（M67）→ 這一條會紅。"""
+        repo = "repos/davidjjx/invest-watch"
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh api -X PUT %s/contents/.github/workflows/verify.yml -f message=x -f content=eA== -f branch=feat/stopX1" % repo,
+                        "gh api --method PUT %s/contents/scripts/verify_ci.py -f message=x -f content=eA==" % repo,
+                        "gh api -XPUT %s/contents/AGENTS.md -f message=x -f content=eA==" % repo,
+                        "gh api --method=DELETE %s/contents/scripts/mutations/known_survivors.json -f message=x -f sha=abc" % repo,
+                        "gh api -X DELETE %s/contents/.github/workflows/verify.yml -f message=x -f sha=abc" % repo,
+                        "gh api %s/contents/README.md -f message=x -f content=eA==" % repo,                      # 沒寫方法、帶欄位＝POST
+                        "gh api %s/contents/README.md --input body.json" % repo,
+                        "gh api %s/git/trees -f base_tree=abc" % repo, "gh api %s/git/blobs -f content=x" % repo,
+                        "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
+                        "curl -X PUT https://api.github.com/%s/contents/.github/workflows/verify.yml -d '{}'" % repo,
+                        "curl --request DELETE https://api.github.com/%s/contents/AGENTS.md --data '{}'" % repo):
+                self.blocked(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh api %s/contents/AGENTS.md --jq .sha" % repo))                               # 讀：可以（一般模式）
+        self.allowed(self.bash("gh api -X GET %s/contents/.github/workflows/verify.yml" % repo))
+
+    def test_autopilot_cannot_touch_the_verifier_the_workflows_or_agents_md(self):
+        """2026-10-05 裁決二：自動駕駛期間，守門擋下所有寫入 .github/workflows/、驗收程式、突變與已知例外清單、AGENTS.md 的動作（停止條件 3）。
+        對照組：把它們從第一層拿掉 → 這一條會紅。"""
+        st = self.state()
+        for rel in (".github/workflows/verify.yml", ".github/workflows/brand-new.yml", "scripts/verify_ci.py", "scripts/mutations/known_survivors.json",
+                    "scripts/mutations/run_mutations.py", "scripts/mutations/autopilot_mutations.py", "AGENTS.md"):
+            for tool in ("Edit", "Write"):
+                block = self.blocked(self.run_tool(tool, {"file_path": WT + "/" + rel, "content": "x"}, state=st), code=3, msg=rel)
+                self.assertIn("動不得", block.reason)
+            self.blocked(self.bash("echo x >> " + rel, state=st), code=3, msg=rel)
+            self.blocked(self.bash("cp /tmp/x " + rel, state=st), code=3, msg=rel)
+            self.blocked(self.bash("sed -i s/a/b/ " + rel, state=st), code=3, msg=rel)
+            self.git.staged = [rel]
+            self.blocked(self.bash("git commit -m x", state=st), code=3, msg=rel)
+            self.git.staged = []
+            self.git.changed = [rel]
+            self.blocked(self.bash("git push origin feat/stopX1", state=st), code=3, msg=rel)
+            self.git.changed = []
+            self.allowed(self.run_tool("Edit", {"file_path": WT + "/" + rel}), msg=rel)                         # 一般模式（David 在場）：可以改，另有 blob 比對把關
+        for path in (CFG["verify"]["protected"]):
+            self.assertIn(path, CFG["tier1"]["paths"], path)
+
+    def test_the_two_new_command_words_cannot_be_sent_through_messaging_tools(self):
+        for word in ("免外部審查 X1", "驗收機變更 X1", "免 外部審查 X1"):
+            block, _ = self.run_tool("SendMessage", {"to": "x", "message": word})
+            self.assertIsNotNone(block, word)
 
 
 if __name__ == "__main__":

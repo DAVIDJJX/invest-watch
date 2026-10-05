@@ -5,9 +5,12 @@ iw_review.py — 停點 P2 的「第三方」：讀驗收機的結果、讀 Code
 只做查詢與判斷，不改任何狀態（狀態由 iw_notify／iw_events 寫）。所有對 GitHub 的讀取都走這台電腦上已登入的 gh（`gh api` 的 GET），
 不存任何權杖。測試用 IW_TEST_FAKE_GH（一個 JSON 檔）換掉 gh 的回答；沙盒裡的 pre-push 是另一個程序，所以用環境變數不用 monkeypatch。
 
-判定（David 2026-10-04 的裁決）：
-  * 驗收機綠＝這個 commit 有一個 completed＋success 的 verify.yml run，而且它的結果檔（artifact）綁的是同一個 commit、沒有標紅；
-    分支改了驗收機本身（verify.yml、驗收程式、突變執行器、例外清單；用 git 比 blob，不信 CI 自己說的）→ 這種綠不算（P2 第一次建立除外）。
+判定（David 2026-10-04、10-05 的裁決）：
+  * 驗收機綠＝這個 commit 有一次「真正的」驗收：流程檔的路徑是 .github/workflows/verify.yml、head_sha 就是這個 commit、由 push 觸發，
+    而且那一次 completed＋success、它的結果檔（artifact）綁的是同一個 commit、沒有標紅。只是名字對得上的 check 或 commit status 一律不看。
+  * 先比 blob：這個 commit 上的 verify.yml、驗收程式、突變執行器、例外清單跟 main 上的不一樣（用 git 比，不信 CI 自己說的）→ 驗收機的綠一律不算。
+    實測（2026-10-04）這台電腦的憑證推得動流程檔，所以「Claude 改不到驗收機」靠的是這一道比對，不是 GitHub 的權限。
+    例外只有兩個：main 上還沒有驗收程式（P2 第一次建立）；David 在一般模式手打「驗收機變更 <階段>」同意這個 commit（一次性、綁 commit）。
   * 外部審查完成＝Codex 機器人帳號針對 PR 現在的 head 發出的 review（不是 PENDING）。review 的文字只記錄，不當依據；別人的留言忽略、列出。
   * 意見＝同一個機器人對 head 的 inline 留言；等級從內文的 [P0]／[P1] 讀，讀不到當 P1（從嚴）。每一條都要在 03_第三方審查.md 有回覆。
   * 免外部審查：David 手打、程式事後核對、綁階段與 commit、24 小時失效、「修改」或新 commit 就作廢。只免外部審查。
@@ -61,7 +64,7 @@ def _fake(args, hints):
 
 
 def gh(args, timeout=25, runner=None, hints=None):
-    """跑 gh。回傳 (結束碢, 文字)。runner 是測試用的替身；IW_TEST_FAKE_GH 是跨程序的替身。"""
+    """跑 gh。回傳 (結束碼, 文字)。runner 是測試用的替身；IW_TEST_FAKE_GH 是跨程序的替身。"""
     if runner is not None:
         return runner(list(args))[:2]
     fake = _fake(args, hints)
@@ -123,6 +126,37 @@ def verifier_changed(main_root, cfg, sha):
     return changed, rc != 0
 
 
+def mark_verifier_changed(sd, stage, sha, files):
+    """程式判定「驗收機本身有改」：記下來（David 手打「驗收機變更 <階段>」的前提）。同一個 commit 已經記過或同意過就不動。"""
+    def fn(s):
+        cur = s.get("verifier_change") or {}
+        if cur.get("stage") == stage and str(cur.get("sha") or "").lower() == str(sha).lower() and not cur.get("revoked"):
+            return
+        s["verifier_change"] = {"stage": stage, "sha": sha, "files": list(files), "status": "detected", "at": C.iso()}
+    ST.update(sd, fn)
+
+
+def verifier_change_problem(st, cfg, stage, sha, check_transcript=True):
+    """David 的「驗收機變更」現在能不能用在這個階段的這個 commit。可以回 None；不行回一句原因。"""
+    w = st.get("verifier_change") or {}
+    word = "驗收機變更 " + str(stage)
+    if w.get("stage") != stage or w.get("status") != "approved":
+        return "要用這個 commit 的驗收結果，得由 David 在一般模式手打「%s」" % word
+    if w.get("revoked"):
+        return "「驗收機變更」已作廢（%s）" % w["revoked"]
+    if str(w.get("sha") or "").lower() != str(sha).lower():
+        return "「驗收機變更」綁的是別的 commit（%s）；有新 commit 之後要重新手打一次" % str(w.get("sha") or "?")[:7]
+    if check_transcript:
+        text, human = ST.human_prompt(w.get("transcript_path"), w.get("prompt_id"))
+        if text is None:
+            return "對話紀錄裡找不到那一則「驗收機變更」"
+        if not human:
+            return "對話紀錄顯示那一則「驗收機變更」不是人打的"
+        if ST.clean_prompt(text) != word:
+            return "對話紀錄裡那一則的內容不是「%s」" % word
+    return None
+
+
 def download_result(main_root, cfg, stage, run_id, sha, runner=None):
     """把這次 run 的結果檔抓到 .autopilot/runs/<階段>/verify/<sha>/，讀成 dict。讀不到回 None。"""
     v = cfg["verify"]
@@ -130,7 +164,12 @@ def download_result(main_root, cfg, stage, run_id, sha, runner=None):
     dest = os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage, "verify", str(sha)[:12]]))
     os.makedirs(dest, exist_ok=True)
     target = os.path.join(dest, "verify-result.json")
-    args = ["run", "download", str(run_id), "-R", s or "", "-n", v["artifact"], "-D", dest]
+    try:
+        if os.path.exists(target):
+            os.remove(target)                                      # 同一個 commit 可能有兩次執行（推分支、推標籤）：每次都重抓，不沿用舊檔
+    except Exception:                                              # noqa: B902
+        return None
+    args =["run", "download", str(run_id), "-R", s or "", "-n", v["artifact"], "-D", dest]
     if runner is not None:
         rc, _text = runner(args)[:2]
     else:
@@ -158,22 +197,34 @@ def verify_status(main_root, sd, cfg, stage, sha, runner=None, now=None):
     v = cfg.get("verify") or {}
     if not v:
         return _vs(False, "設定裡沒有驗收機（verify）")
+    # 1. 先比 blob（不用連網）：這個 commit 上的驗收機跟 main 上的不一樣，驗收機的綠一律不算
+    changed, first = verifier_changed(main_root, cfg, sha)
+    approved = False
+    if changed and not first:
+        problem = verifier_change_problem(ST.load(sd), cfg, stage, sha)
+        if problem:
+            mark_verifier_changed(sd, stage, sha, changed)
+            return _vs(False, "驗收機本身有改（%s）：這種綠不算。%s" % ("、".join(changed), problem), verifier_changed=True, changed_files=changed)
+        approved = True
+    # 2. 只認真正的那一次驗收：流程檔的路徑對、head_sha 是這個 commit、由 push 觸發
     s = slug(main_root, cfg)
     if not s:
         return _vs(False, "看不出這個倉庫在 GitHub 的名字")
-    obj, err = gh_json(["api", "repos/%s/actions/workflows/%s/runs?head_sha=%s&per_page=20" % (s, v["workflow"], sha)], runner=runner, hints={"sha": sha})
+    obj, err = gh_json(["api", "repos/%s/actions/workflows/%s/runs?head_sha=%s&per_page=30" % (s, v["workflow"], sha)], runner=runner, hints={"sha": sha})
     if obj is None:
         return _vs(False, "查不到驗收機的執行紀錄（%s）" % err)
-    runs = [r for r in (obj.get("workflow_runs") or []) if str(r.get("head_sha") or "").lower() == str(sha).lower()]
+    want_path = ".github/workflows/" + v["workflow"]
+    runs = [r for r in (obj.get("workflow_runs") or [])
+            if str(r.get("head_sha") or "").lower() == str(sha).lower() and r.get("path") == want_path and r.get("event") == "push"]
     if not runs:
-        return _vs(False, "驗收機還沒有這個 commit（%s）的執行紀錄" % str(sha)[:7])
-    completed = [r for r in runs if r.get("status") == "completed"]
-    if not completed:
-        return _vs(False, "驗收機還在跑（%s）" % runs[0].get("status"), url=runs[0].get("html_url"), pending=True)
-    run = max(completed, key=lambda r: (str(r.get("created_at") or ""), int(r.get("run_attempt") or 0)))
+        return _vs(False, "驗收機還沒有這個 commit（%s）由 push 觸發的執行紀錄" % str(sha)[:7])
+    run = max(runs, key=lambda r: (str(r.get("created_at") or ""), int(r.get("run_attempt") or 0)))     # 最新的那一次算數（推分支、推標籤各有一次）
     url = run.get("html_url")
+    if run.get("status") != "completed":
+        return _vs(False, "驗收機還在跑（%s）" % run.get("status"), url=url, pending=True)
     if run.get("conclusion") != "success":
         return _vs(False, "驗收機是紅的（%s）" % run.get("conclusion"), url=url)
+    # 3. 結論與數字都從那一次執行的結果檔讀
     res = download_result(main_root, cfg, stage, run.get("id"), sha, runner=runner)
     if res is None:
         return _vs(False, "讀不到驗收機的結果檔（artifact「%s」）" % v["artifact"], url=url)
@@ -181,11 +232,8 @@ def verify_status(main_root, sd, cfg, stage, sha, runner=None, now=None):
         return _vs(False, "結果檔綁的 commit（%s）不是這一個（%s）" % (str(res.get("commit") or "?")[:7], str(sha)[:7]), url=url, result=res)
     if res.get("red"):
         return _vs(False, "驗收機的結果檔標紅：%s" % "；".join(res.get("reasons") or [])[:200], url=url, result=res)
-    changed, first = verifier_changed(main_root, cfg, sha)
-    res["_first_time"] = first
-    if changed and not res.get("_first_time"):
-        return _vs(False, "驗收機本身有改（%s）：這種綠不算，判定要用 main 上的驗收機" % "、".join(changed), url=url, result=res, verifier_changed=True)
-    return _vs(True, "綠", url=url, result=res, ran=(res.get("tests") or {}).get("ran"), verifier_changed=bool(changed))
+    return _vs(True, "綠", url=url, result=res, ran=(res.get("tests") or {}).get("ran"), verifier_changed=bool(changed),
+               verifier_change_approved=approved, changed_files=changed, first_time=first)
 
 
 # ---------------------------------------------------------------- Codex（外部審查）
@@ -347,11 +395,94 @@ def foreign_commit_check(main_root, sd, cfg, stage, fetch=True):
     return "遠端的 %s 上有不是你推的 commit（%s）；有人動了 PR 的分支，不要覆蓋、不要合併它" % (branch, remote_sha[:7])
 
 
+# ---------------------------------------------------------------- 流程檔的事後偵測（每封停止信一行）
+
+WORKFLOW_DIR = ".github/workflows"
+
+
+def workflow_snapshot(main_root, cfg):
+    """遠端每個分支上 .github/workflows/ 的樣子：{分支: {路徑: blob}}。看的是本機記的遠端位置（呼叫的人先 fetch --prune）。"""
+    remote = cfg["remote"]
+    prefix = "refs/remotes/%s/" % remote
+    rc, out = C.git(["for-each-ref", "--format=%(refname)", prefix], main_root)
+    snap = {}
+    if rc != 0:
+        return None
+    for ref in out.split("\n"):
+        ref = ref.strip()
+        if not ref or ref.endswith("/HEAD"):
+            continue
+        rc, ls = C.git(["-c", "core.quotepath=false", "ls-tree", "-r", ref, "--", WORKFLOW_DIR], main_root, timeout=30)
+        if rc != 0:
+            continue
+        files = {}
+        for line in ls.split("\n"):
+            meta, _, path = line.partition("\t")
+            parts = meta.split()
+            if len(parts) >= 3 and path:
+                files[path] = parts[2]
+        snap[ref[len(prefix):]] = files
+    return snap
+
+
+def workflow_changes(prev, cur, main_branch):
+    """自上次停止信以來，哪個分支新增、修改或刪除了流程檔。回傳 [(分支, 路徑, 新增／修改／刪除)]。
+    分支上的流程檔跟現在的正式版一樣＝沒事（只是跟上了 main）；跟上次停止信時一樣＝上次已經報過，不重報。
+    prev 是 None（第一次檢查）：正式版只記基準；其他分支跟現在的正式版比。"""
+    out = []
+    main_now = (cur or {}).get(main_branch) or {}
+    for name in sorted(cur or {}):
+        files = cur[name]
+        before = (prev or {}).get(name)
+        if name == main_branch:
+            if before is None:
+                continue
+            for p in sorted(set(files) | set(before)):
+                if files.get(p) != before.get(p):
+                    out.append((name, p, "新增" if p not in before else ("刪除" if p not in files else "修改")))
+            continue
+        for p in sorted(files):
+            if main_now.get(p) == files[p]:
+                continue
+            if before is not None and before.get(p) == files[p]:
+                continue
+            out.append((name, p, "新增" if p not in main_now else "修改"))
+        for p in sorted(before or {}):
+            if p not in files and p in main_now:
+                out.append((name, p, "刪除"))
+    return out
+
+
+def workflow_watch(main_root, cfg, st, stage=None, fetch=True):
+    """回傳 (信裡的那一行, 新的快照或 None)。快照由呼叫的人在信寄出時存進狀態（下一封信跟它比）。"""
+    if fetch:
+        rc, _ = C.git(["fetch", "-q", "--prune", cfg["remote"]], main_root, timeout=60)
+        if rc != 0:
+            return "流程檔檢查：這次連不上 GitHub，沒有檢查各分支的流程檔。", None
+    cur = workflow_snapshot(main_root, cfg)
+    if cur is None:
+        return "流程檔檢查：讀不到各分支的清單，沒有檢查。", None
+    prev = st.get("workflow_snapshot")
+    found = workflow_changes(prev, cur, cfg["mainBranch"])
+    since = "自上次停止信以來" if prev is not None else "第一次檢查（跟正式版比）"
+    if not found:
+        return "流程檔檢查：%s，沒有任何分支新增或修改 %s/ 裡的檔（看了 %d 個分支）。" % (since, WORKFLOW_DIR, len(cur)), cur
+    mine = (cfg["branchPrefix"] + stage) if stage else None
+    lines = ["流程檔檢查：⚠ %s，有 %d 處流程檔的變更要你看一下——" % (since, len(found))]
+    for name, path, what in found[:8]:
+        lines.append("- 分支 %s：%s %s%s" % (name, what, path, "（這個階段自己的分支）" if name == mine else ""))
+    if len(found) > 8:
+        lines.append("- ……還有 %d 處" % (len(found) - 8))
+    return "\n".join(lines), cur
+
+
 def gate_line_verify(vs):
     if vs is None:
         return "驗收機：沒有紀錄"
     label = "綠" if vs.get("green") else ("還在跑" if vs.get("pending") else "紅／沒有紀錄")
     extra = "" if vs.get("green") else "（%s）" % vs.get("why")
+    if vs.get("green") and vs.get("verifier_change_approved"):
+        extra = "（這一段改的是驗收機本身；David 手打「驗收機變更」同意用這個 commit 的結果）"
     return "驗收機：%s%s%s" % (label, extra, "（%s）" % vs["url"] if vs.get("url") else "")
 
 

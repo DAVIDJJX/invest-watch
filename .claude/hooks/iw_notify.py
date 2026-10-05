@@ -408,7 +408,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         return fail("階段名稱不對：%s" % stage)
     if st.get("active") and st.get("stage") != stage:
         return fail("現在自動駕駛的階段是 %s，不是 %s。" % (st.get("stage"), stage))
-    merged_only_docs =ST.merged_awaiting_docs(st) and st.get("stage") == stage
+    merged_only_docs = ST.merged_awaiting_docs(st) and st.get("stage") == stage
     if kind == "ready" and merged_only_docs:
         return fail("這個階段已經合併進 main、只差文件那一筆，不能再寄「可以合併」的信。要重開文件的時間窗請 David 輸入「放行 %s」。" % stage)
     report = io.open(a.report, encoding="utf-8").read()
@@ -478,6 +478,10 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             extra.append("<details><summary>diff（%d 行%s）</summary>\n\n```diff\n%s\n```\n\n</details>"
                          % (min(len(dl), cap), "，後面還有 %d 行沒列" % (len(dl) - cap) if len(dl) > cap else "", shown))
             extra.append("完整的 diff 在你電腦上：`.autopilot/runs/%s/`（分支還沒推上 GitHub——這類檔要你看過才推）。" % stage)
+        if cfg.get("verify") and head_for_lines:
+            vchanged, vfirst = R.verifier_changed(main_root, cfg, head_for_lines)
+            if vchanged and not vfirst:                             # 這個 commit 改了驗收機本身：信裡寫明、附完整 diff（2026-10-05 裁決三）
+                extra += verifier_change_extras(main_root, cfg, stage, wt, base, head_for_lines, vchanged, st)
     if kind == "ready":
         # 檢查程式看不到腳本裡面做了什麼；寄「可以合併」之前再看兩件事：主目錄沒被動過、保護檔跟放行過的版本一樣
         rc, dirty = C.git(["status", "--porcelain"], main_root)
@@ -556,9 +560,12 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         if rc == 0:
             st["tripwire_baseline"] = tip
     safety, findings = tripwire(main_root, sd, cfg, st, fetch=not a.offline)
+    wf_line, wf_snap = "", None
+    if cfg.get("verify"):                                           # 事後偵測：自上次停止信以來，有沒有任何分支新增或修改了流程檔（2026-10-05 裁決二）
+        wf_line, wf_snap = R.workflow_watch(main_root, cfg, st, stage=stage, fetch=not a.offline)
     level, first_line = level_line(st, cfg, kind)                   # 等級由程式判（寄信之前的狀態），模型只能在內文補白話
     title = "[自動駕駛] %s：【%s】%s" % (stage, level, one_line(report) or KIND_NAMES[kind])
-    body = "\n\n".join([first_line, report.strip()] + extra + [model_line(st, cfg) + "\n" + safety])
+    body = "\n\n".join([first_line, report.strip()] + extra + [model_line(st, cfg) + "\n" + safety + ("\n" + wf_line if wf_line else "")])
     runs = os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage]))
     try:
         os.makedirs(runs, exist_ok=True)
@@ -575,6 +582,8 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
         s.setdefault("tripwire_baseline", st.get("tripwire_baseline"))
         if findings:
             s["tripwire_findings"] = [f[0] for f in findings]
+        if wf_snap is not None:
+            s["workflow_snapshot"] = wf_snap                        # 下一封信跟這一份比
         if kind == "ready":
             s["candidate"] = cand
             s["status"] = "awaiting_approval"
@@ -607,6 +616,57 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
 # ---------------------------------------------------------------- 關卡（P2）：驗收機、外部審查、PR 的三種寫入
 
 _GATE_CACHE = {}                               # (階段, commit) → (驗收機狀態, 外部審查狀態)：同一次寄信不重查
+
+
+def verifier_change_extras(main_root, cfg, stage, wt, base, head, files, st):
+    """這個 commit 改了驗收機本身（verify.yml、驗收程式、突變執行器、例外清單）：信裡寫明，並附上改動的完整 diff。
+    完整的 diff 另外存一份在報告資料夾；信裡放得下就全放（GitHub 的 issue 內文有長度上限，超過時照實說後面還有多少）。"""
+    approved = R.verifier_change_problem(st, cfg, stage, head, check_transcript=False) is None
+    out = ["⚠ 這一段改的是驗收機本身（%s）。%s" % (
+        "、".join(files),
+        "David 已經手打「驗收機變更 %s」同意這個 commit 用驗收機的結果。" % stage if approved
+        else "沒有 David 在一般模式手打的「驗收機變更 %s」，這個 commit 的驗收機結果不算數。" % stage)]
+    # 跟「現在 main 上的驗收機」直接比（兩點，不是從分岔點算）：關卡比的就是這兩邊的 blob，信裡給 David 看的也要是同一件事
+    rc, d = C.git(["diff", base, head, "--"] + list(files), wt, timeout=60)
+    if rc != 0 or not d.strip():
+        d = diff_text(wt, base, files)
+    saved = ""
+    try:
+        runs_dir = os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage]))
+        os.makedirs(runs_dir, exist_ok=True)
+        name = "verifier-change-%s.diff" % head[:12]
+        with io.open(os.path.join(runs_dir, name), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(d + "\n")
+        saved = "完整的 diff 也存在你電腦上：`%s/%s/%s`。" % (cfg["runsDir"], stage, name)
+    except Exception:                                              # noqa: B902
+        pass
+    cap = int(cfg["notify"].get("verifierDiffMaxChars", 40000))
+    shown = d if len(d) <= cap else d[:cap]
+    out.append("<details><summary>驗收機改動的完整 diff（%d 行%s）</summary>\n\n```diff\n%s\n```\n\n</details>"
+               % (len(d.split("\n")), "" if len(d) <= cap else "；信裡放不下，只列前 %d 個字，後面還有 %d 個字" % (cap, len(d) - cap), shown))
+    if saved:
+        out.append(saved)
+    return out
+
+
+def protected_section(main_root, cfg, stage):
+    """PR 內文最後由程式加的一段：這個分支動到的保護範圍檔（AGENTS.md 的審查規則要求在 PR 內文標示；由程式列，不靠記得）。"""
+    head = "**動到的保護範圍檔**（程式列的）"
+    wt = stage_worktree(main_root, cfg, stage)
+    if not os.path.isdir(wt):
+        return head + "：讀不到這個階段的 worktree，沒有列。"
+    try:
+        t1, sf, t2, _all = tier_files(wt, cfg, "%s/%s" % (cfg["remote"], cfg["mainBranch"]))
+    except Exception:                                              # noqa: B902
+        return head + "：查不出這個分支動了哪些檔，沒有列。"
+    if not (t1 or sf or t2):
+        return head + "：沒有。"
+    lines = [head]
+    for label, files in (("第一層（排程、流程檔、資料來源、隱私、驗收機；平常一律不能動）", t1), ("自動駕駛自己的檔（保護程式）", sf),
+                         ("第二層（要先給倉庫主人看 diff）", t2)):
+        if files:
+            lines.append("- %s：%s" % (label, "、".join("`%s`" % f for f in files)))
+    return "\n".join(lines)
 
 
 def local_test_count(path):
@@ -660,7 +720,7 @@ def gate_lines(main_root, sd, cfg, stage, head, kind):
     lines = [R.gate_line_verify(vs), R.gate_line_external(ext, rows)]
     ws = st.get("waived_stages") or []
     if ext.get("mode") == "waived" and ws and ws[-1] != stage:
-        lines.append("提醒：連續兩個階段（%s、%s）都免了外部審查，請太太檢查 Codex 的設定。" % (ws[-1], stage))
+        lines.append("提醒：連續兩個階段（%s、%s）都免了外部審查，請 Codex 帳號的持有人檢查 Codex 的設定。" % (ws[-1], stage))
     return "\n".join(lines)
 
 
@@ -737,6 +797,7 @@ def cmd_pr(a, main_root, sd, cfg):
         body = io.open(a.body_file, encoding="utf-8").read() if a.body_file else ""
     except Exception as e:                                         # noqa: B902
         return fail("讀不到內文的檔：%r" % (e,))
+    body = body.rstrip() + "\n\n" + protected_section(main_root, cfg, stage) + "\n"
     problems = pr_text_problems(main_root, title, body)
     if problems:
         return fail("PR 的文字沒過隱私掃描，沒有送出：\n- " + "\n- ".join(problems))
@@ -793,7 +854,8 @@ def cmd_verify(a, main_root, sd, cfg):
         time.sleep(float(v.get("pollSeconds", 60)))
     import json
     say(json.dumps({"commit": head, "green": vs.get("green"), "pending": vs.get("pending"), "why": vs.get("why"), "url": vs.get("url"),
-                    "ran": vs.get("ran"), "verifier_changed": vs.get("verifier_changed")}, ensure_ascii=False, indent=1))
+                    "ran": vs.get("ran"), "verifier_changed": vs.get("verifier_changed"), "changed_files": vs.get("changed_files"),
+                    "verifier_change_approved": vs.get("verifier_change_approved")}, ensure_ascii=False, indent=1))
     if vs.get("green"):
         return 0
     return 2 if vs.get("pending") else 1
@@ -906,6 +968,12 @@ def cmd_status(a, main_root, sd, cfg):
     keep["retries"] = (st.get("pause") or {}).get("retries") if st.get("pause") else None      # 暫停中又被擋了幾次（P2 第 7 節：要印出來）
     keep["external_review"] = st.get("external_review")
     keep["waived_stages"] = st.get("waived_stages")
+    keep["effort_violation"] = st.get("effort_violation")
+    keep["effort_approved"] = st.get("effort_approved")
+    keep["foreign_commit"] = st.get("foreign_commit")
+    vc = st.get("verifier_change")
+    if vc:
+        keep["verifier_change"] = dict((k, vc.get(k)) for k in ("stage", "sha", "files", "status", "at", "approved_at", "revoked"))
     w = st.get("external_waiver")
     if w:
         keep["external_waiver"] = dict((k, w.get(k)) for k in ("stage", "sha", "issued_at", "expires_at", "revoked"))
