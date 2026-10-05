@@ -1,12 +1,12 @@
 {
  "source": "cloud",
- "runAt": "2026-10-05T08:40:38+08:00",
- "runAtText": "2026-10-05 08:40",
+ "runAt": "2026-10-05T09:10:33+08:00",
+ "runAtText": "2026-10-05 09:10",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
  "mode": "light",
- "requests": 9,
+ "requests": 5,
  "count": 11,
  "assets": {
   "gold_intl": {
@@ -87,14 +87,13 @@
    "decimals": 2,
    "priceLabel": "指數",
    "status": "ok",
-   "price": 48475.74,
+   "price": 49589.8,
    "prevClose": 48475.74,
-   "change": 0.0,
-   "changePct": 0.0,
-   "date": "2026-10-04",
-   "points": 266,
+   "change": 1114.06,
+   "changePct": 2.2982,
+   "date": "2026-10-05",
+   "points": 267,
    "spark": [
-    44928.761719,
     45120.71875,
     45518.070312,
     46021.480469,
@@ -133,14 +132,19 @@
     47940.13,
     48353.49,
     48475.74,
-    48402.87
+    48402.87,
+    49589.8
    ],
-   "fetchedAt": "2026-10-05T08:40:24+08:00",
+   "fetchedAt": "2026-10-05T09:10:27+08:00",
    "error": null,
-   "sourceNote": "證交所即時報價無回應，改用 Yahoo 備援報價",
+   "open": 48574.95,
+   "high": 49644.28,
+   "low": 48574.95,
+   "quoteTime": "09:10:00",
+   "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:24+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:24+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:27+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:27+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -153,14 +157,13 @@
    "decimals": 0,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 2500.0,
+   "price": 2562.5,
    "prevClose": 2500.0,
-   "change": 0.0,
-   "changePct": 0.0,
-   "date": "2026-10-04",
-   "points": 266,
+   "change": 62.5,
+   "changePct": 2.5,
+   "date": "2026-10-05",
+   "points": 267,
    "spark": [
-    2370.0,
     2380.0,
     2395.0,
     2415.0,
@@ -199,14 +202,19 @@
     2480.0,
     2510.0,
     2500.0,
-    2625.0
+    2625.0,
+    2562.5
    ],
-   "fetchedAt": "2026-10-05T08:40:26+08:00",
+   "fetchedAt": "2026-10-05T09:10:27+08:00",
    "error": null,
-   "sourceNote": "證交所即時報價無回應，改用 Yahoo 備援報價",
+   "open": 2550.0,
+   "high": 2580.0,
+   "low": 2545.0,
+   "quoteTime": "09:10:00",
+   "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:26+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:26+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:27+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:27+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -219,14 +227,13 @@
    "decimals": 2,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 77.25,
+   "price": 77.425,
    "prevClose": 77.25,
-   "change": 0.0,
-   "changePct": 0.0,
-   "date": "2026-10-04",
-   "points": 267,
+   "change": 0.175,
+   "changePct": 0.2265,
+   "date": "2026-10-05",
+   "points": 268,
    "spark": [
-    78.699997,
     78.75,
     78.349998,
     78.449997,
@@ -265,14 +272,19 @@
     77.15,
     77.5,
     77.25,
-    77.25
+    77.25,
+    77.425
    ],
-   "fetchedAt": "2026-10-05T08:40:28+08:00",
+   "fetchedAt": "2026-10-05T09:10:27+08:00",
    "error": null,
-   "sourceNote": "證交所即時報價無回應，改用 Yahoo 備援報價",
+   "open": 77.35,
+   "high": 77.5,
+   "low": 77.35,
+   "quoteTime": "09:09:58",
+   "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:28+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:28+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:27+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:27+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -285,14 +297,13 @@
    "decimals": 2,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 24.61,
+   "price": 24.54,
    "prevClose": 24.61,
-   "change": 0.0,
-   "changePct": 0.0,
-   "date": "2026-10-04",
-   "points": 267,
+   "change": -0.07,
+   "changePct": -0.2844,
+   "date": "2026-10-05",
+   "points": 268,
    "spark": [
-    26.49,
     26.32,
     26.389999,
     26.35,
@@ -331,14 +342,19 @@
     24.77,
     24.639999,
     24.61,
-    24.655
+    24.655,
+    24.54
    ],
-   "fetchedAt": "2026-10-05T08:40:30+08:00",
+   "fetchedAt": "2026-10-05T09:10:27+08:00",
    "error": null,
-   "sourceNote": "證交所即時報價無回應，改用 Yahoo 備援報價",
+   "open": 24.61,
+   "high": 24.61,
+   "low": 24.53,
+   "quoteTime": "09:09:59",
+   "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:30+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:30+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:27+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:27+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -399,11 +415,11 @@
     230.860001,
     233.95
    ],
-   "fetchedAt": "2026-10-05T08:40:32+08:00",
+   "fetchedAt": "2026-10-05T09:10:27+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:32+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:32+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:27+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:27+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -464,11 +480,11 @@
     7666.450195,
     7722.72
    ],
-   "fetchedAt": "2026-10-05T08:40:34+08:00",
+   "fetchedAt": "2026-10-05T09:10:29+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:34+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:34+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:29+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:29+08:00"
   },
   "btc": {
    "id": "btc",
@@ -481,10 +497,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 86451.54,
+   "price": 86510.1,
    "prevClose": 85339.24,
-   "change": 1112.3,
-   "changePct": 1.3034,
+   "change": 1170.86,
+   "changePct": 1.372,
    "date": "2026-10-05",
    "points": 400,
    "spark": [
@@ -527,13 +543,13 @@
     84497.210938,
     84763.578125,
     85339.24,
-    86451.54
+    86510.1
    ],
-   "fetchedAt": "2026-10-05T08:40:36+08:00",
+   "fetchedAt": "2026-10-05T09:10:31+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:36+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:36+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:31+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:31+08:00"
   },
   "wti": {
    "id": "wti",
@@ -546,10 +562,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 90.64,
+   "price": 90.45,
    "prevClose": 91.110001,
-   "change": -0.470001,
-   "changePct": -0.5159,
+   "change": -0.660001,
+   "changePct": -0.7244,
    "date": "2026-10-04",
    "points": 279,
    "spark": [
@@ -592,13 +608,13 @@
     90.419998,
     92.870003,
     91.110001,
-    90.64
+    90.45
    ],
-   "fetchedAt": "2026-10-05T08:40:38+08:00",
+   "fetchedAt": "2026-10-05T09:10:33+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-05T08:40:38+08:00",
-   "lastSuccessAt": "2026-10-05T08:40:38+08:00"
+   "lastAttemptAt": "2026-10-05T09:10:33+08:00",
+   "lastSuccessAt": "2026-10-05T09:10:33+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
