@@ -495,6 +495,8 @@ def cmd_unlock(a):
     out = os.path.abspath(a.out)
     lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
     egress_dir = os.path.join(out, "egress")
+    if lock.get("user"):                                            # 測試用的使用者寫出來的檔（瀏覽器的 netlog）別人預設讀不到：先放寬，才收集得到、也才上傳得了
+        sudo(["chmod", "-R", "a+rwX", out], timeout=120)
     hosts = {}
     py_hosts, py_events = parse_python_log(_read(os.path.join(egress_dir, "python.jsonl")))
     for h, n in py_hosts.items():
