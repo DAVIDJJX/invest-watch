@@ -1396,6 +1396,47 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         self.assertEqual(N.protected_list_missing("x\n\n" + N.PROTECTED_HEAD + "\n- 第一層：`a.py`、`b.py`\n", ["a.py", "b.py", "c.py"]), ["c.py"])
         self.assertEqual(N.protected_list_missing("`a.py` 寫在別的地方，不在那一段裡", ["a.py"]), ["a.py"])
 
+    def test_the_protected_list_must_be_the_last_block_of_the_pr_body_and_match_exactly(self):
+        """Codex 對 P2 的第九次審查（P1）：寄信前核對 PR 內文那一段時，原本只找最後一個標題、再看後面任何地方有沒有出現檔名。
+        在那一段後面再接別的內容、多列幾個、或自己寫一段長得像的，都算過——「內文最後一段是程式列的清單」沒有落實。
+        現在比整段：要在最後、要跟現在的改動列出來的一字不差。對照組：不比整段、只看有沒有包含 → 紅。"""
+        head = self.protected_commit()
+        self.push_branch()
+        self.review("acceptance", head)
+        section = N.protected_section(self.sb.main, self.env().cfg, "X1")
+        self.assertIn("`.gitignore`", section)
+
+        def set_body(text):
+            with io.open(self.fake, encoding="utf-8") as fh:
+                entries = json.load(fh)
+            for e in entries:
+                if e.get("match") == "pulls?head=":
+                    prs = json.loads(e["text"])
+                    for p in prs:
+                        p["body"] = text
+                    e["text"] = json.dumps(prs)
+            write_fake_gh(self.fake, entries)
+            N._GATE_CACHE.clear()
+        names = "、".join("`%s`" % p for p in section.split("`")[1::2])                   # 那一段裡列的每一個檔名
+        bad = ("改了什麼……\n\n" + section + "\n\n後面又接了一段說明",                       # 那一段後面還有別的內容
+               "改了什麼……\n\n" + section + "\n- 第二層（要先給倉庫主人看 diff）：`README.md`",     # 多列了一個
+               "改了什麼……\n\n" + N.PROTECTED_HEAD + "\n- 自己寫的一行：" + names,           # 有標題、檔名也都在，但不是程式列的那一段
+               "改了什麼……" + section)                                                # 黏在別的字後面，不是獨立的最後一段
+        for i, text in enumerate(bad):
+            set_body(text)
+            self.errs = []
+            self.assertEqual(self.send("ready", pr_body_in_sync=False), 3, i)
+            self.assertIn("最後一段不是程式現在會列的", "".join(self.errs), i)
+            self.assertEqual(self.sent, [])
+            self.assertIsNotNone(N.protected_tail_problem(text, section), i)
+        for i, text in enumerate((section, section + "\n", "改了什麼……\n\n" + section + "\n\n\n",
+                                  ("改了什麼……\n\n" + section + "\n").replace("\n", "\r\n"), "改了什麼……  \n\n" + section.replace("\n", "  \n"))):
+            self.assertIsNone(N.protected_tail_problem(text, section), i)                # 換行被改成 CRLF、行尾多了空白：算同一段
+        self.assertIsNotNone(N.protected_tail_problem("改了什麼……", ""))
+        set_body(("改了什麼……\n\n" + section + "\n").replace("\n", "\r\n"))
+        self.errs = []
+        self.assertEqual(self.send("ready", pr_body_in_sync=False), 0, self.errs)        # 程式列的那一段在最後、一字不差：可以寄
+
     def test_protected_changes_need_a_pr_even_when_the_external_review_is_waived(self):
         """「免外部審查」只免審查，不免保護範圍的揭露：動到保護檔而找不到 PR 時，就算 David 免了外部審查也不寄
         （2026-10-06 Codex 的審查意見：原本只在有 PR 時才核對清單，沒有 PR 反而直接放行）。對照組：沒有 PR 就不查 → 紅。"""

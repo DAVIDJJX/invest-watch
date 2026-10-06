@@ -617,7 +617,23 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertNotIn(bad, text, bad)
         self.assertIn('branches: ["feat/**"]', text)
         self.assertNotRegex(text, r"(?m)^\s*-\s*main\s*$")
-        self.assertIn("verify_ci.py extract-verifier", text)
+        self.assertEqual(text.count("extract-verifier"), 3)                         # 三個 job 各取一次
+
+    def test_the_verifier_bootstrap_comes_from_main_and_runs_isolated(self):
+        """Codex 對 P2 的第九次審查（P0）：「取 main 上的驗收程式」那一步不可以先跑到分支的東西。三個 job 的那一步都要：
+        啟動用的那一份用 git 從 main 取到 checkout 外面（main 上還沒有的建立期才複製分支的），用 -I 執行；
+        流程檔裡沒有任何一步直接執行 checkout 裡的 scripts/verify_ci.py。實際擋不擋得住在 test_verify_ci 另外有一條做給它看。
+        對照組：有一個 job 改回直接執行 checkout 裡的那一份 → 紅。"""
+        text = read(".github/workflows/verify.yml")
+        self.assertNotRegex(text, r"(?m)^[^#\n]*python[^\n]*\sscripts/verify_ci\.py")
+        for must in ('boot="$RUNNER_TEMP/bootstrap/verify_ci.py"',
+                     'git show origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"',
+                     'python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"'):
+            self.assertEqual(text.count(must), 3, must)
+        for job in ("verify", "mutations", "collect"):
+            body = text[text.index("\n  %s:" % job):]
+            self.assertLess(body.index('python -I "$boot" extract-verifier'), body.index("steps.verifier.outputs.dir"), job)   # 先取、後面每一步才用取出來的那一份
+        self.assertRegex(read("docs/AUTOPILOT.md"), r"啟動用的那一份[^\n]*-I")
 
 
 if __name__ == "__main__":

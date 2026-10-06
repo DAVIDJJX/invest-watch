@@ -51,10 +51,17 @@ jobs:
       - name: 安裝套件
         run: pip install requests
 
-      # 驗收程式一律用 main 上的版本（P2 第一次建立：main 上還沒有，用分支的，結果會標 verifier_source=branch）
+      # 驗收程式一律用 main 上的版本（P2 第一次建立：main 上還沒有，用分支的，結果會標 verifier_source=branch）。
+      # 「取」的這一步自己也不可以先跑到分支的東西：啟動用的那一份直接用 git 從 main 取到 checkout 外面，而且用 -I 執行
+      # （不把腳本所在的資料夾與現在的資料夾放進匯入路徑）。不然分支只要在 scripts/ 放一個跟標準函式庫同名的檔，
+      # 就能在封鎖之前執行、冒充這一步的輸出，把後面每一步換成它指定的驗收程式。三個 job 的這一步都一樣。
       - name: 取 main 上的驗收程式
         id: verifier
-        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+        run: |
+          boot="$RUNNER_TEMP/bootstrap/verify_ci.py"
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          git show origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"
+          python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
 
       - name: 封鎖對外連線（三層：另一個使用者＋iptables、瀏覽器的名稱解析、Python 的 socket）
         run: python "${{ steps.verifier.outputs.dir }}/verify_ci.py" lockdown --out "$RUNNER_TEMP/verify-out" --repo "$GITHUB_WORKSPACE"
@@ -110,7 +117,11 @@ jobs:
 
       - name: 取 main 上的驗收程式
         id: verifier
-        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+        run: |
+          boot="$RUNNER_TEMP/bootstrap/verify_ci.py"
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          git show origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"
+          python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
 
       # 突變會載入分支上的定義、反覆開測試的子程序：跟全套測試一樣先封鎖，對外請求一樣收集、一樣判定
       - name: 封鎖對外連線（跟全套測試那一段一樣的三層）
@@ -157,7 +168,11 @@ jobs:
 
       - name: 取 main 上的驗收程式
         id: verifier
-        run: python scripts/verify_ci.py extract-verifier --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
+        run: |
+          boot="$RUNNER_TEMP/bootstrap/verify_ci.py"
+          mkdir -p "$RUNNER_TEMP/bootstrap"
+          git show origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"
+          python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"
 
       - name: 下載各段的結果
         uses: actions/download-artifact@v4

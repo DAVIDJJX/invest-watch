@@ -860,12 +860,26 @@ class TestScanBeforeUpload(unittest.TestCase):
         self.assertFalse(any(planted in r for r in reasons))
 
     def test_output_is_scanned_before_it_is_printed_to_the_public_log(self):
-        """對照組：不掃就印 → 紅。"""
+        """受測程序（全套測試、跟 main 比、突變）的輸出要印進公開的執行紀錄之前先掃；命中就不印。main 上的隱私掃描器讀不到時也不印
+        （2026-10-06 Codex 的審查意見；原本讀不到時只過通用樣式就印）。對照組：不掃就印、讀不到掃描器也照印 → 紅。"""
         self.assertEqual(V.safe_tail("普通的輸出", 4000), "普通的輸出")
         said = V.safe_tail("前面\n" + self.TOKEN + "\n後面", 4000)
         self.assertNotIn(self.TOKEN, said)
         self.assertIn("沒有印出來", said)
         self.assertEqual(V.safe_tail("0123456789", 4), "6789")
+        planted = "持有 " + "1,000 股"                                                     # 專案自己的規則（main 的掃描器）才認得的字樣
+        self.assertNotIn(planted, V.safe_tail("輸出：" + planted, 4000))
+        saved = list(V._GUARDS)
+
+        def restore():
+            V._GUARDS[:] = saved
+        self.addCleanup(restore)
+        V.main_guards()
+        V._GUARDS[:] = [None]                                                            # 假裝讀不到 main 上的掃描器：再乾淨的輸出也不印
+        for text in ("普通的輸出", "輸出：" + planted):
+            said = V.safe_tail(text, 4000)
+            self.assertNotIn(text, said)
+            self.assertIn("讀不到 main 上的隱私掃描器", said)
 
     def test_collect_reds_when_a_job_held_something_back_or_never_scanned(self):
         """對照組：判定不看各段上傳前的掃描結果 → 紅。"""
@@ -1243,6 +1257,38 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         self.assertEqual(only_anchor["incidental"], [RM.ANCHOR_SELF_TESTS[0]])
         real = RM.run_one(("Z2", "真的測試也紅", "a.py", "Y = 1", "Y = 2", ["t.py"]), repo, copy, [sys.executable], None, 120)
         self.assertEqual((real["ok"], real["red"]), (True, ["test_real"]))
+
+    def test_the_bootstrap_does_not_run_a_branch_file_that_shadows_the_standard_library(self):
+        """Codex 對 P2 的第九次審查（P0）：流程檔「取 main 上的驗收程式」那一步原本直接執行 checkout 裡的 scripts/verify_ci.py。
+        Python 會把腳本所在的資料夾排在匯入路徑最前面，所以分支只要在 scripts/ 放一個跟標準函式庫同名的檔（例如 argparse.py），
+        它就會在封鎖之前、用原本的使用者執行，可以冒充那一步的輸出（dir=…），把後面每一步換成它指定的驗收程式；
+        本機比對 blob 的那四個檔裡沒有它。現在啟動用的那一份放在 checkout 外面、用 -I 執行。這裡實際做一次。
+        對照組：照原本的跑法，那個同名的檔真的會先被執行。"""
+        tmp = tempfile.mkdtemp(prefix="iw-boot-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        repo, dest, marker = os.path.join(tmp, "repo"), os.path.join(tmp, "verifier"), os.path.join(tmp, "branch-code-ran")
+        os.makedirs(os.path.join(repo, "scripts"))
+        shutil.copyfile(os.path.join(HERE, "verify_ci.py"), os.path.join(repo, "scripts", "verify_ci.py"))
+        with io.open(os.path.join(repo, "scripts", "argparse.py"), "w", encoding="utf-8", newline="\n") as fh:       # 分支放的同名檔：留記號、冒充輸出、成功結束
+            fh.write("import os\nopen(os.environ['IW_SHADOW_MARK'], 'w').close()\nprint('dir=/forged')\nraise SystemExit(0)\n")
+        env = dict(os.environ, IW_SHADOW_MARK=marker, PYTHONIOENCODING="utf-8")
+        args = ["extract-verifier", "--repo", repo, "--main-ref", "origin/main", "--dest", dest]
+        old = subprocess.run([sys.executable, os.path.join("scripts", "verify_ci.py")] + args, cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertTrue(os.path.exists(marker))                                    # 原本的跑法：分支的檔先被執行，輸出是它冒充的
+        self.assertIn("dir=/forged", old.stdout.decode("utf-8", "replace"))
+        os.remove(marker)
+        boot = os.path.join(tmp, "bootstrap", "verify_ci.py")                      # 流程檔現在的做法：啟動檔放在 checkout 外面，用 -I 執行
+        os.makedirs(os.path.dirname(boot))
+        shutil.copyfile(os.path.join(HERE, "verify_ci.py"), boot)
+        new = subprocess.run([sys.executable, "-I", boot] + args, cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        said = new.stdout.decode("utf-8", "replace")
+        self.assertEqual(new.returncode, 0, said[-400:])
+        self.assertFalse(os.path.exists(marker))                                   # 分支的同名檔沒有被執行
+        self.assertNotIn("forged", said)
+        self.assertIn("dir=%s" % os.path.abspath(dest), said)
+        inside = subprocess.run([sys.executable, "-I", os.path.join("scripts", "verify_ci.py")] + args, cwd=repo, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertFalse(os.path.exists(marker))                                   # 建立期 main 上還沒有驗收程式、只能用分支那一份時，-I 一樣擋得住同名的檔
+        self.assertNotIn("forged", inside.stdout.decode("utf-8", "replace"))
 
     def test_a_leftover_bytecode_cache_cannot_hide_a_mutation(self):
         """2026-10-06 驗收機上的 R144：改壞前後一樣長的突變，又剛好跟上一次寫檔落在同一秒，Python 會把上一次留下的快取檔（__pycache__）

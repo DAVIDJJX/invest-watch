@@ -595,6 +595,11 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                     return fail("PR 內文最後那一段「動到的保護範圍檔」跟現在的 diff 對不上，漏了 %d 個：%s。開 PR 之後又動到新的保護檔時，"
                                 "請用 iw_notify.py pr edit 重新送一次內文（程式會重新列清單），再寄。"
                                 % (len(stale), "、".join(stale[:12]) + ("……" if len(stale) > 12 else "")))
+                if touched:                                            # 有動到保護檔：那一段要在內文最後、而且跟現在的改動一字不差
+                    tail_problem = protected_tail_problem(pr_now.get("body"), protected_section(main_root, cfg, stage))
+                    if tail_problem:
+                        return fail("%s。請用 iw_notify.py pr edit 重新送一次內文（程式會把那一段重新列在最後），再寄；"
+                                    "不要在 GitHub 網頁上手動改那一段，也不要在它後面加字。" % tail_problem)
         cand = {"sha": head, "tag_sha": tag_sha, "branch": branch, "registered_at": C.iso()}
         slug = github_slug(main_root, cfg)
         if slug:
@@ -704,6 +709,19 @@ def protected_list_missing(body, files):
     i = body.rfind(PROTECTED_HEAD)
     section = body[i:] if i >= 0 else ""
     return [f for f in files if ("`%s`" % f) not in section]
+
+
+def protected_tail_problem(body, expected):
+    """PR 內文是不是剛好以 expected（程式現在會列的那一段）結尾。是回 None；不是回一句原因。
+    2026-10-06 Codex 的審查意見（P1）：原本只找最後一個標題、再看後面任何地方有沒有出現檔名——在那一段後面再加別的內容、
+    或只在一般文字裡提到檔名，都算過，「內文最後一段是程式列的清單」沒有落實。現在比整段：位置要在最後、內容要跟現在的改動列出來的一字不差
+    （多列、少列、後面再接別的字都不行）。GitHub 會把換行改成 CRLF、行尾可能多空白，比之前先整理掉。"""
+    def norm(s):
+        return re.sub(r"[ \t]+\n", "\n", (s or "").replace("\r\n", "\n").replace("\r", "\n")).strip()
+    b, e = norm(body), norm(expected)
+    if not e or not (b == e or b.endswith("\n\n" + e)):
+        return "PR 內文的最後一段不是程式現在會列的「動到的保護範圍檔」（那一段要在最後、後面不能再接別的內容，而且要跟現在的改動一字不差）"
+    return None
 
 
 def protected_section(main_root, cfg, stage):

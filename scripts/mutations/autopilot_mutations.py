@@ -952,6 +952,30 @@ M += [
     ("R159", "突變執行器：讀原始檔旁邊的快取檔（一樣長的突變會被舊快取蓋住）", "scripts/mutations/run_mutations.py",
      "    env[\"PYTHONPYCACHEPREFIX\"] = os.path.join(copy, \".no-pycache\")", "    pass",
      VERIFY + ["-k", "test_a_leftover_bytecode_cache_cannot_hide_a_mutation"]),
+    # ---- 2026-10-06 Codex 第九次審查（兩條 P0、一條 P1；另外兩條 P1 等裁決）
+    ("R160", "驗收機：讀不到 main 上的隱私掃描器時，受測程序的輸出照樣印進公開的執行紀錄", "scripts/verify_ci.py",
+     "    if guards is None:\n        return \"（讀不到 main 上的隱私掃描器，這一段輸出沒有印出來", "    if False:\n        return \"（讀不到 main 上的隱私掃描器，這一段輸出沒有印出來",
+     VERIFY + ["-k", "test_output_is_scanned_before_it_is_printed_to_the_public_log"]),
+    ("R161", "流程檔：取驗收程式那一步直接執行 checkout 裡的那一份（分支放同名的檔就能先執行）", ".github/workflows/verify.yml",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
+     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
+     "          python -I \"$boot\" extract-verifier",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          python scripts/verify_ci.py extract-verifier",
+     CONFIG + ["-k", "test_the_verifier_bootstrap_comes_from_main_and_runs_isolated"]),
+    ("R162", "流程檔：取驗收程式那一步不用 -I 執行", ".github/workflows/verify.yml",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
+     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
+     "          python -I \"$boot\" extract-verifier",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
+     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
+     "          python \"$boot\" extract-verifier",
+     CONFIG + ["-k", "test_the_verifier_bootstrap_comes_from_main_and_runs_isolated"]),
+    ("R163", "關卡：寄信前不核對 PR 內文的最後一段是不是程式列的那一段", H + "iw_notify.py",
+     "                if touched:                                            # 有動到保護檔：那一段要在內文最後", "                if False:                                              # 有動到保護檔：那一段要在內文最後",
+     FLOW + ["-k", "test_the_protected_list_must_be_the_last_block_of_the_pr_body_and_match_exactly"]),
+    ("R164", "關卡：PR 內文只要有包含程式列的那一段就算（不必在最後）", H + "iw_notify.py",
+     "    if not e or not (b == e or b.endswith(\"\\n\\n\" + e)):", "    if not e or e not in b:",
+     FLOW + ["-k", "test_the_protected_list_must_be_the_last_block_of_the_pr_body_and_match_exactly"]),
     ("R155", "關卡：寄 ready 之前不掃這個階段改到的檔", H + "iw_notify.py",
      "            if named_problem:\n                return fail(", "            if False:\n                return fail(",
      FLOW + ["-k", "test_the_hook_itself_scans_the_changed_files_for_named_terms_before_ready"]),

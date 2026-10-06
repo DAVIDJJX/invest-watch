@@ -769,9 +769,14 @@ def main_guards():
 
 
 def safe_tail(text, limit):
-    """子程序輸出的最後一段，要印進執行紀錄之前先掃：公開倉庫的執行紀錄誰都看得到。命中就不印內容，只說有命中。"""
+    """子程序輸出的最後一段，要印進執行紀錄之前先掃：公開倉庫的執行紀錄誰都看得到。命中就不印內容，只說有命中。
+    main 上的隱私掃描器讀不到時也不印（2026-10-06 Codex 的審查意見：受測程序的輸出不可以沒掃過就進公開紀錄。
+    原本讀不到掃描器時只過通用樣式就印出來；上傳結果那一邊早就是「讀不到就什麼都不帶出去」，這裡對齊）。"""
     tail = (text or "")[-limit:]
-    hits = privacy_scan({"輸出": tail}, main_guards())
+    guards = main_guards()
+    if guards is None:
+        return "（讀不到 main 上的隱私掃描器，這一段輸出沒有印出來；失敗的細節看上傳的結果檔）"
+    hits = privacy_scan({"輸出": tail}, guards)
     if hits:
         return "（這一段輸出含不該公開的字串，沒有印出來）"
     return tail
