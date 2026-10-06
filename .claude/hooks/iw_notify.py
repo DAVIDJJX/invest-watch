@@ -535,15 +535,33 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                                 "等（Codex 審完或額度恢復之後手打「繼續 %s」）、或手打「免外部審查 %s」。%s"
                                 % (ext.get("why"), stage, stage,
                                    "這一段改到保護系統本身（第一層或自動駕駛自己的檔）：信裡要寫明這一點，並說等 Codex 比較妥當。" if (t1 or sf) else ""))
+                # 2026-10-06 裁決第三節：完成＝最新的 commit 審過而且沒有 P0，加上這個 PR 上 Codex 提過的每一條都有回覆（不分哪個 commit）
+                def ids(items):
+                    return "、".join("留言 %s（%s）" % (f.get("id"), f.get("path") or "?") for f in items)
+                left = "已經審了 %s 輪，上限 %d 輪" % (ext.get("rounds") or "?", ext.get("round_cap") or 0)
+                if ext.get("p0_on_head"):
+                    return fail("Codex 對最新的 commit（%s）提了 %d 條 P0：%s。P0 不能不採納，一定要修：修好、推上去、再請它審一次（%s；"
+                                "到了上限還沒過就停下來寄 --kind stop，等級「要你決定」）。"
+                                % (head[:7], len(ext["p0_on_head"]), ids(ext["p0_on_head"]), left))
                 rows = R.parse_responses(os.path.join(runs_dir, cfg["externalReview"]["responsesFile"]))
-                missing, rejected = R.responses_problems(ext.get("findings") or [], rows)
+                missing, rejected, unruled = R.responses_problems(ext.get("findings") or [], rows)
                 if missing:
-                    return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。每一條都要在 .autopilot/runs/%s/%s 的表裡回覆：回覆那一欄只能是「採納並修」或「不採納」（一字不差），"
+                    return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。這個 PR 上它提過的每一條都要回，不分是哪個 commit 的："
+                                "在 .autopilot/runs/%s/%s 的表裡，回覆那一欄只能是「採納並修」或「不採納」（一字不差），"
                                 "最後一欄的理由或修在哪不能空；同一條不能有兩種回覆。"
                                 % (len(missing), "、".join(str(x) for x in missing), stage, cfg["externalReview"]["responsesFile"]))
                 if rejected:
-                    return fail("有重大意見（P0／P1）被判「不採納」：%s。不能寄「可以合併」的信；請改寄 --kind stop（等級「要你決定」），由 David 與 Cowork 裁決。"
-                                % "、".join("留言 %s（%s）" % (f.get("id"), f.get("path") or "?") for f in rejected))
+                    return fail("有 P0 被判「不採納」：%s。P0 不能不採納，一定要修。不能寄「可以合併」的信。" % ids(rejected))
+                if unruled:
+                    return fail("有 P1 被判「不採納」，但理由欄沒有指到 Cowork 的裁決檔：%s。P1 要不採納，理由欄只能寫「Cowork 裁決：<檔名>」或"
+                                "「延後到 <階段>，Cowork 裁決：<檔名>」，而且那個檔要在 .autopilot/runs/%s/ 裡；沒有裁決檔就視為還沒回覆。"
+                                "還沒有裁決的話：請改寄 --kind stop（等級「要你決定」），把這幾條列成表，由 David 與 Cowork 裁決。"
+                                % (ids(unruled), stage))
+                unfixed = R.unfixed_on_head(ext.get("findings") or [], rows)
+                if unfixed:
+                    return fail("有 %d 條針對最新 commit（%s）的意見，回覆寫的是「採納並修」：%s。但最新的 commit 就是被審的那一個——修的 commit 還沒推上來。"
+                                "修好、推上去、再請 Codex 審一次（%s；到了上限還沒過就停下來寄 --kind stop）。真的不修，要照「不採納」的規矩寫。"
+                                % (len(unfixed), head[:7], ids(unfixed), left))
             else:
                 if not vs.get("green"):                                     # 免除只免外部審查：驗收機照樣要綠
                     return fail("David 免了外部審查，但驗收機%s（%s）。免除不包括驗收機，不能寄。" % ("還在跑" if vs.get("pending") else "不綠", vs.get("why")))
@@ -823,6 +841,15 @@ def cmd_pr(a, main_root, sd, cfg):
         pr, err = R.find_pr(main_root, cfg, branch)
         if pr is None:
             return fail("找不到這個分支的 PR：%s" % err)
+        # 輪數上限（2026-10-06 裁決第三節）：開 PR 時自動審的那一次算第 1 輪，之後每留一則算一輪。到了上限就不再留言；上限不是自動放行。
+        cap = R.round_cap(cfg, stage)
+        said, err = R.gh_pages("repos/%s/issues/%s/comments" % (slug, pr["number"]), hints={"sha": head or ""})
+        if said is None:
+            return fail("查不到 PR 的留言（%s），算不出已經審了幾輪：查不到就不留言。" % err)
+        used = 1 + len([x for x in said if (x.get("body") or "").strip() == body])
+        if used >= cap:
+            return fail("這個 PR 已經請 Codex 審了 %d 輪，這個階段的上限是 %d 輪，不再留言。到了上限還沒達成完成條件："
+                        "停下來寄 --kind stop（等級「要你決定」），把剩下還沒解決的意見列成表，由 David 決定。上限不是自動放行。" % (used, cap))
         rc, out = R.gh(["pr", "comment", str(pr["number"]), "-R", slug, "--body", body])
         if rc != 0:
             return fail("留言沒有送出：%s" % out)
@@ -830,8 +857,8 @@ def cmd_pr(a, main_root, sd, cfg):
         def fn(s):
             s["external_review"] = {"stage": stage, "status": "requested", "pr": pr.get("url"), "sha": head, "at": C.iso()}
         ST.update(sd, fn)
-        ST.log(sd, {"event": "pr", "action": "request-review", "stage": stage, "pr": pr.get("number")})
-        say("已在 PR #%s 留言「%s」（%s）。" % (pr["number"], body, pr.get("url")))
+        ST.log(sd, {"event": "pr", "action": "request-review", "stage": stage, "pr": pr.get("number"), "round": used + 1, "cap": cap})
+        say("已在 PR #%s 留言「%s」（%s）。這是第 %d 輪審查，這個階段的上限是 %d 輪。" % (pr["number"], body, pr.get("url"), used + 1, cap))
         return 0
     title = (a.title or "").strip()
     try:

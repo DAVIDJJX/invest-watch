@@ -74,7 +74,7 @@ hook 記成暫停之後（任何擋下、程式判定的停止條件、你寄了
 
 **6. 審驗收**　同第 3 步，開頭改成 `REVIEW-KIND: acceptance`、`COMMIT: <worktree 的 HEAD，完整 40 碼>`。審完之後如果又改了任何東西，要重審。一般模式也要審：沒有跳過的選項。
 
-**7. 停在合併前**　`py -3.12 .claude/hooks/iw_notify.py send --stage <階段> --kind ready --report .autopilot/runs/<階段>/03_停止報告.md`。程式會自己檢查標籤、分支有沒有推、有沒有動到不能動的檔、審查紀錄，以及關卡四件（同一個 commit：驗收機綠、外部審查完成或 David 免除、Codex 每條意見有回覆、重大意見沒被判不採納；本機數字跟驗收機一致）；任何一項不過就不寄，照它說的處理。寄出後結束這一輪。
+**7. 停在合併前**　`py -3.12 .claude/hooks/iw_notify.py send --stage <階段> --kind ready --report .autopilot/runs/<階段>/03_停止報告.md`。程式會自己檢查標籤、分支有沒有推、有沒有動到不能動的檔、審查紀錄，以及關卡（驗收機對這個 commit 是綠的；外部審查完成或 David 免除——完成＝最新的 commit 審過而且沒有 P0；這個 PR 上 Codex 提過的每條意見都有回覆；不採納的都合規矩；本機數字跟驗收機一致）；任何一項不過就不寄，照它說的處理。寄出後結束這一輪。
 
 **8. 放行之後**　照同資料夾的 [merge-steps.md](merge-steps.md)：合併分兩個指令、合併推上去之後**立刻**推文件那一筆（中間不做別的事）、主目錄快轉、收尾、`close`。補文件的時間窗過了或中途停了，狀態仍是「已合併、等補文件」：請 David 再手打一次「放行 <階段>」重開（一次性、只准改 README.md 與 docs/CHANGELOG.md）。
 

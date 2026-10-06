@@ -55,22 +55,24 @@
   },
 
   "verify": {
-    "about": "驗收機（P2）：GitHub 的電腦從實際的 commit 重跑全套測試、掃描、突變，結果綁 commit 存成 artifact。寄「可以合併」的信、放行、合併前各查一次；查不到就擋。只認流程檔路徑是 .github/workflows/<workflow>、head_sha 是那個 commit、由 push 觸發的那一次執行。files：這個 commit 上的這幾個檔跟 main 上的 blob 不一樣，驗收機的綠就不算（除非 David 在一般模式手打「驗收機變更 <階段>」）。protected：自動駕駛期間，推送前的檢查擋下任何動到這些檔的推送（它們也都在 tier1 裡，守門擋寫入）。",
+    "about": "驗收機（P2）：GitHub 的電腦從實際的 commit 重跑全套測試、掃描、突變，結果綁 commit 存成 artifact。寄「可以合併」的信、放行、合併前各查一次；查不到就擋。只認流程檔路徑是 .github/workflows/<workflow>、head_sha 是那個 commit、由 push 觸發的那一次執行。files：這個 commit 上的這幾個檔跟 main 上的 blob 不一樣，驗收機的綠就不算（除非 David 在一般模式手打「驗收機變更 <階段>」）。protected：自動駕駛期間，推送前的檢查擋下任何動到這些檔的推送（它們也都在 tier1 裡，守門擋寫入）。maxReruns：同一個 commit 的驗收最多可以重跑幾次（gh run rerun；只准重跑這個 commit、由 push 觸發的那一次；算數的是最後那一次嘗試）。",
     "workflow": "verify.yml",
     "artifact": "verify-result",
     "timeoutMinutes": 40,
     "pollSeconds": 60,
+    "maxReruns": 2,
     "files": [".github/workflows/verify.yml", "scripts/verify_ci.py", "scripts/mutations/run_mutations.py", "scripts/mutations/known_survivors.json"],
     "protected": [".github/workflows/**", "scripts/verify_ci.py", "scripts/mutations/**", "AGENTS.md"]
   },
 
   "externalReview": {
-    "about": "外部審查員（P2）：OpenAI Codex 的程式碼審查。只認機器人帳號針對 PR 最新 commit 發出的 review；意見逐條回覆在 responsesFile；Codex 不能用時由 David 手打「免外部審查 <階段>」（一次性、綁 commit、waiverHours 內有效），只免外部審查。",
+    "about": "外部審查員（P2）：OpenAI Codex 的程式碼審查。只認機器人帳號針對 PR 最新 commit 發出的 review；意見逐條回覆在 responsesFile；Codex 不能用時由 David 手打「免外部審查 <階段>」（一次性、綁 commit、waiverHours 內有效），只免外部審查。完成＝最新的 commit 審過而且沒有 P0，加上這個 PR 上它提過的每一條都有回覆。maxRounds：一個階段最多請它審幾輪（開 PR 時自動審的算第 1 輪；default 是一般的階段，另外列的是個別階段）；到上限還沒完成＝停下來寄「要你決定」，不是自動放行。",
     "botLogin": "chatgpt-codex-connector[bot]",
     "trigger": "@codex review",
     "timeoutMinutes": 60,
     "waiverHours": 24,
     "responsesFile": "03_第三方審查.md",
+    "maxRounds": {"default": 4, "P2": 6},
     "severityPattern": "\\[?P([01])\\]?"
   },
 

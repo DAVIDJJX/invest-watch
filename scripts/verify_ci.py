@@ -15,7 +15,9 @@ verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實�
   collect           合併、判定紅綠、結果檔過隱私掃描、寫 job summary → verify-result.json；紅＝非零結束
 
 判定規則（David 2026-10-04 的裁決）：台銀與資料來源網域出現→紅；未知主機→紅；Chrome 自己的背景連線→列出、不紅（名單在下面，算保護範圍）；
-系統層擋下的連線（只留下 IP）→紅；突變分片沒有封鎖→紅；測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅；沒有系統層的封鎖→不紅，但結果寫「封鎖層級 2／3」。
+系統層擋下的連線（只留下 IP）→紅；突變分片沒有封鎖→紅；測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅。
+2026-10-06 的裁決（取代 10/4 的「沒有系統層→不紅，只寫封鎖層級 2／3」）：全套測試與每一片突變都要有系統層封鎖，IPv4 與 IPv6 的規則都要；
+哪一段缺了，那一次驗收就是紅，原因以「封鎖沒設成」開頭（跟測試紅分開）。結果檔照樣寫每一段的層級。對策是重跑那一次驗收。
 分支改了驗收機本身（verify.yml、這個檔、突變執行器、例外清單）→ 結果標 verifier_changed，判定照 main 的版本做；寄「可以合併」那一關不認這種綠。
 
 只用標準函式庫；離線測試在 scripts/test_verify_ci.py（判定、比對、解析、掃描都是純函式）。
@@ -52,6 +54,11 @@ LOOPBACK_RE = re.compile(r"^(127\.|::1$|localhost$|localhost\.|0\.0\.0\.0$|::$|l
 IPTABLES_PREFIX = "IWEGRESS "
 TEST_USER = "iwtest"
 SELFTEST_IP = "1.1.1.1"                        # 封鎖之後故意連一次，確認真的連不出去；這一筆不算進「被擋的 IP」
+# 2026-10-06 裁決：系統層封鎖（IPv4 與 IPv6 都要）缺了，那一次驗收就是紅；對策是重跑，不是接受比較弱的證據。
+# 為了少一點誤紅：建立測試用的使用者與設防火牆那幾步，逾時從 120 秒放寬到 300 秒，失敗（含逾時）之後自動再試一次。
+LOCKDOWN_STEP_TIMEOUT = 300
+LOCKDOWN_TRIES = 2
+LOCKDOWN_RED = "封鎖沒設成"                    # 紅的原因用這幾個字開頭＝封鎖本身沒設成，不是測試紅
 
 SITECUSTOMIZE = r'''# iw-verify：第 3 層封鎖。所有 Python 程序（含測試開的子程序）一啟動就載入；記下每一個對外的名稱與連線，然後拒絕。
 import io, json, os, socket, time
@@ -118,6 +125,39 @@ def run(cmd, cwd=None, timeout=120, env=None, inp=None):
 
 def sudo(cmd, timeout=120):
     return run(["sudo", "-n"] + list(cmd), timeout=timeout)
+
+
+def sudo_retry(cmd, good=None, retried=None, label=None):
+    """封鎖用的步驟：逾時放寬到 LOCKDOWN_STEP_TIMEOUT 秒；失敗（含逾時）就再試，總共最多 LOCKDOWN_TRIES 次。
+    good(rc, 輸出)＝這樣算成功（預設看結束碼）。有再試就把 label 記進 retried。回傳最後一次的 (rc, 輸出)。"""
+    good = good or (lambda rc, o: rc == 0)
+    rc, o = 99, ""
+    for attempt in range(1, LOCKDOWN_TRIES + 1):
+        if attempt > 1 and retried is not None:
+            retried.append(label or " ".join(cmd[:2]))
+        rc, o = sudo(cmd, timeout=LOCKDOWN_STEP_TIMEOUT)
+        if good(rc, o):
+            break
+    return rc, o
+
+
+def user_made(rc, o):
+    """useradd 算不算成功：結束碼 0，或它說「已經有了」（再試的那一次會看到這個：逾時的那一次其實建成了）。"""
+    return rc == 0 or "already exists" in (o or "")
+
+
+def add_rule(table, rule, retried=None):
+    """加一條防火牆規則；失敗（含逾時）就再試一次。再試之前先問那條規則是不是其實已經在了（逾時的那一次可能有加成），免得同一條加兩次。"""
+    check = ["-C", rule[1]] + list(rule[3:] if rule[0] == "-I" else rule[2:])     # -I 鏈名 位置 …／-A 鏈名 … → -C 鏈名 …
+    for attempt in range(1, LOCKDOWN_TRIES + 1):
+        if attempt > 1:
+            if retried is not None:
+                retried.append("%s %s" % (table, rule[rule.index("-j") + 1]))
+            if sudo([table] + check, timeout=LOCKDOWN_STEP_TIMEOUT)[0] == 0:
+                return True
+        if sudo([table] + list(rule), timeout=LOCKDOWN_STEP_TIMEOUT)[0] == 0:
+            return True
+    return False
 
 
 def git(repo, args, timeout=60):
@@ -229,6 +269,30 @@ def cmd_extract_verifier(a):
 
 # ---------------------------------------------------------------- 2. 封鎖
 
+def set_firewall(user, retried=None):
+    """設防火牆：只擋 user 的對外封包（loopback 放行；其餘先記錄、再丟掉），IPv4 與 IPv6 各設一份。回傳 lockdown.json 裡 iptables 那一塊。"""
+    accept = ["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", user, "-o", "lo", "-j", "ACCEPT"]
+    log = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", user, "-j", "LOG", "--log-prefix", IPTABLES_PREFIX]
+    drop = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", user, "-j", "DROP"]
+    applied = {"iptables": [], "ip6tables": []}
+    for table in ("iptables", "ip6tables"):
+        if add_rule(table, accept, retried):
+            applied[table].append(accept)
+            if add_rule(table, log, retried):                       # 記錄被擋的封包（拿不到 LOG 模組就只擋不記）
+                applied[table].append(log)
+            if add_rule(table, drop, retried):
+                applied[table].append(drop)
+    ok4 = accept in applied["iptables"] and drop in applied["iptables"]
+    ok6 = accept in applied["ip6tables"] and drop in applied["ip6tables"]
+    return {"ipv4": ok4, "ipv6": ok6, "applied": applied, "log": log in applied["iptables"]}
+
+
+def firewall_complete(ipt):
+    """IPv4 與 IPv6 的規則都設成了，才算有系統層（2026-10-06 裁決；原本只看 IPv4）。"""
+    ipt = ipt or {}
+    return ipt.get("ipv4") is True and ipt.get("ipv6") is True
+
+
 def cmd_lockdown(a):
     out = os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
@@ -258,50 +322,40 @@ def cmd_lockdown(a):
     # 第 1 層：另一個使用者＋iptables（Linux、免密碼 sudo 才有）。只擋那個使用者的對外封包——
     # 直接把整台執行機的對外連線封掉，會弄斷它自己跟 GitHub 的連線（紀錄傳不回去、工作可能被判失聯）。
     if sys.platform.startswith("linux"):
-        rc, o = sudo(["-v"])
+        retried = info["retried"] = []                              # 哪幾步第一次沒成、再試了一次（寫進結果，看得出這台執行機當時慢不慢）
+        slow = LOCKDOWN_STEP_TIMEOUT
+        rc, o = sudo_retry(["-v"], retried=retried, label="sudo -v")
         if rc != 0:
             info["notes"].append("沒有免密碼 sudo：沒有系統層的封鎖")
         else:
-            rc, o = sudo(["useradd", "-m", "-s", "/bin/bash", TEST_USER])
-            if rc == 0 or "already exists" in o:
+            rc, o = sudo_retry(["useradd", "-m", "-s", "/bin/bash", TEST_USER], good=user_made, retried=retried, label="建立使用者 %s" % TEST_USER)
+            if user_made(rc, o):
                 info["user"] = TEST_USER
                 home = "/tmp/%s-home" % TEST_USER
                 repo = os.path.abspath(a.repo)
-                sudo(["chmod", "-R", "a+rwX", repo], timeout=300)
-                sudo(["chmod", "-R", "a+rwX", out], timeout=120)
+                sudo(["chmod", "-R", "a+rwX", repo], timeout=slow)
+                sudo(["chmod", "-R", "a+rwX", out], timeout=slow)
                 for base in (repo, out, HERE):                      # 讓那個使用者走得到倉庫、結果資料夾與驗收程式（上層資料夾預設別人進不去）
                     d = os.path.dirname(base)
                     while d and d != os.path.dirname(d):
-                        sudo(["chmod", "o+x", d])
+                        sudo(["chmod", "o+x", d], timeout=slow)
                         d = os.path.dirname(d)
-                sudo(["chmod", "-R", "a+rX", HERE])
-                sudo(["mkdir", "-p", home])
-                sudo(["chown", "-R", TEST_USER, home])
+                sudo(["chmod", "-R", "a+rX", HERE], timeout=slow)
+                sudo(["mkdir", "-p", home], timeout=slow)
+                sudo(["chown", "-R", TEST_USER, home], timeout=slow)
                 # 倉庫是別的使用者的：git 預設會拒絕（dubious ownership）。只對這個測試用的使用者放行。
-                sudo(["-u", TEST_USER, "env", "HOME=" + home, "git", "config", "--global", "--add", "safe.directory", "*"])
-                accept = ["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", TEST_USER, "-o", "lo", "-j", "ACCEPT"]
-                log = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "LOG", "--log-prefix", IPTABLES_PREFIX]
-                drop = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", TEST_USER, "-j", "DROP"]
-                applied = {"iptables": [], "ip6tables": []}
-                for table in ("iptables", "ip6tables"):
-                    if sudo([table] + accept)[0] == 0:
-                        applied[table].append(accept)
-                        if sudo([table] + log)[0] == 0:             # 記錄被擋的封包（拿不到 LOG 模組就只擋不記）
-                            applied[table].append(log)
-                        if sudo([table] + drop)[0] == 0:
-                            applied[table].append(drop)
-                ok4 = accept in applied["iptables"] and drop in applied["iptables"]
-                ok6 = accept in applied["ip6tables"] and drop in applied["ip6tables"]
-                info["iptables"] = {"ipv4": ok4, "ipv6": ok6, "applied": applied, "log": log in applied["iptables"]}
-                if ok4:
-                    info["layers"]["ip"] = "iptables(uid-owner %s%s%s)" % (TEST_USER, "" if ok6 else "；沒有 IPv6 規則", "" if log in applied["iptables"] else "；只擋不記")
+                sudo(["-u", TEST_USER, "env", "HOME=" + home, "git", "config", "--global", "--add", "safe.directory", "*"], timeout=slow)
+                ipt = info["iptables"] = set_firewall(TEST_USER, retried)
+                ok4, ok6 = ipt["ipv4"], ipt["ipv6"]
+                if firewall_complete(ipt):
+                    info["layers"]["ip"] = "iptables+ip6tables(uid-owner %s%s)" % (TEST_USER, "" if ipt["log"] else "；只擋不記")
                     rc, o = sudo(["-u", TEST_USER, "curl", "-sS", "--max-time", "5", "http://%s/" % SELFTEST_IP], timeout=30)
                     info["selftest"]["ip"] = "blocked" if rc != 0 else "NOT blocked"
                     if rc == 0:
                         info["layers"]["ip"] = None
                         info["notes"].append("系統層自我測試沒過：以 %s 連 %s 竟然成功" % (TEST_USER, SELFTEST_IP))
                 else:
-                    info["notes"].append("iptables 加規則失敗（沒有系統層的封鎖）")
+                    info["notes"].append("防火牆規則沒有設成（IPv4：%s；IPv6：%s）：沒有系統層的封鎖" % ("有" if ok4 else "沒有", "有" if ok6 else "沒有"))
                 if chrome:                                          # 瀏覽器在那個使用者底下開不開得起來：幾種開法依序試，第一個成功的就用
                     probe = ["-u", TEST_USER, "env", "HOME=" + home, info["browser"], "--headless=new", "--disable-gpu", "--no-first-run",
                              "--user-data-dir=/tmp/%s-probe" % TEST_USER, "--dump-dom", "about:blank"]
@@ -335,6 +389,8 @@ def cmd_lockdown(a):
     print("封鎖層級 %s：%s" % (info["level"], "；".join("%s=%s" % (k, v or "沒有") for k, v in layers.items())))
     for note in info["notes"]:
         print("  注意：" + note)
+    if info.get("retried"):
+        print("  第一次沒成、再試了一次的步驟：" + "、".join(info["retried"]))
     for p in info.get("browser_probe") or []:
         print("  瀏覽器開法 %s：%s%s" % (p["variant"], "開得起來" if p["ok"] else "開不起來（rc=%s）" % p["rc"],
                                     "" if p["ok"] else "\n    " + p["output"].strip().replace("\n", "\n    ")))
@@ -876,6 +932,30 @@ def merge_mutations(shards, known, expected_total=None):
             "seconds": round(sum(float(r.get("seconds") or 0) for r in results), 1)}
 
 
+def system_layer_gap(lock):
+    """這一段的系統層封鎖（另一個使用者＋防火牆）缺了什麼；完整就回 None。
+    完整＝有系統層、IPv4 與 IPv6 的規則都設成了、自我測試（以測試用的使用者往外連）真的被擋下。"""
+    lock = lock or {}
+    if not (lock.get("layers") or {}).get("ip"):
+        return "沒有系統層"
+    ipt = lock.get("iptables") or {}
+    miss = [name for key, name in (("ipv4", "IPv4"), ("ipv6", "IPv6")) if ipt.get(key) is not True]
+    if miss:
+        return "防火牆少了 %s 的規則" % "、".join(miss)
+    if (lock.get("selftest") or {}).get("ip") != "blocked":
+        return "系統層的自我測試沒過"
+    return None
+
+
+def lockdown_brief(lock, job=None):
+    """結果檔裡每一段封鎖的摘要：層級、每一層、自我測試、防火牆 IPv4／IPv6 有沒有設成、缺了什麼、哪幾步再試過。"""
+    lock = lock or {}
+    ipt = lock.get("iptables") or {}
+    return {"job": job or lock.get("job"), "level": lock.get("level"), "layers": lock.get("layers"), "selftest": lock.get("selftest"),
+            "ipv4": ipt.get("ipv4"), "ipv6": ipt.get("ipv6"), "system_layer_gap": system_layer_gap(lock),
+            "notes": lock.get("notes"), "retried": lock.get("retried") or []}
+
+
 def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
     """回傳紅的原因清單（空的＝綠）。每一條規則在 scripts/test_verify_ci.py 都有「改壞→紅」的對照。
     mut_lockdowns：每一片突變的封鎖紀錄（None＝舊的呼叫方式，不檢查這一項）。"""
@@ -916,14 +996,22 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
         reasons.append("系統層擋下了對外連線（測試應該全部離線；這種連線只留下 IP，看不出是連誰）：%s" % "、".join(
             "%s%s／%s×%s" % (b.get("ip"), (":%s" % b.get("port")) if b.get("port") else "", b.get("proto"), b.get("count"))
             for b in egress["blocked_ips"])[:300])
+    # 封鎖本身沒設成：原因一律用 LOCKDOWN_RED 開頭，跟「測試紅」分開（2026-10-06 裁決：系統層缺了就紅，取代 10/4 的「不紅、只寫層級」）
     if not ((lockdown or {}).get("layers") or {}).get("python"):
-        reasons.append("Python 層的封鎖沒有生效")
+        reasons.append("%s：全套測試那一段的 Python 層的封鎖沒有生效" % LOCKDOWN_RED)
+    gap = system_layer_gap(lockdown)
+    if gap:
+        reasons.append("%s：全套測試那一段沒有完整的系統層封鎖（%s）。這不是測試紅；對策是重跑這一次驗收，不是接受比較弱的證據" % (LOCKDOWN_RED, gap))
     if mut_lockdowns is not None:                                   # 突變也會執行分支上的程式碼：每一片都要在封鎖裡跑
         shards = len(mut.get("shards") or [])
         if len(mut_lockdowns) < shards:
-            reasons.append("有 %d 片突變沒有封鎖紀錄（突變也要在封鎖裡跑）" % (shards - len(mut_lockdowns)))
+            reasons.append("%s：有 %d 片突變沒有封鎖紀錄（突變也要在封鎖裡跑）" % (LOCKDOWN_RED, shards - len(mut_lockdowns)))
         if any(not ((x or {}).get("layers") or {}).get("python") for x in mut_lockdowns):
-            reasons.append("有突變分片的 Python 層封鎖沒有生效")
+            reasons.append("%s：有突變分片的 Python 層封鎖沒有生效" % LOCKDOWN_RED)
+        gaps = ["%s（%s）" % ((x or {}).get("job") or "第 %d 片" % (i + 1), system_layer_gap(x)) for i, x in enumerate(mut_lockdowns) if system_layer_gap(x)]
+        if gaps:
+            reasons.append("%s：有 %d 片突變沒有完整的系統層封鎖：%s。這不是測試紅；對策是重跑這一次驗收，不是接受比較弱的證據"
+                           % (LOCKDOWN_RED, len(gaps), "、".join(gaps)[:300]))
     if privacy:
         reasons.append("隱私掃描沒過（含不該公開的字串，或有一段沒有掃描）：%s" % "；".join(privacy)[:300])
     return reasons
@@ -986,6 +1074,17 @@ def summary_md(res):
                  e.get("jobs"), e.get("level"), e.get("bot_hits", 0), len(e.get("source_hosts") or []), len(e.get("unknown_hosts") or []),
                  len(e.get("browser_hosts") or []), len(e.get("blocked_ips") or [])),
              "- 動到的保護範圍檔：第一層 %d、自己的檔 %d、第二層 %d" % tuple(len((c.get("protected_touched") or {}).get(k) or []) for k in ("tier1", "self", "tier2"))]
+    lk = res.get("lockdown") or {}
+    jobs = [lk] + list(lk.get("mutation_shards") or [])
+    lines.append("- 每一段的封鎖層級（每一段都要 3／3，IPv4 與 IPv6 的防火牆規則都要有）：%s" % "；".join(
+        "%s %s%s" % (j.get("job") or "?", j.get("level") or "沒有紀錄", "（%s）" % j["system_layer_gap"] if j.get("system_layer_gap") else "") for j in jobs))
+    again = ["%s：%s" % (j.get("job") or "?", "、".join(j["retried"])) for j in jobs if j.get("retried")]
+    if again:
+        lines.append("- 封鎖時第一次沒成、自動再試了一次的步驟：%s" % "；".join(again))
+    if str(res.get("run_attempt") or "").isdigit() and int(res["run_attempt"]) > 1:
+        lines.append("- 這是同一次執行的第 %s 次嘗試（重跑過 %d 次）" % (res["run_attempt"], int(res["run_attempt"]) - 1))
+    if res.get("red_kind") == "lockdown":
+        lines += ["", "**這一次紅是因為%s，不是測試紅。** 對策是重跑這一次驗收（同一個 commit 最多重跑 2 次）。" % LOCKDOWN_RED]
     if res.get("reasons"):
         lines += ["", "**紅的原因**", ""] + ["- " + r for r in res["reasons"]]
     if t.get("skipped"):
@@ -1034,7 +1133,11 @@ def cmd_collect(a):
     cmp_ = pick(main_dir, "compare.json")
     lockdown = pick(main_dir, "lockdown.json")
     shards = [read_json(p, {}) or {} for p in _find_files(inputs, "mut-*")]
-    mut_lockdowns = [x for x in (read_json(os.path.join(d, "lockdown.json"), None) for d in shard_dirs) if x]
+    mut_lockdowns = []
+    for d in shard_dirs:
+        x = read_json(os.path.join(d, "lockdown.json"), None)
+        if x:
+            mut_lockdowns.append(dict(x, job=os.path.basename(d)))     # 哪一片：資料夾名＝那一段上傳時的名字（verify-mutations-N）
     egress_raw = merge_egress_raw([pick(main_dir, "egress.json")] + [pick(d, "egress.json") for d in shard_dirs])
     egress_raw["layers"] = lockdown.get("layers") or {}
     egress_raw["level"] = weakest_level([lockdown] + mut_lockdowns + [None] * max(0, len(shard_dirs) - len(mut_lockdowns)))
@@ -1071,8 +1174,8 @@ def cmd_collect(a):
            "run_url": "%s/%s/actions/runs/%s" % (os.environ.get("GITHUB_SERVER_URL", "https://github.com"), os.environ.get("GITHUB_REPOSITORY", "?"),
                                                  os.environ.get("GITHUB_RUN_ID", "?")),
            "tests": tests, "egress": egress, "compare": cmp_, "mutations": mut,
-           "lockdown": {"level": lockdown.get("level"), "layers": lockdown.get("layers"), "selftest": lockdown.get("selftest"), "notes": lockdown.get("notes"),
-                        "mutation_shards": [{"level": x.get("level"), "layers": x.get("layers"), "selftest": x.get("selftest")} for x in mut_lockdowns]},
+           "lockdown": dict(lockdown_brief(lockdown, job=os.path.basename(main_dir) if main_dir else None),
+                            mutation_shards=[lockdown_brief(x) for x in mut_lockdowns]),
            "verifier_changed": bool(cmp_.get("verifier_changed")), "verifier_source": cmp_.get("verifier_source"),
            "allowed_hosts_from": "main" if allowed else "（讀不到 net_policy，白名單為空）", "privacy_scanner": "main" if guards is not None else "（讀不到）",
            "generated_at": now_iso(), "schema": 2}
@@ -1084,8 +1187,12 @@ def cmd_collect(a):
     reasons = judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=mut_lockdowns)
     res["reasons"] = reasons
     res["red"] = bool(reasons)
+    # 紅的原因分兩種：封鎖沒設成（對策是重跑），其他（測試、突變、對外連線、隱私…）。只有前一種時 red_kind 是 lockdown。
+    res["lockdown_reasons"] = [r for r in reasons if r.startswith(LOCKDOWN_RED)]
+    res["red_kind"] = None if not reasons else ("lockdown" if len(res["lockdown_reasons"]) == len(reasons) else "other")
     if privacy:
-        res = {"commit": res["commit"], "ref": res["ref"], "run_id": res["run_id"], "run_url": res["run_url"], "red": True, "reasons": reasons,
+        res = {"commit": res["commit"], "ref": res["ref"], "run_id": res["run_id"], "run_attempt": res["run_attempt"], "run_url": res["run_url"],
+               "red": True, "reasons": reasons,
                "privacy_hits": [h.split("：", 1)[0] for h in privacy], "note": "結果檔含不該公開的字串，內容沒有寫出來", "generated_at": now_iso(), "schema": 2}
     write_json(os.path.join(out, "verify-result.json"), res)
     md = summary_md(res) if not privacy else "### 驗收機：🔴 紅\n\n結果檔含不該公開的字串（%s），內容沒有寫出來。\n" % "、".join(res["privacy_hits"])

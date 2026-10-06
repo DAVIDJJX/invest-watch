@@ -249,10 +249,15 @@ def verify_status(main_root, sd, cfg, stage, sha, runner=None, now=None):
         return _vs(False, "讀不到驗收機的結果檔（artifact「%s」）" % v["artifact"], url=url)
     if str(res.get("commit") or "").lower() != sha.lower():
         return _vs(False, "結果檔綁的 commit（%s）不是這一個（%s）" % (str(res.get("commit") or "?")[:7], str(sha)[:7]), url=url, result=res)
+    # 重跑過的執行（2026-10-06 裁決：准重跑、有次數上限）：算數的是最後那一次嘗試。結果檔是哪一次嘗試寫的，要跟 GitHub 說的現在這一次對得上。
+    attempt = int(run.get("run_attempt") or 1)
+    if str(res.get("run_attempt") or "1") != str(attempt):
+        return _vs(False, "結果檔是第 %s 次嘗試寫的，GitHub 上這一次執行現在是第 %d 次嘗試：算數的是最後那一次" % (res.get("run_attempt") or "?", attempt),
+                   url=url, result=res, attempt=attempt)
     if res.get("red"):
-        return _vs(False, "驗收機的結果檔標紅：%s" % "；".join(res.get("reasons") or [])[:200], url=url, result=res)
+        return _vs(False, "驗收機的結果檔標紅：%s" % "；".join(res.get("reasons") or [])[:200], url=url, result=res, attempt=attempt)
     return _vs(True, "綠", url=url, result=res, ran=(res.get("tests") or {}).get("ran"), verifier_changed=bool(changed),
-               verifier_change_approved=approved, changed_files=changed, first_time=first)
+               verifier_change_approved=approved, changed_files=changed, first_time=first, attempt=attempt)
 
 
 # ---------------------------------------------------------------- Codex（外部審查）
@@ -312,9 +317,10 @@ def find_pr(main_root, cfg, branch, runner=None, hints=None):
 
 
 def codex_status(main_root, cfg, pr_number, head, runner=None, pr=None):
-    """Codex 對這個 commit 審完了沒有、有哪些意見。完成的訊號有兩種（都要綁最新的 commit）：
+    """Codex 對這個 commit 審完了沒有、這個 PR 上它提過哪些意見。完成的訊號有兩種（都要綁最新的 commit）：
     A＝機器人帳號針對這個 commit 發出的 review（有意見時）；B＝機器人自己那則進度留言寫這個 commit Completed（沒有意見時；見 summary_verdict）。
-    同一個 commit 兩種都有時以 A 為準。Codex 的實際行為以 2026-10-05 這個倉庫 1 號 PR 的觀察為準。"""
+    同一個 commit 兩種都有時以 A 為準。Codex 的實際行為以 2026-10-05 這個倉庫 1 號 PR 的觀察為準。
+    findings 是這個 PR 上它提過的每一條（每一條都要回覆）；p0_on_head 是針對最新 commit 的 P0（有的話一定要修、再審）；rounds 是審了幾輪。"""
     ext = cfg["externalReview"]
     bot = ext["botLogin"]
     s = slug(main_root, cfg)
@@ -323,38 +329,49 @@ def codex_status(main_root, cfg, pr_number, head, runner=None, pr=None):
     coms, err2 = gh_pages("repos/%s/pulls/%s/comments" % (s, pr_number), runner=runner, hints=hints)
     if revs is None or coms is None:
         return {"complete": False, "why": "查不到 PR 的審查（%s）" % (err1 or err2), "reviews": [], "findings": [], "others": [], "major": []}
-    reviews, others = [], set()
+    # 2026-10-06 裁決第三節：這個 PR 上 Codex 提過的「每一條」意見都要回覆——不分是哪個 commit 的、GitHub 有沒有把它跟著移到新的 commit。
+    # 原本只算最新 commit 的：舊 commit 的意見只要再推一次就不用回了。on_head＝這一條是針對最新的 commit 提的（最新的 commit 不可以有 P0）。
+    all_reviews, reviews, others = [], [], set()
     for r in (revs if isinstance(revs, list) else []):
         if (r.get("user") or {}).get("login") != bot:
             others.add((r.get("user") or {}).get("login") or "?")
             continue
         if r.get("state") == "PENDING":
             continue
-        if str(r.get("commit_id") or "").lower() != head.lower():
-            continue
-        reviews.append(r)
-    findings = []
+        all_reviews.append(r)
+        if str(r.get("commit_id") or "").lower() == head.lower():
+            reviews.append(r)                                       # 針對最新 commit 的 review（訊號 A）
+    head_ids = set(str(r.get("id")) for r in reviews)
+    findings, inline = [], set()
     for c in (coms if isinstance(coms, list) else []):
         login = (c.get("user") or {}).get("login")
         if login != bot:
             others.add(login or "?")
             continue
-        cid, oid = str(c.get("commit_id") or "").lower(), str(c.get("original_commit_id") or "").lower()
-        if head.lower() not in (cid, oid):
-            continue
-        findings.append({"id": c.get("id"), "severity": severity_of(c.get("body") or "", ext), "path": c.get("path"),
-                         "line": c.get("line") or c.get("original_line"), "excerpt": (c.get("body") or "")[:160]})
-    inline = set((f.get("path"), f.get("line")) for f in findings)
-    for r in reviews:                                               # review 本文裡的意見也算（同一個檔同一行已經有行內留言的不重複算）
-        findings += [f for f in body_findings(r, ext) if (f.get("path"), f.get("line")) not in inline]
-    out = {"complete": bool(reviews), "signal": "A" if reviews else None, "summary": None,
+        rid = c.get("pull_request_review_id")
+        # GitHub 會把舊留言的 commit_id 改成新的 commit；original_commit_id 與它屬於哪一次 review 不會變，用這兩個認
+        on_head = str(c.get("original_commit_id") or "").lower() == head.lower() or (rid is not None and str(rid) in head_ids)
+        line = c.get("line") or c.get("original_line")
+        findings.append({"id": c.get("id"), "severity": severity_of(c.get("body") or "", ext), "path": c.get("path"), "line": line,
+                         "excerpt": (c.get("body") or "")[:160], "on_head": on_head, "review_id": rid})
+        inline.add((None if rid is None else str(rid), c.get("path"), line))
+    for r in all_reviews:                                           # review 本文裡的意見也算（同一次 review 裡同一個檔同一行已經有行內留言的不重複算）
+        r_head = str(r.get("id")) in head_ids
+        for f in body_findings(r, ext):
+            if (str(r.get("id")), f.get("path"), f.get("line")) in inline or (r_head and (None, f.get("path"), f.get("line")) in inline):
+                continue
+            findings.append(dict(f, on_head=r_head, review_id=r.get("id")))
+    out = {"complete": bool(reviews), "signal": "A" if reviews else None, "summary": None, "rounds": None,
            "why": None if reviews else "Codex（%s）還沒有針對 commit %s 發出 review" % (bot, head[:7]),
            "reviews": [{"id": r.get("id"), "state": r.get("state"), "body": (r.get("body") or "")[:200], "submitted_at": r.get("submitted_at")} for r in reviews],
-           "findings": findings, "others": sorted(others), "major": [f for f in findings if f["severity"] in ("P0", "P1")]}
+           "findings": findings, "others": sorted(others), "major": [f for f in findings if f["severity"] in ("P0", "P1")],
+           "p0_on_head": [f for f in findings if f.get("on_head") and f["severity"] == "P0"]}
+    issue_comments, err3 = gh_pages("repos/%s/issues/%s/comments" % (s, pr_number), runner=runner, hints=hints)
+    if issue_comments is not None:                                  # 審了幾輪：開 PR 時自動審的那一次，加上之後每一則「@codex review」
+        out["rounds"] = 1 + len([x for x in issue_comments if (x.get("body") or "").strip() == ext["trigger"]])
     if reviews:                                                     # 訊號 A：這個 commit 有 review 就以 review 為準，不去看訊號 B（不能用 B 蓋掉 A）
         return out
     # 訊號 B（2026-10-06 Cowork 的裁決）：Codex 沒有意見時不發 review，只把它自己那則「Codex Review Summary」留言更新成 Completed
-    issue_comments, err3 = gh_pages("repos/%s/issues/%s/comments" % (s, pr_number), runner=runner, hints=hints)
     if issue_comments is None:
         out["why"] = "%s；也查不到 PR 的留言（%s）" % (out["why"], err3)
         return out
@@ -521,15 +538,58 @@ def parse_responses(path):
             conflict.add(key)
         if key in conflict:
             kind = "other"
-        rows[key] = {"severity": cells[1], "response": kind, "reason": reason, "raw": resp}
+        ruling, deferred = ruling_file(reason, os.path.dirname(os.path.abspath(path))) if kind == "reject" else (None, None)
+        rows[key] = {"severity": cells[1], "response": kind, "reason": reason, "raw": resp, "ruling": ruling, "deferred_to": deferred}
     return rows
 
 
+_RULING = re.compile(r"^(?:延後到\s*(?P<stage>[^\s，,]+?)\s*[，,]\s*)?Cowork\s*裁決\s*[：:]\s*(?P<file>.+?)\s*$")
+_RULING_NAME = re.compile(r"Cowork(回覆|裁決)")
+
+
+def ruling_file(reason, folder):
+    """「不採納」重大意見的理由欄（2026-10-06 裁決第三節）：只認「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」，
+    而且那個檔真的在這個階段的報告資料夾裡、不是空的、檔名是 Cowork 回覆或裁決的那一種。回傳 (檔名, 延後到哪個階段或 None)；不符合回 (None, None)。
+    檔名只是指到哪一份；那一份算不算數，靠的是 David 打字指名它（信裡會把檔名列出來給他看）。"""
+    m = _RULING.match((reason or "").strip())
+    if not m:
+        return None, None
+    name = m.group("file").strip().strip("`「」『』 ")
+    if not name or name != os.path.basename(name) or "/" in name or "\\" in name or name.startswith(".") or not _RULING_NAME.search(name):
+        return None, None
+    p = os.path.join(folder, name)
+    try:
+        if not (os.path.isfile(p) and os.path.getsize(p) > 0):
+            return None, None
+    except Exception:                                              # noqa: B902
+        return None, None
+    return name, m.group("stage")
+
+
 def responses_problems(findings, rows):
-    """回傳 (沒回覆的 id, 被判不採納的重大意見)。"""
+    """回傳 (沒回覆的 id, 被判不採納的 P0, 判不採納卻沒有 Cowork 裁決檔的 P1)。2026-10-06 裁決第三節：
+    P0 不能不採納，一定要修；P1 要不採納，理由欄得指到 Cowork 的裁決檔（見 ruling_file），沒有就當成還沒回覆；等級不到 P1 的可以直接不採納。"""
     missing = [f["id"] for f in findings if f.get("id") not in rows or rows[f["id"]]["response"] == "other"]
-    rejected = [f for f in findings if f.get("severity") in ("P0", "P1") and rows.get(f.get("id"), {}).get("response") == "reject"]
-    return missing, rejected
+    rejected = [f for f in findings if f.get("severity") == "P0" and rows.get(f.get("id"), {}).get("response") == "reject"]
+    unruled = [f for f in findings if f.get("severity") == "P1" and rows.get(f.get("id"), {}).get("response") == "reject"
+               and not rows[f["id"]].get("ruling")]
+    return missing, rejected, unruled
+
+
+def unfixed_on_head(findings, rows):
+    """針對最新 commit 的意見、回覆卻寫「採納並修」的那幾條。要修一條意見，一定得有比「被審的那個 commit」更新的 commit；
+    最新的 commit 就是被審的那一個，表示修的東西還沒推上來（或根本沒修）。推上去之後它就變成舊 commit 的意見，新的 commit 再請 Codex 審。
+    （這一條是施工時補的：只看「有沒有回覆」的話，把最新 commit 的 P1 寫成「採納並修」、什麼都不改，關卡也會過。）"""
+    return [f for f in findings if f.get("on_head") and rows.get(f.get("id"), {}).get("response") == "adopt"]
+
+
+def round_cap(cfg, stage):
+    """這個階段最多請 Codex 審幾輪（2026-10-06 裁決第三節）。到了上限還沒達成完成條件＝停下來寄「要你決定」；上限不是自動放行。"""
+    caps = (cfg.get("externalReview") or {}).get("maxRounds") or {}
+    try:
+        return int(caps.get(stage, caps.get("default", 4)))
+    except Exception:                                              # noqa: B902
+        return 4
 
 
 # ---------------------------------------------------------------- 免外部審查
@@ -574,7 +634,8 @@ def external_status(main_root, sd, cfg, stage, head, st, runner=None, now=None):
     cs = codex_status(main_root, cfg, pr["number"], head, runner=runner, pr=pr)
     out = {"mode": "codex" if cs["complete"] else "incomplete", "complete": cs["complete"], "why": cs.get("why"), "pr": pr,
            "pr_url": pr.get("url"), "findings": cs["findings"], "others": cs["others"], "major": cs["major"], "reviews": cs["reviews"],
-           "signal": cs.get("signal"), "summary": cs.get("summary")}
+           "signal": cs.get("signal"), "summary": cs.get("summary"), "p0_on_head": cs.get("p0_on_head") or [],
+           "rounds": cs.get("rounds"), "round_cap": round_cap(cfg, stage)}
     if not cs["complete"] and wp is None:
         out.update({"mode": "waived", "complete": True, "why": None, "waiver": st.get("external_waiver")})
     out["pr_head_matches"] = (pr.get("head") or "") == head.lower()
@@ -690,6 +751,8 @@ def gate_line_verify(vs):
     extra = "" if vs.get("green") else "（%s）" % vs.get("why")
     if vs.get("green") and vs.get("verifier_change_approved"):
         extra = "（這一段改的是驗收機本身；David 手打「驗收機變更」同意用這個 commit 的結果）"
+    if int(vs.get("attempt") or 1) > 1:                             # 重跑過：照實寫出來（算數的是最後那一次嘗試）
+        extra += "（重跑過 %d 次；這是第 %d 次嘗試的結果）" % (int(vs["attempt"]) - 1, int(vs["attempt"]))
     return "驗收機：%s%s%s" % (label, extra, "（%s）" % vs["url"] if vs.get("url") else "")
 
 
@@ -710,4 +773,9 @@ def gate_line_external(ext, rows=None):
         who = "未完成（%s）" % (ext.get("why") or "?")
     pr = ext.get("pr_url") or ((ext.get("pr") or {}).get("url") if isinstance(ext.get("pr"), dict) else None)
     others = "；別人的留言 %d 則（忽略）" % len(ext.get("others") or []) if ext.get("others") else ""
-    return "外部審查（GPT）：%s；重大 %d 條；採納 %d、不採納 %d%s%s" % (who, len(major), adopted, rejected, others, "（%s）" % pr if pr else "")
+    # 不採納的重大意見：把理由欄指到的 Cowork 裁決檔列出來（那一份算不算數，David 一眼看得出來）；延後的另外標出來
+    cited = sorted(set("%s%s" % (rows[f["id"]]["ruling"], "（延後到 %s）" % rows[f["id"]]["deferred_to"] if rows[f["id"]].get("deferred_to") else "")
+                       for f in major if rows.get(f.get("id"), {}).get("response") == "reject" and rows[f["id"]].get("ruling")))
+    ruled = "（依 Cowork 裁決：%s）" % "、".join(cited) if cited else ""
+    rounds = "；審了 %d 輪（上限 %d 輪）" % (ext["rounds"], ext.get("round_cap") or 0) if ext.get("rounds") else ""
+    return "外部審查（GPT）：%s；重大 %d 條；採納 %d、不採納 %d%s%s%s%s" % (who, len(major), adopted, rejected, ruled, others, rounds, "（%s）" % pr if pr else "")

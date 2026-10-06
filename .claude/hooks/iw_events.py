@@ -252,7 +252,13 @@ def apply_effects(env, effects, inp):
                     t[e[1]] = {"at": now, "ack": False}
             elif k == "review_begin":
                 st["review_pending"] = dict(e[1], at=now, tool_use_id=inp.get("tool_use_id"), epoch=st.get("epoch"))
+            elif k == "verify_rerun":                               # 守門放行了一次「重跑驗收」：記下來（哪個 commit、哪一次執行、第幾次重跑）
+                st.setdefault("verify_reruns", []).append(dict(e[1], at=now))
+                st["verify_reruns"] = st["verify_reruns"][-20:]
     ST.update(env.sd, fn)
+    for e in effects:
+        if e[0] == "verify_rerun":
+            ST.log(env.sd, dict(e[1], event="verify_rerun"))
     for text, key in mails:
         send_fallback(env, text, key)
 

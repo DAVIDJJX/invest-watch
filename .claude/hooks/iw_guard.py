@@ -246,6 +246,18 @@ class GitInfo(object):
         rc, out = C.git(["rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}"], cdir)
         return out if rc == 0 and out else None
 
+    def gh_verify_runs(self, cfg, sha):
+        """GitHub 上驗收機對這個 commit 的執行紀錄（唯讀；只有「重跑驗收」那條規則會問）。查不到回 None。"""
+        import iw_review as RV                                      # 用到才載入：守門平常不連 GitHub
+        v = cfg.get("verify") or {}
+        s = RV.slug(self.main_root, cfg)
+        if not v or not s:
+            return None
+        obj, _err = RV.gh_json(["api", "repos/%s/actions/workflows/%s/runs?head_sha=%s&per_page=100" % (s, v["workflow"], sha)], hints={"sha": sha})
+        if not isinstance(obj, dict) or not isinstance(obj.get("workflow_runs"), list):
+            return None
+        return obj["workflow_runs"]
+
 
 # ---------------------------------------------------------------- 情境
 
@@ -1761,6 +1773,47 @@ def _gh_positional(argv):
     return pos
 
 
+def _gh_rerun(argv, pos, ctx, auto, cwd):
+    """重跑驗收（2026-10-06 裁決）。兩種模式都可以用，但有範圍：只准重跑「驗收機的流程檔、head_sha 是現在分支最頂端的 commit、
+    由 push 觸發」的那一次執行；同一個 commit 最多重跑 maxReruns 次。對別的流程、別的 commit、超過次數，一律擋；查不到也擋。
+    重跑不是放寬：算數的是最後那一次嘗試的結果，關卡認的還是同一次執行。每一次放行都記下來（報告要寫哪一次、為什麼）。"""
+    v = ctx.cfg.get("verify") or {}
+    code = 3 if auto else 1
+    if not v:
+        raise Block("設定裡沒有驗收機（verify），不能重跑。", code)
+    limit = int(v.get("maxReruns", 2))
+    ids = pos[2:]
+    flags = [a for a in argv[1:] if a.startswith("-")]
+    if len(ids) != 1 or not ids[0].isdigit() or any(f != "--failed" for f in flags):
+        raise Block("重跑驗收只准這一種寫法：gh run rerun <執行編號>（可以加 --failed）。不能省略編號、不能指定別的倉庫或單一工作、不能帶別的選項。", code)
+    info = ctx.git.info(cwd) if cwd else None
+    if not info or not info.get("ours") or not info.get("head"):
+        raise Block("看不出現在在這個倉庫的哪個分支、哪個 commit，不能重跑驗收。請在這個階段的 worktree 裡下指令。", code)
+    head = str(info["head"]).lower()
+    runs = ctx.git.gh_verify_runs(ctx.cfg, head)
+    if runs is None:
+        raise Block("查不到驗收機對現在這個 commit（%s）的執行紀錄；查不到就不重跑。" % head[:7], code)
+    want = ".github/workflows/" + v["workflow"]
+    run = next((r for r in runs if str(r.get("id")) == ids[0]), None)
+    if run is None:
+        raise Block("執行 %s 不在驗收機（%s）對現在這個 commit（%s）的紀錄裡。只能重跑現在分支最頂端那個 commit 的驗收。" % (ids[0], v["workflow"], head[:7]), code)
+    if run.get("path") != want:
+        raise Block("執行 %s 不是驗收機（%s）的執行，是別的流程（%s）。只能重跑驗收機。" % (ids[0], v["workflow"], run.get("path") or "?"), code)
+    if str(run.get("head_sha") or "").lower() != head:
+        raise Block("執行 %s 是別的 commit（%s）的驗收，不是現在分支最頂端的 %s。只能重跑現在這個 commit 的。"
+                    % (ids[0], str(run.get("head_sha") or "?")[:7], head[:7]), code)
+    if run.get("event") != "push":
+        raise Block("執行 %s 不是由推送觸發的那一次（是 %s）。關卡只認推送觸發的那一次，重跑別的沒有用。" % (ids[0], run.get("event") or "?"), code)
+    mine = [r for r in runs if r.get("path") == want and str(r.get("head_sha") or "").lower() == head and r.get("event") == "push"]
+    used = sum(max(0, int(r.get("run_attempt") or 1) - 1) for r in mine)
+    if used >= limit:
+        why = "這個 commit（%s）的驗收已經重跑 %d 次，上限是 %d 次" % (head[:7], used, limit)
+        if auto:
+            ctx.effects.append(("stop_required", 5, why))
+        raise Block(why + "。還不是每一段都綠、封鎖層級 3／3，就停下來寄【%s】的信，由 David 決定；不要再重跑。" % ctx.cfg["stopLevels"]["decide"], 5 if auto else 1)
+    ctx.effects.append(("verify_rerun", {"sha": head, "run": ids[0], "nth": used + 1, "limit": limit}))
+
+
 def _gh(argv, ctx, auto, cwd=None):
     pos = _gh_positional(argv)
     sub = pos[0] if pos else ""
@@ -1844,6 +1897,8 @@ def _gh(argv, ctx, auto, cwd=None):
         for d in dirs or ["."]:
             if cwd is None or covers_protected(d, cwd, ctx) or classify_path(d, cwd, ctx)[0] not in (None, "copy"):
                 raise Block("gh run download 會把下載的檔案放到「%s」，那個位置包住了保護檔（或看不出在哪裡）。請用 -D 指定別的資料夾。" % d, 3)
+    if pos[:2] == ["run", "rerun"]:
+        _gh_rerun(argv, pos, ctx, auto, cwd)
     if not auto:
         return
     allowed = ctx.allow["programs"]["ghAllowed"]

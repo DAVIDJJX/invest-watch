@@ -64,14 +64,16 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
-                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None):
+                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None,
+                    attempt=1, result_attempt=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
     沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
-    event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。"""
+    event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。
+    attempt：那一次執行現在是第幾次嘗試（重跑過就大於 1）；result_attempt：結果檔是第幾次嘗試寫的（預設跟 attempt 一樣）。"""
     run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
-           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": 1, "created_at": "2026-10-04T00:00:00Z",
+           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": attempt, "created_at": "2026-10-04T00:00:00Z",
            "event": event, "path": path}
-    result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [],
+    result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [], "run_attempt": str(result_attempt or attempt),
               "tests": {"ran": ran, "defined": ran, "passed": ran, "failed": [], "errors": [], "skipped": []}, "egress": {"bot_hits": 0}, "schema": 1}
     reviews = []
     if codex:

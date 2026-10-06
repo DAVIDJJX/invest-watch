@@ -11,7 +11,9 @@ test_verify_ci.py — 停點 P2「第三方審核」：驗收機（scripts/verif
   1. 台銀與資料來源網域出現→紅；未知主機→紅；Chrome 自己的背景連線→列出、不紅；loopback 不算。
   2. 測試數或突變數變少→紅；被刪改的測試與突變逐條列出；存活的突變不在 main 的例外清單→紅；錨點錯誤→紅。
   3. 結果檔含不該公開的字串（本機路徑、權杖、信箱、個人資料樣式）→紅。
-  4. 系統層封鎖拿不到→不紅，但結果寫封鎖層級 2／3。
+  4. （2026-10-06 的裁決，取代 10/4 的「系統層拿不到→不紅，只寫層級 2／3」）全套測試與每一片突變都要有系統層封鎖，
+     IPv4 與 IPv6 的規則都要；哪一段缺了→紅，原因以「封鎖沒設成」開頭，跟測試紅分開；結果檔照樣寫每一段的層級。
+     建使用者與設防火牆那幾步逾時 300 秒、失敗後自動再試一次。
   5. 分支改了驗收機本身→結果標 verifier_changed（判定照 main 的版本做；關卡那邊不認）。
   6. Python 層：任何對外的名稱解析與連線都被拒絕並記下來；loopback 照常。
   7. 突變清單：每個錨點在倉庫裡剛好出現一次；已知例外的鍵都是真的突變編號。
@@ -46,7 +48,11 @@ ALLOWED = ["query1.finance.yahoo.com", "api.finmindtrade.com"]
 GREEN_TESTS = {"defined": 830, "ran": 830, "passed": 828, "failed": [], "errors": [], "skipped": [{"name": "a.b", "reason": "沒有鹽"}], "unexpected_successes": [], "ok": True}
 GREEN_CMP = {"tests_defined_main": 820, "mutations_total": 150, "mutations_main": 146, "mutation_anchor_problems": [], "verifier_changed": False}
 GREEN_MUT = {"total_ran": 150, "red": 149, "survivors": ["M105"], "known_exceptions": ["M105"], "unexplained_survivors": [], "anchor_errors": [], "missing": 0}
-GREEN_LOCK = {"layers": {"python": "sitecustomize", "browser": "x", "ip": "iptables"}, "level": "3/3"}
+GREEN_LOCK = {"layers": {"python": "sitecustomize", "browser": "x", "ip": "iptables"}, "level": "3/3",
+              "iptables": {"ipv4": True, "ipv6": True}, "selftest": {"python": "blocked+logged", "ip": "blocked"}}
+# 沒有系統層的那一種（10/6 凌晨真的發生過：執行機太慢，建使用者逾時，那一片只剩 Python 與瀏覽器兩層）
+NO_IP_LOCK = {"layers": {"python": "sitecustomize", "browser": "x", "ip": None}, "level": "2/3", "selftest": {"python": "blocked+logged"},
+              "notes": ["建不出使用者 iwtest：執行失敗"]}
 
 
 def egress(hosts=None, blocked=None, layers=None):
@@ -122,10 +128,36 @@ class TestJudge(unittest.TestCase):
     def test_privacy_hits_are_red(self):
         self.assertTrue(any("不該公開" in r for r in self.green(privacy=["verify-result：本機的絕對路徑"])))
 
-    def test_missing_ip_layer_is_not_red_but_missing_python_layer_is(self):
-        """David 的裁決 3：系統層拿不到可以，但要寫層級 2／3；Python 層沒有就是紅。"""
-        self.assertEqual(self.green(lockdown={"layers": {"python": "sitecustomize", "browser": "x", "ip": None}, "level": "2/3"}), [])
-        self.assertTrue(any("Python 層" in r for r in self.green(lockdown={"layers": {"python": None, "browser": "x", "ip": "y"}, "level": "2/3"})))
+    def test_missing_system_layer_is_red_and_the_reason_says_lockdown_not_tests(self):
+        """2026-10-06 的裁決（取代 10/4 裁決三.3「系統層拿不到→不紅」）：缺系統層就是紅；原因以「封鎖沒設成」開頭，跟測試紅分開。
+        Python 層沒有也是紅（原本就是）。對照組：缺系統層不判紅 → 紅。"""
+        reasons = self.green(lockdown=NO_IP_LOCK)
+        self.assertEqual(len(reasons), 1, reasons)
+        self.assertTrue(reasons[0].startswith(V.LOCKDOWN_RED + "："), reasons)
+        self.assertIn("全套測試那一段沒有完整的系統層封鎖（沒有系統層）", reasons[0])
+        self.assertIn("重跑", reasons[0])
+        self.assertNotIn("測試有", reasons[0])
+        py = self.green(lockdown=dict(GREEN_LOCK, layers={"python": None, "browser": "x", "ip": "y"}, level="2/3"))
+        self.assertTrue(any("Python 層" in r and r.startswith(V.LOCKDOWN_RED) for r in py), py)
+        both = self.green(lockdown=NO_IP_LOCK, tests=dict(GREEN_TESTS, failed=["x.y"], ok=False))        # 兩種紅各自一條，分得開
+        self.assertEqual(sorted(r.startswith(V.LOCKDOWN_RED) for r in both), [False, True], both)
+
+    def test_the_system_layer_needs_ipv4_and_ipv6_and_a_passing_selftest(self):
+        """IPv4 與 IPv6 的防火牆規則都要、自我測試要真的被擋下。對照組：只看 IPv4、或不看自我測試 → 紅。"""
+        self.assertIsNone(V.system_layer_gap(GREEN_LOCK))
+        self.assertEqual(V.system_layer_gap(None), "沒有系統層")
+        self.assertEqual(V.system_layer_gap(NO_IP_LOCK), "沒有系統層")
+        for ipt, want in (({"ipv4": True, "ipv6": False}, "IPv6"), ({"ipv4": False, "ipv6": True}, "IPv4"), ({"ipv4": True}, "IPv6"), ({}, "IPv4、IPv6"),
+                          ({"ipv4": True, "ipv6": "yes"}, "IPv6")):
+            gap = V.system_layer_gap(dict(GREEN_LOCK, iptables=ipt))
+            self.assertEqual(gap, "防火牆少了 %s 的規則" % want, ipt)
+            self.assertTrue(any(gap in r and r.startswith(V.LOCKDOWN_RED) for r in self.green(lockdown=dict(GREEN_LOCK, iptables=ipt))), ipt)
+        for st in ({"python": "blocked+logged", "ip": "NOT blocked"}, {"python": "blocked+logged"}):
+            self.assertEqual(V.system_layer_gap(dict(GREEN_LOCK, selftest=st)), "系統層的自我測試沒過")
+            self.assertTrue(self.green(lockdown=dict(GREEN_LOCK, selftest=st)))
+        self.assertTrue(V.firewall_complete({"ipv4": True, "ipv6": True}))
+        for ipt in ({"ipv4": True, "ipv6": False}, {"ipv4": False, "ipv6": True}, {"ipv4": True}, {}, None):
+            self.assertFalse(V.firewall_complete(ipt), ipt)
 
     def test_verifier_changed_is_a_flag_not_a_reason(self):
         self.assertEqual(self.green(cmp_=dict(GREEN_CMP, verifier_changed=True)), [])
@@ -194,6 +226,19 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertTrue(any("Python 層封鎖沒有生效" in r for r in j([GREEN_LOCK, {"layers": {"python": None}, "level": "0/3"}])))
         self.assertEqual(V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, []), [])               # 舊的呼叫方式（沒給這一項）不檢查
 
+    def test_a_mutation_shard_without_the_system_layer_is_red(self):
+        """2026-10-06 的裁決：每一片突變也都要有系統層封鎖（IPv4 與 IPv6）。10/6 凌晨重跑的那兩片就是這樣：只有 2／3、當時卻是綠的。
+        對照組：突變分片缺系統層不判紅 → 紅。"""
+        mut = dict(GREEN_MUT, shards=["1/2", "2/2"])
+        reasons = V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, [],
+                          mut_lockdowns=[dict(GREEN_LOCK, job="verify-mutations-1"), dict(NO_IP_LOCK, job="verify-mutations-2")])
+        self.assertEqual(len(reasons), 1, reasons)
+        self.assertTrue(reasons[0].startswith(V.LOCKDOWN_RED + "：有 1 片突變沒有完整的系統層封鎖：verify-mutations-2（沒有系統層）"), reasons)
+        no6 = dict(GREEN_LOCK, iptables={"ipv4": True, "ipv6": False})
+        reasons = V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, [], mut_lockdowns=[no6, NO_IP_LOCK])
+        self.assertTrue(any("有 2 片" in r and "第 1 片（防火牆少了 IPv6 的規則）" in r and "第 2 片（沒有系統層）" in r for r in reasons), reasons)
+        self.assertEqual(V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, [], mut_lockdowns=[GREEN_LOCK, GREEN_LOCK]), [])
+
     def test_egress_from_every_job_is_merged(self):
         a = {"hosts": {"update.googleapis.com": {"count": 2, "via": ["browser"]}}, "blocked_ips": [], "python_events": 1, "browser_netlogs": 3}
         b = {"hosts": {"rate.bot.com.tw": {"count": 1, "via": ["python"]}, "update.googleapis.com": {"count": 1, "via": ["python"]}},
@@ -208,7 +253,8 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertEqual(V.weakest_level([{"level": "3/3"}, {"level": "2/3"}]), "2/3")
         self.assertEqual(V.weakest_level([{"level": "3/3"}, None]), "0/3")
 
-    def collect(self, shard_egress=None, shard2_lock=True, export_hits=None, shard2_export=True):
+    def collect(self, shard_egress=None, shard2_lock=True, export_hits=None, shard2_export=True, main_lock=None):
+        """shard2_lock：True＝第 2 片的封鎖紀錄是完整的；False＝沒有紀錄；給一個 dict＝用那一份紀錄。main_lock：全套測試那一段的封鎖紀錄。"""
         inp = os.path.join(self.tmp, "in")
         shutil.rmtree(inp, True)
         raw = {"hosts": {}, "blocked_ips": [], "python_events": 0, "browser_netlogs": 0}
@@ -216,7 +262,7 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         os.makedirs(main)
         V.write_json(os.path.join(main, "tests.json"), GREEN_TESTS)
         V.write_json(os.path.join(main, "compare.json"), dict(GREEN_CMP, mutations_total=2, mutations_main=None))
-        V.write_json(os.path.join(main, "lockdown.json"), GREEN_LOCK)
+        V.write_json(os.path.join(main, "lockdown.json"), main_lock or GREEN_LOCK)
         V.write_json(os.path.join(main, "egress.json"), raw)
         V.write_json(os.path.join(main, "export.json"), {"privacy_hits": [], "exported": ["tests.json"]})
         for i in (1, 2):
@@ -225,12 +271,14 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
             V.write_json(os.path.join(d, "mut-%d-of-2.json" % i), {"shard": "%d/2" % i, "results": [{"id": "M0%d" % i, "ok": True, "red": ["x"], "ran": 1}]})
             V.write_json(os.path.join(d, "egress.json"), shard_egress if (i == 1 and shard_egress) else raw)
             if i == 1 or shard2_lock:
-                V.write_json(os.path.join(d, "lockdown.json"), GREEN_LOCK)
+                V.write_json(os.path.join(d, "lockdown.json"), shard2_lock if (i == 2 and isinstance(shard2_lock, dict)) else GREEN_LOCK)
             if i == 1 or shard2_export:
                 V.write_json(os.path.join(d, "export.json"), {"privacy_hits": (export_hits or []) if i == 1 else [], "exported": []})
         out = tempfile.mkdtemp(prefix="out-", dir=self.tmp)
         with contextlib.redirect_stdout(io.StringIO()):
             rc = V.cmd_collect(argparse.Namespace(repo=ROOT, out=out, inputs=inp, main_ref="origin/main", summary=None))
+        with io.open(os.path.join(out, "summary.md"), encoding="utf-8") as fh:
+            self.summary = fh.read()
         return rc, V.read_json(os.path.join(out, "verify-result.json"), {})
 
     def test_collect_reads_every_job_and_reds_on_a_shard_that_went_out_or_had_no_lockdown(self):
@@ -248,6 +296,117 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertTrue(any("1 片突變沒有封鎖紀錄" in r for r in res["reasons"]), res["reasons"])
         self.assertEqual(res["egress"]["level"], "0/3")
+
+    def test_collect_reds_when_any_job_lacks_the_system_layer_and_still_writes_every_level(self):
+        """2026-10-06 的裁決：哪一段缺系統層，那一次驗收就是紅；結果檔照樣寫每一段的層級；紅的種類要分得出「封鎖沒設成」與其他。
+        對照組：判定那一段不看突變分片的系統層 → 紅。"""
+        rc, res = self.collect()
+        self.assertEqual((rc, res["red_kind"], res["lockdown_reasons"]), (0, None, []))
+        self.assertIn("每一段的封鎖層級", self.summary)
+        self.assertNotIn(V.LOCKDOWN_RED, self.summary)
+        rc, res = self.collect(shard2_lock=NO_IP_LOCK)                                   # 第 2 片突變只有 2／3
+        self.assertEqual((rc, res["red"], res["red_kind"], len(res["lockdown_reasons"])), (1, True, "lockdown", 1), res["reasons"])
+        self.assertEqual([(x["job"], x["level"], x["system_layer_gap"]) for x in res["lockdown"]["mutation_shards"]],
+                         [("verify-mutations-1", "3/3", None), ("verify-mutations-2", "2/3", "沒有系統層")])
+        self.assertEqual((res["lockdown"]["job"], res["lockdown"]["level"], res["lockdown"]["system_layer_gap"]), ("verify-partial", "3/3", None))
+        self.assertEqual(res["egress"]["level"], "2/3")
+        self.assertEqual(res["tests"]["failed"], [])                                     # 測試本身沒有紅
+        self.assertIn("verify-mutations-2 2/3（沒有系統層）", self.summary)
+        self.assertIn("這一次紅是因為%s，不是測試紅" % V.LOCKDOWN_RED, self.summary)
+        rc, res = self.collect(main_lock=NO_IP_LOCK)                                     # 全套測試那一段只有 2／3
+        self.assertEqual((rc, res["red_kind"]), (1, "lockdown"))
+        self.assertTrue(any("全套測試那一段沒有完整的系統層封鎖" in r for r in res["reasons"]), res["reasons"])
+        rc, res = self.collect(shard2_lock=dict(GREEN_LOCK, iptables={"ipv4": True, "ipv6": False}))   # 有 IPv4、沒有 IPv6：也不算
+        self.assertEqual((rc, res["red_kind"]), (1, "lockdown"))
+        self.assertEqual(res["lockdown"]["mutation_shards"][1]["ipv6"], False)
+        rc, res = self.collect(shard2_lock=NO_IP_LOCK, shard_egress={"hosts": {"rate.bot.com.tw": {"count": 1, "via": ["python"]}}, "blocked_ips": []})
+        self.assertEqual((rc, res["red_kind"], len(res["lockdown_reasons"])), (1, "other", 1))             # 兩種紅都有：不能只當成重跑就好
+        self.assertNotIn("這一次紅是因為", self.summary)
+
+
+class TestLockdownStepsRetry(unittest.TestCase):
+    """2026-10-06 的裁決：建立測試用的使用者與設防火牆那幾步，逾時從 120 秒放寬到 300 秒，失敗（含逾時）之後自動再試一次。
+    10/6 凌晨有兩片突變因為執行機太慢、建使用者逾時，只剩 2／3。sudo 用替身，不需要真的有權限。"""
+
+    def setUp(self):
+        saved = V.sudo
+        self.addCleanup(lambda: setattr(V, "sudo", saved))
+        self.calls = []
+
+    def fake(self, answers):
+        """answers：依序回給每一次呼叫的 (rc, 輸出)；用完之後一律 (0, "")。"""
+        left = list(answers)
+
+        def sudo(cmd, timeout=120):
+            self.calls.append((list(cmd), timeout))
+            return left.pop(0) if left else (0, "")
+        V.sudo = sudo
+
+    def test_the_timeout_is_300_seconds_and_a_failed_step_is_tried_once_more(self):
+        """對照組：逾時改回 120 秒、或失敗不再試 → 紅。"""
+        self.assertEqual((V.LOCKDOWN_STEP_TIMEOUT, V.LOCKDOWN_TRIES), (300, 2))
+        self.fake([(99, "執行失敗：TimeoutExpired"), (0, "")])
+        retried = []
+        self.assertEqual(V.sudo_retry(["useradd", "-m", "iwtest"], retried=retried, label="建立使用者 iwtest"), (0, ""))
+        self.assertEqual([c[0] for c in self.calls], [["useradd", "-m", "iwtest"]] * 2)
+        self.assertEqual([c[1] for c in self.calls], [300, 300])
+        self.assertEqual(retried, ["建立使用者 iwtest"])
+        self.calls[:] = []
+        self.fake([(0, "")])                                                              # 第一次就成：不重試、不記
+        retried = []
+        self.assertEqual(V.sudo_retry(["-v"], retried=retried), (0, ""))
+        self.assertEqual((len(self.calls), retried), (1, []))
+        self.calls[:] = []
+        self.fake([(99, "x"), (99, "y"), (0, "")])                                        # 兩次都不成：就是不成，不會試第三次
+        self.assertEqual(V.sudo_retry(["useradd", "iwtest"]), (99, "y"))
+        self.assertEqual(len(self.calls), 2)
+
+    def test_a_user_that_already_exists_on_the_second_try_counts_as_made(self):
+        self.fake([(99, "執行失敗：TimeoutExpired"), (9, "useradd: user 'iwtest' already exists")])
+        rc, o = V.sudo_retry(["useradd", "iwtest"], good=V.user_made)
+        self.assertTrue(V.user_made(rc, o))
+        self.assertFalse(V.user_made(99, "執行失敗：TimeoutExpired"))
+        self.assertFalse(V.user_made(1, None))
+
+    def test_a_firewall_rule_is_retried_but_never_added_twice(self):
+        rule = ["-A", "OUTPUT", "-m", "owner", "--uid-owner", "iwtest", "-j", "DROP"]
+        self.fake([(99, "逾時"), (1, "不在"), (0, "")])                                    # 加：失敗 → 查：不在 → 再加：成
+        retried = []
+        self.assertTrue(V.add_rule("iptables", rule, retried))
+        self.assertEqual([c[0][:2] for c in self.calls], [["iptables", "-A"], ["iptables", "-C"], ["iptables", "-A"]])
+        self.assertEqual(self.calls[1][0], ["iptables", "-C", "OUTPUT", "-m", "owner", "--uid-owner", "iwtest", "-j", "DROP"])
+        self.assertEqual(set(c[1] for c in self.calls), set([300]))
+        self.assertEqual(retried, ["iptables DROP"])
+        self.calls[:] = []
+        self.fake([(99, "逾時"), (0, "")])                                                # 加：逾時 → 查：其實已經在了 → 不再加
+        self.assertTrue(V.add_rule("ip6tables", rule))
+        self.assertEqual([c[0][:2] for c in self.calls], [["ip6tables", "-A"], ["ip6tables", "-C"]])
+        self.calls[:] = []
+        self.fake([(1, "x"), (1, "不在"), (1, "x")])                                      # 兩次都不成
+        self.assertFalse(V.add_rule("iptables", rule))
+        self.assertEqual(len(self.calls), 3)
+        self.calls[:] = []
+        insert = ["-I", "OUTPUT", "1", "-m", "owner", "--uid-owner", "iwtest", "-o", "lo", "-j", "ACCEPT"]
+        self.fake([(1, "x"), (1, "不在"), (0, "")])
+        self.assertTrue(V.add_rule("iptables", insert))
+        self.assertEqual(self.calls[1][0], ["iptables", "-C", "OUTPUT", "-m", "owner", "--uid-owner", "iwtest", "-o", "lo", "-j", "ACCEPT"])   # 查的時候沒有位置那個數字
+
+    def test_the_firewall_needs_both_families(self):
+        """IPv6 的規則設不成 → ipv6 是 False → 不算有系統層。對照組：只設 IPv4 → 紅。"""
+        self.fake([])
+        ipt = V.set_firewall("iwtest")
+        self.assertEqual((ipt["ipv4"], ipt["ipv6"], ipt["log"]), (True, True, True))
+        self.assertEqual(sorted(set(c[0][0] for c in self.calls)), ["ip6tables", "iptables"])
+        self.assertEqual(len(self.calls), 6)                                              # 兩種位址各三條：放行 loopback、記錄、丟掉
+        self.assertTrue(V.firewall_complete(ipt))
+
+        def no_v6(cmd, timeout=120):
+            return (1, "ip6tables: 不能用") if cmd[0] == "ip6tables" else (0, "")
+        V.sudo = no_v6
+        ipt = V.set_firewall("iwtest")
+        self.assertEqual((ipt["ipv4"], ipt["ipv6"]), (True, False))
+        self.assertFalse(V.firewall_complete(ipt))
+        self.assertEqual(V.system_layer_gap({"layers": {"ip": "x"}, "iptables": ipt, "selftest": {"ip": "blocked"}}), "防火牆少了 IPv6 的規則")
 
 
 class TestScanBeforeUpload(unittest.TestCase):

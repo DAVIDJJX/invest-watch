@@ -12,6 +12,9 @@ name: 驗收機（verify）
 #
 # 只在 feat/** 分支與 stop* 標籤推送時跑（也可手動；手動跑的結果只供參考，關卡只認 push 觸發的那一次）。
 # main 不跑：黃金排程與資料更新不受影響。只讀、沒有任何密鑰、不推任何東西、不寫 issue 或 PR。
+#
+# 執行機的版本寫死 ubuntu-24.04，不用 ubuntu-latest：GitHub 換預設版本時，三層封鎖（使用者、iptables、Chrome）
+# 不可以跟著不知不覺地變。要升級請先開一條 feat/ 的丟棄分支試跑，三層都正常再改這裡（走「驗收機變更」）。
 # ──────────────────────────────────────────────────────────────────────────
 on:
   push:
@@ -32,7 +35,7 @@ env:
 jobs:
   verify:
     name: 全套測試＋掃描＋封鎖對外連線
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: 取出倉庫（含 main，供比對）
@@ -85,7 +88,7 @@ jobs:
 
   mutations:
     name: 突變對照（分片 ${{ matrix.shard }}/6；封鎖中）
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -137,7 +140,7 @@ jobs:
 
   collect:
     name: 判定與結果檔
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: [verify, mutations]
     if: always()

@@ -42,6 +42,8 @@ import iw_state as ST            # noqa: E402
 import autopilot_install as INST  # noqa: E402
 from test_autopilot_prepush import Sandbox, run_git, fake_gh_entries, write_fake_gh, FAKE_GH_ENV, BOT_LOGIN   # noqa: E402
 
+CFG = C.load_json(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "autopilot", "config.json"))
+
 FABLE = "claude-fable-5-1"       # 審查代理固定用的模型（config 的 reviewer.model）
 WORK = "claude-opus-5-5"         # 施工的模型（config 的 requiredModel；2026-10-05 的模型分工）
 OTHER = "claude-sonnet-5-5"      # 測試用的「被換成別的模型」
@@ -2198,6 +2200,18 @@ def _resp_file(sb, rows):
         fh.write("# 第三方審查回覆\n\n| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
 
 
+RULING = "10_Cowork裁決_收尾.md"
+BY_RULING = "Cowork 裁決：" + RULING
+
+
+def _ruling_file(sb, name=RULING):
+    """報告資料夾裡放一份 Cowork 的裁決檔（P1 要「不採納」，理由欄得指到這樣的檔）。"""
+    p = os.path.join(sb.main, ".autopilot", "runs", "X1", name)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with io.open(p, "w", encoding="utf-8") as fh:
+        fh.write("裁決\n")
+
+
 def _summary(status="✅ **Completed**", when="2026-10-04T00:20:00Z", commit="{sha7}", login=BOT_LOGIN, review="📝 **Code Review**", cid=900):
     """Codex 自己那則「Codex Review Summary」進度留言（格式照 2026-10-05 這個倉庫 1 號 PR 上實際看到的）。
     假的驗收機那一次執行（＝推送的時間）是 2026-10-04T00:00:00Z，開 PR 是 2026-10-03T23:00:00Z。"""
@@ -2313,7 +2327,56 @@ class TestResponseTable(unittest.TestCase):
         for near in ("尚未採納", "採納", "已採納並修", "部分採納並修", "採納並修（晚點）", "不採納？", "不 採納", "**採納並修**", "採納並修，不採納", "adopt", ""):
             self.assertEqual(self.kind(near), "other", near)
         findings = [{"id": 7, "severity": "P0"}]
-        self.assertEqual(R.responses_problems(findings, self.rows(["| 7 | P0 | a.py:1 | 尚未採納 | 之後再說 |"])), ([7], []))     # 沒回覆，不是「採納」
+        self.assertEqual(R.responses_problems(findings, self.rows(["| 7 | P0 | a.py:1 | 尚未採納 | 之後再說 |"])), ([7], [], []))     # 沒回覆，不是「採納」
+
+    def test_a_p0_can_never_be_rejected_and_a_p1_rejection_needs_a_cowork_ruling_file(self):
+        """2026-10-06 裁決第三節：P0 不能不採納；P1 要不採納，理由欄只能是「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」，
+        而且那個檔真的在報告資料夾裡——沒有就當成還沒回覆；等級不到 P1 的可以直接不採納。
+        對照組：P1 不採納不看裁決檔、或 P0 不採納放行 → 紅。"""
+        d = tempfile.mkdtemp(prefix="iw-ruling-")
+        self.addCleanup(shutil.rmtree, d, True)
+
+        def put(name, text="裁決內容\n"):
+            with io.open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+                fh.write(text)
+        put("10_Cowork裁決_收尾.md")
+        put("05_Cowork回覆_整合.md")
+        put("02_驗收報告.md")
+        put("11_Cowork裁決_空的.md", "")
+        for reason, want in (("Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", None)),
+                             ("Cowork裁決: `05_Cowork回覆_整合.md`", ("05_Cowork回覆_整合.md", None)),
+                             ("延後到 P3，Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", "P3")),
+                             ("延後到 A2-1, Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", "A2-1")),
+                             ("Cowork 裁決：12_Cowork裁決_沒有這個檔.md", (None, None)),          # 檔不在
+                             ("Cowork 裁決：11_Cowork裁決_空的.md", (None, None)),                # 空檔
+                             ("Cowork 裁決：02_驗收報告.md", (None, None)),                       # 不是 Cowork 的回覆或裁決
+                             ("Cowork 裁決：../10_Cowork裁決_收尾.md", (None, None)),             # 不能帶路徑
+                             ("Cowork 裁決：", (None, None)),
+                             ("我覺得不用改，Cowork 裁決：10_Cowork裁決_收尾.md", (None, None)),  # 前面不能加別的話
+                             ("那不是問題", (None, None)), ("", (None, None))):
+            self.assertEqual(R.ruling_file(reason, d), want, reason)
+        p = os.path.join(d, "03.md")
+
+        def problems(sev, cell4, reason):
+            with io.open(p, "w", encoding="utf-8") as fh:
+                fh.write("| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n| 7 | %s | a.py:1 | %s | %s |\n" % (sev, cell4, reason))
+            f = {"id": 7, "severity": sev}
+            missing, rejected, unruled = R.responses_problems([f], R.parse_responses(p))
+            return missing, [x["id"] for x in rejected], [x["id"] for x in unruled]
+        ok = "Cowork 裁決：10_Cowork裁決_收尾.md"
+        self.assertEqual(problems("P0", "不採納", ok), ([], [7], []))                      # P0：有裁決檔也不行
+        self.assertEqual(problems("P0", "不採納", "那不是問題"), ([], [7], []))
+        self.assertEqual(problems("P1", "不採納", "那不是問題"), ([], [], [7]))            # P1：沒有裁決檔＝還沒回覆
+        self.assertEqual(problems("P1", "不採納", "Cowork 裁決：12_Cowork裁決_沒有這個檔.md"), ([], [], [7]))
+        self.assertEqual(problems("P1", "不採納", ok), ([], [], []))
+        self.assertEqual(problems("P1", "不採納", "延後到 P3，" + ok), ([], [], []))
+        self.assertEqual(problems("P2", "不採納", "小事"), ([], [], []))                    # 不到 P1：可以直接不採納
+        self.assertEqual(problems("P1", "採納並修", "commit abc1234"), ([], [], []))
+        rows = R.parse_responses(p)
+        self.assertEqual((rows[7]["ruling"], rows[7]["deferred_to"]), (None, None))         # 採納的那一列不看裁決檔
+        self.assertEqual(R.round_cap({"externalReview": {"maxRounds": {"default": 4, "P2": 6}}}, "P2"), 6)
+        self.assertEqual(R.round_cap({"externalReview": {"maxRounds": {"default": 4, "P2": 6}}}, "A2-1"), 4)
+        self.assertEqual(R.round_cap({"externalReview": {}}, "X1"), 4)
 
     def test_the_reason_column_must_say_something(self):
         """對照組：不看理由那一欄 → 紅。"""
@@ -2368,6 +2431,46 @@ class TestGate(FlowBase):
         self.assertEqual(self.send("ready"), 0, self.errs)
         self.assertIn("驗收機：綠（https://example.invalid/actions/runs/1）", body_of(self.sent[-1]))
 
+    def test_a_rerun_counts_only_its_last_attempt_and_the_mail_says_so(self):
+        """2026-10-06 裁決第一節：重跑過的驗收，算數的是最後那一次嘗試；信裡由程式照實寫重跑過幾次。結果檔是比較舊的嘗試寫的 → 不算。
+        對照組：不核對結果檔是第幾次嘗試寫的 → 紅。"""
+        self.ready_setup()
+        self.fake_gh(attempt=3, result_attempt=2)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("結果檔是第 2 次嘗試寫的", "".join(self.errs))
+        self.assertIn("算數的是最後那一次", "".join(self.errs))
+        self.assertEqual(self.sent, [])
+        self.fake_gh(attempt=3)
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        self.assertIn("驗收機：綠（重跑過 2 次；這是第 3 次嘗試的結果）（https://example.invalid/actions/runs/1）", body_of(self.sent[-1]))
+
+    def test_the_guard_lets_the_verifier_be_rerun_twice_and_records_each_time(self):
+        """真的守門＋假的 GitHub：對現在這個 commit 的驗收，gh run rerun 放行，而且記進狀態檔與紀錄檔（哪個 commit、哪一次執行、第幾次重跑）；
+        已經重跑 2 次 → 擋下，自動駕駛停下來，信的等級是「要你決定」。別的 commit 的執行 → 擋。"""
+        self.start()
+        self.fake_gh(green=False)
+        rc, why = self.bash("gh run rerun 1 --failed", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+        rec = self.state()["verify_reruns"][-1]
+        self.assertEqual((rec["sha"], rec["run"], rec["nth"], rec["limit"]), (self.sb.cand, "1", 1, 2))
+        with io.open(os.path.join(self.sb.sd, "log.jsonl"), encoding="utf-8") as fh:
+            logged = [json.loads(l) for l in fh if l.strip()]
+        self.assertEqual([(l["sha"], l["run"], l["nth"]) for l in logged if l.get("event") == "verify_rerun"], [(self.sb.cand, "1", 1)])
+        self.fake_gh(green=False, extra_runs=[{"id": 2, "head_sha": "0" * 40, "run_attempt": 1, "event": "push", "path": ".github/workflows/verify.yml"}])
+        rc, why = self.bash("gh run rerun 2", cwd=self.sb.wt)                            # 別的 commit 的那一次
+        self.assertEqual(rc, 2)
+        self.assertIn("別的 commit", why)
+        self.say("繼續 X1")
+        self.fake_gh(green=False, attempt=3)
+        rc, why = self.bash("gh run rerun 1 --failed", cwd=self.sb.wt)
+        self.assertEqual(rc, 2)
+        self.assertIn("已經重跑 2 次，上限是 2 次", why)
+        st = self.state()
+        self.assertEqual(st["stop_required"]["code"], 5)
+        self.assertEqual(len(st["verify_reruns"]), 1)
+        self.assertEqual(N.level_for(st, CFG)[0], "decide")
+
     def test_a_green_from_a_branch_that_changed_the_verifier_does_not_count(self):
         """分支改了驗收機本身（用 git 比 blob，不信 CI 說的）：CI 的綠不算。P2 第一次建立（main 上還沒有驗收程式）除外。對照組：拿掉那一道 → 紅。"""
         sb = self.sb
@@ -2415,29 +2518,101 @@ class TestGate(FlowBase):
         self.assertEqual(self.send("ready"), 0, self.errs)
         self.assertIn("別人的留言 1 則（忽略）", body_of(self.sent[-1]))
 
-    def test_findings_need_answers_and_a_rejected_major_one_blocks(self):
-        """Codex 的每條意見都要在 03_第三方審查.md 有回覆；P0／P1 判「不採納」→ 不寄（要你決定）；沒標等級的當 P1；別人的與舊 commit 的不算。
-        對照組：拿掉「每條要回覆」或「不採納擋下」→ 紅。"""
+    def test_every_finding_on_the_pr_needs_an_answer_and_rejections_follow_the_rules(self):
+        """2026-10-06 裁決第三節：這個 PR 上 Codex 提過的每一條都要在 03_第三方審查.md 有回覆——不分是哪個 commit 的（原本舊 commit 的不算，
+        再推一次就不用回了）。P0 判「不採納」→ 不寄；P1（沒標等級的從嚴當 P1）判「不採納」要指到 Cowork 的裁決檔，沒有就當成還沒回覆；別人的留言不算。
+        對照組：只算最新 commit 的意見、P0 不採納放行、P1 不採納不看裁決檔 → 紅。"""
         sb = self.sb
         self.ready_setup()
-        comments = [_bot_comment(101, "**[P1]** 這裡會漏掉 None", 3), _bot_comment(102, "[P0] 權杖寫進檔案", 9), _bot_comment(103, "沒標等級的意見", 1),
-                    dict(_bot_comment(104, "[P0] drive-by", 1), user={"login": "someone"}), _bot_comment(105, "[P1] 舊 commit 的", 2, commit="0" * 40)]
+        old = "0" * 40
+        comments = [_bot_comment(101, "**[P1]** 這裡會漏掉 None", 3, commit=old), _bot_comment(102, "[P0] 權杖寫進檔案", 9, commit=old), _bot_comment(103, "沒標等級的意見", 1),
+                    dict(_bot_comment(104, "[P0] drive-by", 1), user={"login": "someone"}), _bot_comment(105, "[P1] 舊 commit 的", 2, commit=old),
+                    dict(_bot_comment(106, "[P1] 舊 commit 的，GitHub 把它移到新的 commit 上", 4, commit=old), commit_id="{sha}")]
         self.fake_gh(comments=comments)
         self.errs = []
         self.assertEqual(self.send("ready"), 3)
-        self.assertIn("還有 3 條沒有回覆", "".join(self.errs))
-        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 不採納 | 那不是權杖 |", "| 103 | P1 | js/app.js:1 | 採納並修 | x |"])
+        msg = "".join(self.errs)
+        self.assertIn("還有 5 條沒有回覆", msg)                                          # 101、102、103、105、106；別人的 104 不算
+        for cid in ("101", "102", "103", "105", "106"):
+            self.assertIn(cid, msg)
+        self.assertNotIn("104", msg)
+        self.assertIn("不分是哪個 commit 的", msg)
+        base = ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 105 | P1 | js/app.js:2 | 採納並修 | commit abc |", "| 106 | P1 | js/app.js:4 | 採納並修 | commit abc |"]
+        _resp_file(sb, base + ["| 102 | P0 | js/app.js:9 | 不採納 | 那不是權杖 |", "| 103 | P1 | js/app.js:1 | 採納並修 | x |"])
         self.errs = []
         self.assertEqual(self.send("ready"), 3)
-        self.assertIn("有重大意見（P0／P1）被判「不採納」", "".join(self.errs))
+        self.assertIn("有 P0 被判「不採納」", "".join(self.errs))
         self.assertIn("102", "".join(self.errs))
-        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |", "| 103 | P1 | js/app.js:1 | 不採納 | 其實沒事 |"])
+        runs = os.path.join(sb.main, ".autopilot", "runs", "X1")
+        with io.open(os.path.join(runs, "10_Cowork裁決_收尾.md"), "w", encoding="utf-8") as fh:
+            fh.write("裁決\n")
+        _resp_file(sb, base + ["| 102 | P0 | js/app.js:9 | 不採納 | Cowork 裁決：10_Cowork裁決_收尾.md |", "| 103 | P1 | js/app.js:1 | 採納並修 | x |"])
         self.errs = []
-        self.assertEqual(self.send("ready"), 3)                                        # 沒標等級的從嚴當 P1
-        self.assertIn("103", "".join(self.errs))
-        _resp_file(sb, ["| 101 | P1 | js/app.js:3 | 採納並修 | commit abc |", "| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |", "| 103 | P1 | js/app.js:1 | 採納並修 | y |"])
+        self.assertEqual(self.send("ready"), 3)                                        # P0：有裁決檔也不能不採納
+        self.assertIn("有 P0 被判「不採納」", "".join(self.errs))
+        fixed = base + ["| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |"]
+        for reason in ("其實沒事", "Cowork 裁決：12_Cowork裁決_沒有這個檔.md"):
+            _resp_file(sb, fixed + ["| 103 | P1 | js/app.js:1 | 不採納 | %s |" % reason])
+            self.errs = []
+            self.assertEqual(self.send("ready"), 3, reason)                            # 沒標等級的從嚴當 P1；P1 不採納沒有裁決檔＝還沒回覆
+            self.assertIn("沒有指到 Cowork 的裁決檔", "".join(self.errs))
+            self.assertIn("103", "".join(self.errs))
+        self.assertEqual(self.sent, [])
+        _resp_file(sb, fixed + ["| 103 | P1 | js/app.js:1 | 不採納 | 延後到 P3，Cowork 裁決：10_Cowork裁決_收尾.md |"])
         self.assertEqual(self.send("ready"), 0, self.errs)
-        self.assertIn("外部審查（GPT）：Codex；重大 3 條；採納 3、不採納 0；別人的留言 1 則（忽略）", body_of(self.sent[-1]))
+        line = [x for x in body_of(self.sent[-1]).split("\n") if x.startswith("外部審查（GPT）")][0]
+        self.assertIn("Codex；重大 5 條；採納 4、不採納 1（依 Cowork 裁決：10_Cowork裁決_收尾.md（延後到 P3））；別人的留言 1 則（忽略）；審了 1 輪（上限 4 輪）", line)
+
+    def test_a_finding_on_the_latest_commit_cannot_be_answered_as_already_fixed(self):
+        """施工時補的一條：針對最新 commit 的意見，回覆不能寫「採納並修」了事——要修它，一定得有比被審的那個 commit 更新的 commit；
+        最新的 commit 就是被審的那一個，表示修的東西還沒推上來。只看「有沒有回覆」的話，把最新 commit 的 P1 寫成「採納並修」、什麼都不改，關卡也會過。
+        舊 commit 的意見寫「採納並修」照常算；真的不修就照「不採納」的規矩。對照組：不擋 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        _ruling_file(sb)
+        self.fake_gh(comments=[_bot_comment(601, "[P1] 針對最新 commit 的意見", 3), _bot_comment(602, "[P1] 舊 commit 的意見", 5, commit="0" * 40)])
+        _resp_file(sb, ["| 601 | P1 | js/app.js:3 | 採納並修 | commit abc1234 |", "| 602 | P1 | js/app.js:5 | 採納並修 | commit abc1234 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("有 1 條針對最新 commit", msg)
+        self.assertIn("修的 commit 還沒推上來", msg)
+        self.assertIn("601", msg)
+        self.assertNotIn("602", msg)
+        self.assertEqual(self.sent, [])
+        self.assertEqual([f["id"] for f in R.unfixed_on_head([{"id": 1, "on_head": True}, {"id": 2, "on_head": False}, {"id": 3, "on_head": True}],
+                                                              {1: {"response": "adopt"}, 2: {"response": "adopt"}, 3: {"response": "reject"}})], [1])
+        _resp_file(sb, ["| 601 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 602 | P1 | js/app.js:5 | 採納並修 | commit abc1234 |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_a_p0_on_the_latest_commit_blocks_until_it_is_fixed_and_reviewed_again(self):
+        """2026-10-06 裁決第三節：完成的第一個條件是「最新的 commit 經 Codex 審過，而且沒有 P0」。針對最新 commit 的 P0，就算回覆表寫了
+        「採納並修」也不算完——修的那個 commit 還沒被審過。行內留言與 review 本文裡的都算。對照組：最新 commit 有 P0 也放行 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        self.fake_gh(comments=[_bot_comment(301, "[P0] 一條針對最新 commit 的重大意見", 3)], issue_comments=[_trigger("2026-10-04T00:01:00Z", cid=910), _trigger("2026-10-04T00:02:00Z", cid=911)])
+        _resp_file(sb, ["| 301 | P0 | js/app.js:3 | 採納並修 | commit abc1234 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("提了 1 條 P0", msg)
+        self.assertIn("301", msg)
+        self.assertIn("一定要修", msg)
+        self.assertIn("已經審了 3 輪，上限 4 輪", msg)
+        self.assertEqual(self.sent, [])
+        blob = "https://github.com/fake/invest-watch/blob/{sha}/"
+        body = "\n".join(["### Codex Review", "", blob + "scripts/x.py#L10-L12", "**<sub><sub>![P0 Badge](https://img.shields.io/badge/P0-red?style=flat)</sub></sub>  本文裡的 P0**", ""])
+        self.fake_gh(review_body=body)                                                   # 寫在 review 本文裡的 P0 也一樣
+        _resp_file(sb, ["| 1-1 | P0 | scripts/x.py:10 | 採納並修 | commit abc1234 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("提了 1 條 P0", "".join(self.errs))
+        self.assertIn("1-1", "".join(self.errs))
+        # 同一條是舊 commit 的（已經修了）、最新的 commit 審過沒有 P0：過。GitHub 會把舊留言的 commit_id 改成新的 commit——
+        # 不能因此把它當成針對最新 commit 的（認的是原始的 commit 與它屬於哪一次 review）
+        self.fake_gh(comments=[dict(_bot_comment(301, "[P0] 舊 commit 的 P0，已經修了", 3, commit="0" * 40), commit_id="{sha}")])
+        _resp_file(sb, ["| 301 | P0 | js/app.js:3 | 採納並修 | commit abc1234 |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)
 
     def test_numbers_come_from_the_verifier(self):
         """本機 tests.txt 的條數跟驗收機對不上＝要你決定，不寄 ready。對照組：拿掉比對 → 紅。"""
@@ -2477,10 +2652,11 @@ class TestGate(FlowBase):
         self.errs = []
         self.assertEqual(self.send("ready"), 3)
         self.assertIn("還有 1 條沒有回覆", "".join(self.errs))
-        _resp_file(self.sb, ["| 401 | P1 | js/app.js:3 | 採納並修 | commit abc1234 |"])
+        _ruling_file(self.sb)
+        _resp_file(self.sb, ["| 401 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING])
         self.assertEqual(self.send("ready"), 0, self.errs)
         line = [x for x in body_of(self.sent[-1]).split("\n") if x.startswith("外部審查（GPT）")][0]
-        self.assertIn("Codex；重大 1 條；採納 1", line)
+        self.assertIn("Codex；重大 1 條；採納 0、不採納 1（依 Cowork 裁決：%s）" % RULING, line)
         self.assertNotIn("沒有意見", line)
 
     def test_a_summary_comment_in_an_unexpected_format_stops_the_ready_mail(self):
@@ -2502,7 +2678,7 @@ class TestGate(FlowBase):
         現在只認「採納並修」「不採納」、一字不差，最後一欄不能空，同一條不能有兩種回覆。對照組見 TestResponseTable。"""
         sb = self.sb
         self.ready_setup()
-        self.fake_gh(comments=[_bot_comment(301, "[P0] 一條重大意見", 3)])
+        self.fake_gh(comments=[_bot_comment(301, "[P0] 一條重大意見", 3, commit="0" * 40)])      # 舊 commit 的 P0（最新的 commit 審過、沒有 P0）：看的是回覆表
         for row in ("| 301 | P0 | js/app.js:3 | 尚未採納 | 之後再說 |", "| 301 | P0 | js/app.js:3 | 採納並修 |  |"):
             _resp_file(sb, [row])
             self.errs = []
@@ -2539,7 +2715,7 @@ class TestGate(FlowBase):
         self.ready_setup()
         blob = "https://github.com/fake/invest-watch/blob/{sha}/"
         badge = "**<sub><sub>![P%d Badge](https://img.shields.io/badge/P%d-red?style=flat)</sub></sub>  %s**"
-        body = "\n".join(["### Codex Review", "", blob + "scripts/x.py#L10-L12", badge % (0, 0, "本文裡的第一條"), "", "說明文字……", "",
+        body = "\n".join(["### Codex Review", "", blob + "scripts/x.py#L10-L12", badge % (1, 1, "本文裡的第一條"), "", "說明文字……", "",
                           "AGENTS.md reference: [AGENTS.md:L1-L2](" + blob + "AGENTS.md#L1-L2)", "",
                           blob + "js/app.js#L7", badge % (2, 2, "本文裡的第二條"), "",
                           blob + "js/app.js#L3", badge % (1, 1, "跟行內留言同一行的那一條"), "",
@@ -2551,20 +2727,57 @@ class TestGate(FlowBase):
         self.assertIn("還有 3 條沒有回覆", msg)                                           # 行內 1 條＋本文 2 條
         self.assertIn("1-1", msg)
         self.assertIn("1-2", msg)
-        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P0 | scripts/x.py:10 | 不採納 | 理由 |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P1 | scripts/x.py:10 | 不採納 | 理由 |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
         self.errs = []
         self.assertEqual(self.send("ready"), 3)
-        self.assertIn("有重大意見（P0／P1）被判「不採納」", "".join(self.errs))         # 本文裡的 P0 判不採納，照樣擋
+        self.assertIn("沒有指到 Cowork 的裁決檔", "".join(self.errs))                   # 本文裡的 P1 判不採納、沒有裁決檔，照樣擋
         self.assertIn("1-1", "".join(self.errs))
-        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P0 | scripts/x.py:10 | 採納並修 | b |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
-        self.assertEqual(self.send("ready"), 0, self.errs)                             # 標了 P2 的可以不採納
+        self.assertNotIn("1-2", "".join(self.errs))
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 採納並修 | a |", "| 1-1 | P1 | scripts/x.py:10 | 採納並修 | b |", "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                        # 這三條都是針對最新 commit 的：寫「採納並修」不算，修的 commit 還沒推
+        self.assertIn("有 2 條針對最新 commit", "".join(self.errs))
+        self.assertIn("1-1", "".join(self.errs))
+        _ruling_file(sb)
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 1-1 | P1 | scripts/x.py:10 | 不採納 | %s |" % BY_RULING,
+                        "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)                             # 標了 P2 的可以直接不採納；P1 要有裁決檔
         self.assertIn("重大 2 條", body_of(self.sent[-1]))
+
+    def test_findings_in_the_body_of_an_older_review_count_too(self):
+        """2026-10-06 裁決第三節：舊 commit 那幾次 review 的本文裡的意見，也是「這個 PR 上提過的」，一樣要回覆（P2 自己的第一次審查就有一條）。
+        同一次 review 裡同一行已經有行內留言的不重複算；不同次 review 的同一行各算各的。對照組：只讀最新 commit 的 review 本文 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        blob = "https://github.com/fake/invest-watch/blob/" + "0" * 40 + "/"
+        badge = "**<sub><sub>![P%d Badge](https://img.shields.io/badge/P%d-red?style=flat)</sub></sub>  %s**"
+        old_body = "\n".join(["### Codex Review", "", blob + "scripts/x.py#L10", badge % (0, 0, "舊 review 本文裡的 P0"), "",
+                              blob + "js/app.js#L3", badge % (1, 1, "跟這一次 review 的行內留言同一行"), ""])
+        entries = fake_gh_entries(comments=[dict(_bot_comment(501, "[P1] 舊 review 的行內留言", 3, commit="0" * 40), pull_request_review_id=55),
+                                            dict(_bot_comment(502, "[P1] 最新 review 的行內留言，剛好也在第 3 行", 3), pull_request_review_id=1)])
+        for e in entries:
+            if e["match"] == "/pulls/7/reviews":
+                revs = json.loads(e["text"])
+                revs.insert(0, {"id": 55, "user": {"login": BOT_LOGIN}, "state": "COMMENTED", "commit_id": "0" * 40, "body": old_body, "submitted_at": "2026-10-03T23:30:00Z"})
+                e["text"] = json.dumps(revs)
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        msg = "".join(self.errs)
+        self.assertIn("還有 3 條沒有回覆", msg)                                           # 501、502、55-1（55-2 跟 501 同一次 review 同一行，不重複算）
+        self.assertIn("55-1", msg)
+        self.assertNotIn("55-2", msg)
+        _ruling_file(sb)
+        _resp_file(sb, ["| 501 | P1 | js/app.js:3 | 採納並修 | a |", "| 502 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 55-1 | P0 | scripts/x.py:10 | 採納並修 | c |"])
+        self.assertEqual(self.send("ready"), 0, self.errs)                             # 舊 review 的 P0 修掉了、最新的 commit 沒有 P0
+        self.assertIn("重大 3 條；採納 2、不採納 1", body_of(self.sent[-1]))
 
     def test_every_page_of_reviews_and_comments_is_read(self):
         """留言超過一頁（100 則）時要一頁一頁讀完，第二頁的意見也要回覆；任何一頁讀不到＝查不到，不寄（Codex 對 P2 的意見）。
         對照組：只讀第一頁 → 紅。"""
         self.ready_setup()
-        page1 = [_bot_comment(1000 + i, "[P1] 舊 commit 的", 1, commit="0" * 40) for i in range(100)]      # 第一頁塞滿不相干的
+        page1 = [dict(_bot_comment(1000 + i, "[P1] 別人的留言", 1), user={"login": "someone"}) for i in range(100)]      # 第一頁塞滿不相干的（別人的留言不算）
         entries = fake_gh_entries(comments=page1)
         entries.insert(0, {"match": "/pulls/7/comments?per_page=100&page=2", "rc": 0, "text": json.dumps([_bot_comment(2001, "[P1] 第二頁才出現的意見", 5)])})
         write_fake_gh(self.fake, entries)
@@ -2983,6 +3196,49 @@ class TestPrCommands(FlowBase):
         comment = [c for c in calls if c[:2] == ["pr", "comment"]][-1]
         self.assertEqual(comment[comment.index("--body") + 1], "@codex review")          # 留言內容寫死，帶別的字也沒用
         self.assertEqual(self.state()["external_review"]["status"], "requested")
+        self.assertIn("第 2 輪", "".join(self.texts))                                    # 開 PR 時自動審的是第 1 輪
+
+    def test_request_review_stops_at_the_round_cap(self):
+        """2026-10-06 裁決第三節：一個階段最多請 Codex 審幾輪寫在設定裡（一般的階段 4 輪；P2 自己 6 輪）。開 PR 時自動審的算第 1 輪，之後每留一則算一輪。
+        到了上限就不再留言——停下來寄「要你決定」；上限不是自動放行（寄「可以合併」那一關照樣要完成條件）。查不到留言也不留。
+        對照組：不看輪數 → 紅。"""
+        sb = self.sb
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 6})
+        self.assertEqual((R.round_cap(CFG, "X1"), R.round_cap(CFG, "P2")), (4, 6))
+        calls, orig = [], R.gh
+
+        def spy(args, *a, **kw):
+            calls.append(list(args))
+            return orig(args, *a, **kw)
+        R.gh = spy
+        self.addCleanup(lambda: setattr(R, "gh", orig))
+
+        def asked(n):
+            return [_trigger("2026-10-04T00:0%d:00Z" % i, login="davidjjx", cid=950 + i) for i in range(n)] + [
+                {"id": 990, "user": {"login": "someone"}, "body": "請 @codex review 一下", "created_at": "2026-10-04T00:09:00Z"}]      # 不是剛好那一句：不算一輪
+
+        def comments_sent():
+            return len([c for c in calls if c[:2] == ["pr", "comment"]])
+        self.fake_gh(issue_comments=asked(2))                                            # 已經 3 輪（自動 1＋留言 2）：還可以留第 4 輪
+        self.texts = []
+        self.assertEqual(N.main(["pr", "request-review", "--stage", "X1"], main_root=sb.main), 0, self.errs)
+        self.assertIn("第 4 輪", "".join(self.texts))
+        self.assertEqual(comments_sent(), 1)
+        self.fake_gh(issue_comments=asked(3))                                            # 已經 4 輪：到上限
+        self.errs = []
+        self.assertEqual(N.main(["pr", "request-review", "--stage", "X1"], main_root=sb.main), 3)
+        msg = "".join(self.errs)
+        self.assertIn("已經請 Codex 審了 4 輪，這個階段的上限是 4 輪", msg)
+        self.assertIn("上限不是自動放行", msg)
+        self.assertIn(CFG["stopLevels"]["decide"], msg)
+        self.assertEqual(comments_sent(), 1)                                             # 沒有再留言
+        entries = fake_gh_entries()
+        entries.insert(0, {"match": "/issues/7/comments", "rc": 1, "text": "HTTP 502"})  # 查不到留言：算不出幾輪，不留
+        write_fake_gh(self.fake, entries)
+        self.errs = []
+        self.assertEqual(N.main(["pr", "request-review", "--stage", "X1"], main_root=sb.main), 3)
+        self.assertIn("算不出已經審了幾輪", "".join(self.errs))
+        self.assertEqual(comments_sent(), 1)
 
 
 # ============================================================ 21. retries 的證據（P2 第 7 節）

@@ -500,7 +500,8 @@ class TestThirdPartyGate(unittest.TestCase):
 
     def test_agents_md_is_public_safe_and_has_the_review_rules(self):
         """給 Codex 的審查準則（公開檔）：官方文件要的段落名、繁體中文、只審不改，以及 2026-10-05 裁決七點名的八點。
-        隱私掃描另外涵蓋這個檔（autopilot_files）；所以第 1 點裡個人資料的類別用不會被掃描擋下的講法寫。"""
+        隱私掃描另外涵蓋這個檔（autopilot_files）；所以第 1 點裡個人資料的類別用不會被掃描擋下的講法寫。
+        第 2 點不列那幾個詞（見下一條測試）：只說「不得出現擋字串」，清單指到掃描器那個檔。"""
         text = read("AGENTS.md")
         for must in ("## Code Review Rules", "繁體中文", "P0", "P1", "只做程式碼審查", "scripts/net_policy.py", "scripts/verify_ci.py", "scripts/mutations/"):
             self.assertIn(must, text, must)
@@ -508,11 +509,52 @@ class TestThirdPartyGate(unittest.TestCase):
         rules = text.split("## Code Review Rules", 1)[1]
         for n, must in enumerate(("隱私", "擋字串", "門檻常數", "DOM 與請求數", "測試數與突變數", "資料狀態", "保護範圍", "對外請求"), 1):
             self.assertRegex(rules, r"(?m)^%d\. \*\*%s\*\*" % (n, re.escape(must)))
-        for word in G.JUDGEMENT_WORDS:                                             # 第 2 點要把不准出現的字列給 Codex 看（這個檔不在擋字串的掃描範圍）
-            self.assertIn(word, rules, word)
         for must in ("首屏請求數", "資料不足", "不適用", "PR 內文", "bot.com.tw", "commit 訊息", "fixture"):
             self.assertIn(must, rules, must)
         self.assertEqual(G.privacy_hits(text) + G.profile_key_hits(text) + G.fxplan_key_hits(text), [])
+
+    def test_agents_md_passes_the_banned_word_scan(self):
+        """AGENTS.md 通過擋字串掃描（2026-10-06 裁決第二節）。原本第 2 點把那八個詞一個一個列出來給 Codex 看、這個檔也因此不在擋字串的掃描範圍——
+        Codex 的第四次審查指出：禁止的詞出現在公開檔裡，而且沒有人掃。現在不列詞（清單與唯一的例外句以掃描器那個檔為準），這個檔跟別的公開檔一樣要掃、沒有例外。
+        對照組：把八個詞的任何一個寫回 AGENTS.md → 紅。"""
+        text = read("AGENTS.md")
+        self.assertEqual(G.judgement_hits(text), [])
+        self.assertEqual(len(G.JUDGEMENT_WORDS), 8)
+        rule2 = [l for l in text.split("\n") if l.startswith("2. **擋字串**")]
+        self.assertEqual(len(rule2), 1)
+        self.assertIn("不得出現擋字串。清單與唯一的例外句在 `scripts/test_analysis_guards.py`，審查時請以該檔為準。", rule2[0])
+        for word in G.JUDGEMENT_WORDS:                                             # 掃描器真的抓得到：把任何一個詞寫回第 2 點，掃描就會命中
+            self.assertEqual(G.judgement_hits(text.replace("不得出現擋字串。", "不得出現擋字串：" + word + "。")), [word])
+        # 突變清單裡「把詞寫回 AGENTS.md」那八個突變用的詞，要跟掃描器的清單一樣（清單只有掃描器那一份算數）
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("iw_mutation_defs_for_test", os.path.join(HERE, "mutations", "autopilot_mutations.py"))
+        defs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(defs)
+        self.assertEqual(defs.BANNED_WORDS, G.JUDGEMENT_WORDS)
+        back = [m for m in defs.MUTATIONS if m[2] == "AGENTS.md" and "寫回" in m[1]]
+        self.assertEqual(len(back), 8)
+        self.assertEqual(sorted(w for m in back for w in G.JUDGEMENT_WORDS if "（" + w + "）" in m[4]), sorted(G.JUDGEMENT_WORDS))
+
+    def test_the_runner_image_is_pinned(self):
+        """2026-10-06 裁決第一節：驗收機的執行機版本寫死 ubuntu-24.04，不用 ubuntu-latest——GitHub 換預設版本的時候（2026-10-19 起分批換成 26.04），
+        三層封鎖不可以跟著不知不覺地變。升級是一件記在待辦裡的事：先開丟棄分支試跑，再走「驗收機變更」。對照組：改回 ubuntu-latest → 紅。"""
+        text = read(".github/workflows/verify.yml")
+        self.assertEqual(re.findall(r"(?m)^\s*runs-on:\s*(\S+)\s*$", text), ["ubuntu-24.04"] * 3)
+        self.assertNotIn("runs-on: ubuntu-latest", text)
+        self.assertIn("驗收機升到 Ubuntu 26.04", read("docs/AUTOPILOT.md"))
+
+    def test_config_has_the_rerun_limit_and_the_round_caps(self):
+        """2026-10-06 裁決：同一個 commit 的驗收最多重跑 2 次；Codex 的審查一般的階段最多 4 輪、P2 自己 6 輪。數字只寫在設定檔。"""
+        self.assertEqual(CFG["verify"]["maxReruns"], 2)
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 6})
+        self.assertIn(["run", "rerun"], ALLOW["programs"]["ghAllowed"])
+        guide = read("docs/AUTOPILOT.md")
+        for must in ("gh run rerun", "最多重跑 2 次", "封鎖沒設成", "IPv4 與 IPv6", "ubuntu-24.04", "P2 是 6 輪", "一般的階段 4 輪", "上限不是自動放行",
+                     "Cowork 裁決：<檔名>", "延後到 <階段>，Cowork 裁決：<檔名>", "不分是哪個 commit", "Cowork裁決", "2027-04-06"):
+            self.assertIn(must, guide, must)
+        steps = read(".claude/skills/iw-autopilot/pr-steps.md")
+        for must in ("gh run rerun", "輪", "Cowork 裁決："):
+            self.assertIn(must, steps, must)
 
     def test_docs_and_skill_cover_the_third_party(self):
         skill = read(".claude/skills/iw-autopilot/SKILL.md")

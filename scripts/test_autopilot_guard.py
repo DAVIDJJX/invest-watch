@@ -65,6 +65,8 @@ class FakeGit(object):
         self.merging = None                  # 合併用的 worktree 裡正在合併的 commit
         self.missing = set()                 # 還不存在的資料夾（真的 git 查不到會回 None）
         self.asked = []
+        self.verify_runs = []                # GitHub 上驗收機對某個 commit 的執行紀錄（None＝查不到）
+        self.asked_runs = []
 
     def info(self, cdir):
         k = C.key(cdir) if cdir else None
@@ -126,6 +128,10 @@ class FakeGit(object):
 
     def merge_head(self, cdir):
         return self.merging if C.is_under(C.key(cdir), C.key(MERGE_WT)) else None
+
+    def gh_verify_runs(self, cfg, sha):
+        self.asked_runs.append(sha)
+        return None if self.verify_runs is None else [dict(r) for r in self.verify_runs]
 
 
 class Base(unittest.TestCase):
@@ -695,7 +701,9 @@ class TestAutopilotOnly(Base):
                           ("gh issue create -R davidjjx/invest-data -t x -b y", 1),          # P2：PR／issue 的寫入兩種模式都擋
                           ("gh pr create --fill", 1),
                           ("gh api repos/davidjjx/invest-watch/commits", 8),
-                          ("gh run rerun 123", 8),
+                          ("gh run rerun 123", 3),                                           # 2026-10-06 起：重跑驗收有自己的規則（見 TestRerunTheVerifier）；這一次不是現在這個 commit 的驗收
+                          ("gh run cancel 123", 8),
+                          ("gh run delete 123", 8),
                           ("gh run list -R someone/else", 8),
                           ("gh release create v1", 8)):
             self.blocked(self.bash(cmd, state=st), code=code, msg=cmd)
@@ -1809,6 +1817,80 @@ class TestPullRequestWrites(Base):
         for word in ("免外部審查 X1", "驗收機變更 X1", "免 外部審查 X1"):
             block, _ = self.run_tool("SendMessage", {"to": "x", "message": word})
             self.assertIsNotNone(block, word)
+
+
+# ============================================================ P2 收尾：重跑驗收（gh run rerun）准用、有範圍
+
+class TestRerunTheVerifier(Base):
+    """2026-10-06 裁決第一節：gh run rerun 兩種模式都可以用，但只准對「流程檔是驗收機、head_sha 是現在分支最頂端的 commit、由 push 觸發」
+    的那一次執行；同一個 commit 最多重跑 2 次。對別的流程、別的 commit、超過次數，一律擋；查不到也擋。每一次放行都記下來。
+    （10/6 凌晨 GitHub 的執行機不夠用，驗收的工作排不到被取消；重跑是對策，不是放寬——算數的是最後那一次嘗試的結果。）"""
+
+    WANT = ".github/workflows/" + CFG["verify"]["workflow"]
+
+    def rec(self, rid=501, sha=CAND, attempt=1, path=None, event="push"):
+        return {"id": rid, "head_sha": sha, "run_attempt": attempt, "path": path or self.WANT, "event": event, "status": "completed", "conclusion": "failure"}
+
+    def test_the_verifier_run_of_the_current_commit_can_be_rerun_in_both_modes(self):
+        self.assertEqual(CFG["verify"]["maxReruns"], 2)
+        self.assertIn(["run", "rerun"], ALLOW["programs"]["ghAllowed"])
+        self.git.verify_runs = [self.rec()]
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run rerun 501", "gh run rerun 501 --failed", "gh run rerun --failed 501"):
+                effects = self.allowed(self.bash(cmd, state=st), msg=cmd)
+                self.assertIn(("verify_rerun", {"sha": CAND, "run": "501", "nth": 1, "limit": 2}), effects, cmd)      # 每一次都記：哪個 commit、哪一次執行、第幾次重跑
+        self.assertEqual(set(self.git.asked_runs), set([CAND]))                                  # 問的是現在所在分支最頂端的 commit
+        self.git.verify_runs = [self.rec(attempt=2)]                                             # 重跑過一次：還可以再一次
+        effects = self.allowed(self.bash("gh run rerun 501 --failed"))
+        self.assertIn(("verify_rerun", {"sha": CAND, "run": "501", "nth": 2, "limit": 2}), effects)
+
+    def test_a_third_rerun_is_blocked(self):
+        """對照組：不看次數 → 紅。"""
+        self.git.verify_runs = [self.rec(attempt=3)]                                             # 第 3 次嘗試＝已經重跑 2 次
+        block = self.blocked(self.bash("gh run rerun 501 --failed"), code=1, has="已經重跑 2 次，上限是 2 次")
+        self.assertIn("【%s】" % CFG["stopLevels"]["decide"], block.reason)
+        block, effects = self.bash("gh run rerun 501 --failed", state=self.state())              # 自動駕駛：這是停止條件（修兩次還是壞的）
+        self.assertEqual(block.code, 5)
+        self.assertTrue(any(e[0] == "stop_required" and e[1] == 5 for e in effects), effects)
+        self.assertFalse(any(e[0] == "verify_rerun" for e in effects))
+        self.git.verify_runs = [self.rec(501, attempt=2), self.rec(502, attempt=2)]              # 同一個 commit 的兩次執行（推分支、推標籤）合起來算
+        self.blocked(self.bash("gh run rerun 502"), has="已經重跑 2 次")
+        self.git.verify_runs = [self.rec(501, attempt=2), self.rec(503, sha="d" * 40, attempt=3)]  # 別的 commit 重跑幾次不算在這個 commit 頭上
+        self.allowed(self.bash("gh run rerun 501"))
+
+    def test_a_run_of_another_commit_is_blocked(self):
+        """對照組：不比 head_sha → 紅。"""
+        self.git.verify_runs = [self.rec(601, sha="d" * 40)]
+        self.blocked(self.bash("gh run rerun 601"), code=1, has="別的 commit")
+        self.blocked(self.bash("gh run rerun 601 --failed", state=self.state()), code=3, has="別的 commit")
+        self.git.verify_runs = [self.rec(501)]
+        self.blocked(self.bash("gh run rerun 999"), has="不在驗收機")                            # 這個編號不在現在這個 commit 的紀錄裡
+        self.git.asked_runs = []
+        self.git.verify_runs = []
+        self.blocked(self.bash("gh run rerun 501", cwd=MAIN), has="不在驗收機")                  # 在主目錄下：問的是 main 的 commit，那裡沒有驗收紀錄
+        self.assertEqual(self.git.asked_runs, [TIP])
+
+    def test_a_run_of_another_workflow_is_blocked(self):
+        """對照組：不比流程檔的路徑 → 紅。"""
+        self.git.verify_runs = [self.rec(701, path=".github/workflows/update-data.yml")]
+        self.blocked(self.bash("gh run rerun 701"), code=1, has="別的流程")
+        self.blocked(self.bash("gh run rerun 701", state=self.state()), code=3, has="別的流程")
+        self.git.verify_runs = [self.rec(702, event="workflow_dispatch")]                        # 手動觸發的那一次：關卡不認，重跑也不准
+        self.blocked(self.bash("gh run rerun 702"), has="不是由推送觸發")
+
+    def test_other_forms_and_failed_lookups_are_blocked(self):
+        self.git.verify_runs = [self.rec()]
+        for cmd in ("gh run rerun", "gh run rerun --failed", "gh run rerun 501 502", "gh run rerun 501 --job 9", "gh run rerun --job 9",
+                    "gh run rerun 501 -R davidjjx/other", "gh run rerun 501 --debug", "gh run rerun abc", "gh run rerun 501abc"):
+            self.blocked(self.bash(cmd), msg=cmd)
+            self.blocked(self.bash(cmd, state=self.state()), msg=cmd)
+        self.git.verify_runs = None                                                              # 查不到就擋
+        self.blocked(self.bash("gh run rerun 501"), has="查不到")
+        self.git.verify_runs = [self.rec()]
+        self.blocked(self.bash("gh run rerun 501", cwd=ELSE))                                    # 不是這個倉庫
+        for cmd in ("gh api -X POST repos/davidjjx/invest-watch/actions/runs/501/rerun",          # 繞過 gh run rerun 直接打 API：寫入一律擋
+                    "gh api --method POST repos/davidjjx/invest-watch/actions/runs/501/rerun-failed-jobs"):
+            self.blocked(self.bash(cmd), code=1, msg=cmd)
 
 
 if __name__ == "__main__":
