@@ -395,7 +395,7 @@ class TestNewFilesHaveNoPrivateInformation(unittest.TestCase):
                 hits.append("本機的使用者資料夾")
             if re.search(r"(?i)[a-z]:[\\/]+claude_use", text):
                 hits.append("本機的絕對路徑")
-            if re.search(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}", text):
+            if any(re.search(p, text) for p in N.SECRET_PATTERNS):                  # 清單跟公開文字、驗收機那兩邊的一樣（原本只認兩種 GitHub 權杖的開頭）
                 hits.append("像權杖的字串")
             for mm in re.finditer(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
                 m = mm.group(0)
@@ -558,7 +558,8 @@ class TestThirdPartyGate(unittest.TestCase):
         guide = read("docs/AUTOPILOT.md")
         for must in ("gh run rerun", "最多重跑 2 次", "封鎖沒設成", "IPv4 與 IPv6", "ubuntu-24.04", "P2 是 6 輪", "一般的階段 4 輪", "上限不是自動放行",
                      "Cowork 裁決：<檔名>", "延後到 <階段>，Cowork 裁決：<檔名>", "不分是哪個 commit", "Cowork裁決", "2027-04-06",
-                     "到了輪數上限怎麼收", "加過一次就不再加", "6＋2", "公開文字掃描統一", "4191058953", "測試在自己的程序裡說謊"):
+                     "到了輪數上限怎麼收", "加過一次就不再加", "6＋2", "公開文字掃描統一", "4191058953", "測試在自己的程序裡說謊",
+                     "誰觸發審查不影響完成訊號；程式只認機器人對最新 commit 的 review 或進度留言", "驗收機不做具名字串掃描", "未跑（無鹽）"):
             self.assertIn(must, guide, must)
         steps = read(".claude/skills/iw-autopilot/pr-steps.md")
         for must in ("gh run rerun", "輪", "Cowork 裁決："):

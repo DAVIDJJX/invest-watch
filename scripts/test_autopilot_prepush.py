@@ -65,11 +65,12 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
                     comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None,
-                    attempt=1, result_attempt=None):
+                    attempt=1, result_attempt=None, pr_base="main", pr_head_repo=None, extra_prs=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
     沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
     event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。
-    attempt：那一次執行現在是第幾次嘗試（重跑過就大於 1）；result_attempt：結果檔是第幾次嘗試寫的（預設跟 attempt 一樣）。"""
+    attempt：那一次執行現在是第幾次嘗試（重跑過就大於 1）；result_attempt：結果檔是第幾次嘗試寫的（預設跟 attempt 一樣）。
+    pr_base：那個 PR 要合併進哪一條分支；pr_head_repo：它的分支在哪個倉庫（預設＝這個倉庫）；extra_prs：同一條分支另外開著的 PR。"""
     run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
            "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": attempt, "created_at": "2026-10-04T00:00:00Z",
            "event": event, "path": path}
@@ -82,7 +83,11 @@ def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}",
     for login in (others or []):
         reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
                         "submitted_at": "2026-10-04T00:11:00Z"})
-    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "head": {"sha": "{sha}"}, "title": "x", "created_at": "2026-10-03T23:00:00Z"}] if pr else []
+    here = {"full_name": "fake/invest-watch"}                         # 沙盒裡這個倉庫在 GitHub 的名字（iw_review.slug 的測試值）
+    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "title": "x", "created_at": "2026-10-03T23:00:00Z",
+            "head": {"sha": "{sha}", "ref": "{branch}", "repo": dict(pr_head_repo or here)},
+            "base": {"ref": pr_base, "repo": here}}] if pr else []
+    prs += list(extra_prs or [])
     return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": ([run] if runs else []) + list(extra_runs or [])})},
             {"match": "run download", "rc": 0, "text": json.dumps(result)},
             {"match": "pulls?head=", "rc": 0, "text": json.dumps(prs)},
@@ -98,6 +103,19 @@ def write_fake_gh(path, entries):
     with io.open(path, "w", encoding="utf-8") as fh:
         json.dump(entries, fh, ensure_ascii=False)
     return path
+
+
+SALT_ENV = "IW_SCAN_SALT_FILE"
+SANDBOX_SALT = "sandbox-salt-not-a-secret"
+SANDBOX_NAMED_TERM = "沙盒" + "假名稱" + "甲乙"                     # 沙盒那份清單上唯一的「具名字串」：一看就知道是假的
+
+
+def sandbox_digests(terms=(SANDBOX_NAMED_TERM,)):
+    """沙盒用的雜湊清單（格式跟正式的 scripts/sensitive_terms_hmac.json 一樣）：只有加鹽的 HMAC，沒有原文。"""
+    import hashlib
+    import hmac
+    entries = [{"len": len(t), "hmac": hmac.new(SANDBOX_SALT.encode("utf-8"), t.encode("utf-8"), hashlib.sha256).hexdigest(), "cjk": True} for t in terms]
+    return json.dumps({"entries": entries}, ensure_ascii=False, indent=1) + "\n"
 
 
 class Sandbox(object):
@@ -123,6 +141,15 @@ class Sandbox(object):
         self.write(".gitignore", ".autopilot/\n.claude/worktrees/\n" if tracked else ".claude/\n.autopilot/\n")
         os.makedirs(os.path.join(self.main, "scripts"), exist_ok=True)
         shutil.copyfile(os.path.join(ROOT, "scripts", "test_analysis_guards.py"), os.path.join(self.main, "scripts", "test_analysis_guards.py"))   # PR 文字的隱私掃描要用
+        # 具名字串的掃描要「鹽」與「加鹽的雜湊清單」；公開文字缺鹽就擋。沙盒用自己的假鹽與假清單（清單上只有一個假的名稱），不碰真的那一份。
+        self.salt_file = os.path.join(self.tmp, "iw-private", "scan-salt.txt")
+        os.makedirs(os.path.dirname(self.salt_file))
+        with io.open(self.salt_file, "w", encoding="utf-8") as fh:
+            fh.write(SANDBOX_SALT + "\n")
+        self.saved_salt_env = os.environ.get(SALT_ENV)
+        os.environ[SALT_ENV] = self.salt_file
+        self.digest_rel = "scripts/sensitive_terms_hmac.json"
+        self.write(self.digest_rel, sandbox_digests())
         if tracked:
             self.copy_protection()
         for f in C.load_json(os.path.join(ROOT, ".claude", "autopilot", "config.json"))["goldJob"]["files"]:
@@ -143,6 +170,10 @@ class Sandbox(object):
         run_git(["tag", "stopX1"], self.wt)
 
     def close(self):
+        if self.saved_salt_env is None:
+            os.environ.pop(SALT_ENV, None)
+        else:
+            os.environ[SALT_ENV] = self.saved_salt_env
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def copy_protection(self):
@@ -812,6 +843,82 @@ class TestPrePush(unittest.TestCase):
             self.assertEqual(N.text_privacy_problems(main, "署名 " + addr), [], addr)
         self.assertEqual(N.PUBLIC_MAIL_EXACT, ("noreply@anthropic.com", "noreply@github.com", "git@github.com"))    # 放行清單就這幾個，寫在一個地方
         self.assertEqual(N.PUBLIC_MAIL_DOMAINS, ("users.noreply.github.com",))
+
+    def test_public_text_scan_catches_common_secret_formats_and_key_value_secrets(self):
+        """Codex 對 P2 的第七次審查（P0）：公開文字的權杖掃描原本只認兩種 GitHub 權杖的開頭；別家的金鑰、JWT、私鑰區塊、
+        「敏感的鍵名後面直接接值」這類寫法都掃不到。對照組：只認 GitHub 那兩種、鍵值的寫法不擋 → 紅。"""
+        import iw_notify as N
+        main = self.sb.main
+        a, b = "A" * 30, "b" * 24                                                         # 下面每一個都用拼接組出來：這個檔自己也在隱私掃描的範圍裡
+        secrets = ("gh" + "o_" + a, "gh" + "s_" + a, "gh" + "r_" + a, "github" + "_pat_" + a, "AK" + "IA" + "ABCDEFGHIJKLMNOP", "AS" + "IA" + "ABCDEFGHIJKLMNOP",
+                   "xo" + "xb-" + "1234567890-abcdefghij", "hooks.slack" + ".com/services/" + "T00000000/B00000000/XXXXXXXXXXXX",
+                   "ey" + "JhbGciOiJIUzI1NiJ9" + "." + "ey" + "JzdWIiOiIxMjM0In0" + "." + "abcDEF123456", "-----BEGIN " + "RSA PRIVATE KEY-----",
+                   "-----BEGIN " + "OPENSSH PRIVATE KEY-----", "s" + "k-" + b, "AI" + "za" + "B" * 35, "s" + "k_live_" + b, "Bea" + "rer " + "abc" * 8)
+        for i, s in enumerate(secrets):
+            for j, text in enumerate(("設定：" + s, s, "見（" + s + "）")):
+                self.assertIn("有像權杖的字串", N.text_privacy_problems(main, text), (i, j))
+        pairs = ("pass" + "word=" + "hunter2abc", "PASS" + "WORD: " + "hunter2abc", "API" + "_KEY=" + "abcdef123456", "api" + "-key: " + "abcdef123456",
+                 "to" + "ken=" + "abc123def456", "client" + "_secret=" + "abc123def456", "sec" + "ret: " + "abc123def", "密" + "碼：" + "abc12345", "權" + "杖=" + "abcd1234efgh")
+        for i, s in enumerate(pairs):
+            self.assertIn("有像密碼或密鑰的寫法（敏感的鍵名後面直接接了值）", N.text_privacy_problems(main, "連線用 " + s), i)
+        fine = ("權杖（token）的檢查改成只列確定只讀的", "token 的格式見文件：第 3 節", "不存 password，也不存任何 secret", "api key 的說明在 README",
+                "task-notification 與 risk-level 這類字不是金鑰", "密碼：＿＿（自己填）", "token: 見下", "Bearer 這個字本身不是權杖",
+                "commit a8ac92093e50992b732beecb13741334de2d10d2", "結果檔 verify-result.json、突變 R121～R132")
+        for i, text in enumerate(fine):
+            self.assertEqual(N.text_privacy_problems(main, text), [], i)
+        self.assertEqual(len(N.SECRET_PATTERNS), 11)
+
+    def test_public_text_is_checked_against_the_named_terms_and_blocked_without_the_salt(self):
+        """Codex 對 P2 的第七次審查（P0）：公開文字原本完全沒有比「具名字串」（私人清單上的名稱；倉庫裡只有加鹽的雜湊）。
+        清單上的名稱只要不帶通用的隱私字樣就過了。現在一起比；鹽或雜湊清單讀不到＝掃不了＝不能送出（缺鹽就擋）。
+        沙盒用自己的假鹽與假清單。對照組：不比具名字串、缺鹽也放行、清單空的也放行 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        main, term, zero = sb.main, SANDBOX_NAMED_TERM, "0" * 40
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.assertEqual(N.text_privacy_problems(main, "一段乾淨的說明"), [])
+        for i, text in enumerate(("說明：" + term, term[:2] + " " + term[2:], "（" + term + "）的資料")):                 # 中間有空白也認得
+            self.assertEqual(N.text_privacy_problems(main, text), ["具名字串命中（私人清單上的名稱）"], i)
+        self.assertNotIn(term, " ".join(N.text_privacy_problems(main, "說明：" + term)))                                      # 回報不帶那個名稱本身
+        sb.write("js/app.js", "// app v3\n", sb.wt)
+        run_git(["add", "--", "js/app.js"], sb.wt)
+        run_git(["commit", "-q", "-m", "feat: y\n\n說明：" + term], sb.wt)
+        named = sb.rev("HEAD", sb.wt)
+        push = ["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (named, zero)]
+        ok, msgs = sb.check(push)
+        self.assertFalse(ok)                                                                                               # commit 訊息裡有清單上的名稱：擋
+        self.assertIn("具名字串命中", " ".join(msgs))
+        self.assertNotIn(term, " ".join(msgs))
+        ok, msgs = sb.check(push, claude=False)
+        self.assertTrue(ok, msgs)                                                                                          # 不是從 Claude Code 推的：這一道不管
+        clean = ["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sb.cand, zero)]
+        ok, msgs = sb.check(clean)
+        self.assertTrue(ok, msgs)
+        os.rename(sb.salt_file, sb.salt_file + ".off")                                                                    # 鹽不在：這一種掃不了
+        try:
+            self.assertIn(N.NO_SALT, N.text_privacy_problems(main, "一段乾淨的說明"))
+            ok, msgs = sb.check(clean)
+            self.assertFalse(ok)                                                                                           # 訊息再乾淨也不能推：缺鹽就擋
+            self.assertIn("具名字串的鹽讀不到", " ".join(msgs))
+            ok, msgs = sb.check(clean, claude=False)
+            self.assertTrue(ok, msgs)
+        finally:
+            os.rename(sb.salt_file + ".off", sb.salt_file)
+        digest = os.path.join(main, *sb.digest_rel.split("/"))
+        saved = io.open(digest, encoding="utf-8").read()
+        try:
+            for text in ('{"entries": []}\n', None):                                                                      # 雜湊清單是空的、或整個檔不在
+                if text is None:
+                    os.remove(digest)
+                else:
+                    sb.write(sb.digest_rel, text)
+                self.assertIn("具名字串的雜湊清單讀不到或是空的：這一種掃不了，不能送出", N.text_privacy_problems(main, "一段乾淨的說明"))
+                ok, msgs = sb.check(clean)
+                self.assertFalse(ok)
+        finally:
+            sb.write(sb.digest_rel, saved)
+        ok, msgs = sb.check(clean)
+        self.assertTrue(ok, msgs)
 
     def test_the_message_of_an_annotated_tag_is_scanned_before_it_is_pushed(self):
         """Codex 對 P2 的第六次審查（P0）：推送前只掃 commit 的訊息。帶訊息的標籤（annotated tag），訊息存在標籤物件裡，原本完全沒看——

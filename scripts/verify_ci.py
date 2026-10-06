@@ -1232,7 +1232,22 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None, seals
 # 隱私掃描（跟 scripts/test_autopilot_config.py 的樣式一致；另外加 main 上 test_analysis_guards 的三個掃描器）
 _LOCAL_USER = re.compile(r"(?i)[a-z]:[\\/]+users[\\/]+(?!fake\b)[a-z0-9_.-]+")
 _LOCAL_ROOT = re.compile(r"(?i)[a-z]:[\\/]+claude_use")
-_TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+# 像密鑰的東西：格式很明確的那幾種（跟 .claude/hooks/iw_notify.py 的 SECRET_PATTERNS 一樣，有測試釘住）。
+# 2026-10-06 Codex 的審查意見：原本只認兩種 GitHub 權杖的開頭。
+SECRET_PATTERNS = (
+    r"gh[opsur]_[A-Za-z0-9]{20,}",                                  # GitHub 的各種權杖
+    r"github_pat_[A-Za-z0-9_]{20,}",
+    r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA)[0-9A-Z]{16}\b",           # AWS 的金鑰編號
+    r"\bxox[abeoprs]-[A-Za-z0-9-]{10,}",                            # Slack 的權杖
+    r"hooks\.slack\.com/services/[A-Za-z0-9/]{20,}",                # Slack 的 webhook
+    r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",   # JWT
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",                       # 私鑰區塊
+    r"\bsk-[A-Za-z0-9_-]{20,}",                                     # sk- 開頭的 API 金鑰
+    r"\bAIza[0-9A-Za-z_-]{35}",                                     # Google 的 API 金鑰
+    r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}",                      # Stripe 的金鑰
+    r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{20,}",                      # Authorization 標頭裡的權杖
+)
+_SECRETS = tuple(re.compile(p) for p in SECRET_PATTERNS)
 _MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Unix／macOS 的家目錄路徑（/home/某人、/Users/某人）。2026-10-06 Codex 的審查意見：原本只認 Windows 的兩種寫法。
 # 驗收機的結果裡本來就會出現執行機自己的路徑，所以有一份排除清單——只准列 GitHub 執行機固定的帳號與這支程式自己建的測試用使用者，
@@ -1249,6 +1264,20 @@ FIXTURE_MAIL_DOMAINS = ("example.com", "example.invalid")          # 測試資�
 def mail_ok(addr):
     a = (addr or "").strip().lower()
     return a in SYSTEM_MAIL_EXACT or a.rsplit("@", 1)[-1] in SYSTEM_MAIL_DOMAINS + FIXTURE_MAIL_DOMAINS
+
+
+NAMED_SCAN_NOT_RUN = "未跑（無鹽）"
+NAMED_SCAN_RAN = "有跑（有鹽）"
+
+
+def named_term_scan_status(guards):
+    """具名字串的掃描（私人清單上的名稱；要倉庫外的鹽）在這台機器上跑不跑得了。驗收機上沒有鹽、也不放任何密鑰（公開倉庫的 CI 不放密鑰），
+    所以那幾條測試在這裡是 skipped——結果檔要明白寫出「未跑（無鹽）」，不可以讓人以為驗收機掃過。這一種的證據是本機帶鹽跑的全套測試。"""
+    try:
+        salt = guards.load_salt() if guards is not None else None
+    except Exception:                                              # noqa: B902
+        salt = None
+    return NAMED_SCAN_RAN if salt else NAMED_SCAN_NOT_RUN
 
 
 def unix_home_hit(text):
@@ -1272,7 +1301,7 @@ def privacy_scan(texts, guards=None):
             hits.append("%s：本機的絕對路徑" % name)
         if unix_home_hit(text):
             hits.append("%s：本機的家目錄路徑" % name)
-        if _TOKEN.search(text):
+        if any(rx.search(text) for rx in _SECRETS):
             hits.append("%s：像權杖的字串" % name)
         for m in _MAIL.findall(text):
             if not mail_ok(m):
@@ -1312,6 +1341,9 @@ def summary_md(res):
                  e.get("jobs"), e.get("level"), e.get("bot_hits", 0), len(e.get("source_hosts") or []), len(e.get("unknown_hosts") or []),
                  len(e.get("browser_hosts") or []), len(e.get("blocked_ips") or [])),
              "- 動到的保護範圍檔：第一層 %d、自己的檔 %d、第二層 %d" % tuple(len((c.get("protected_touched") or {}).get(k) or []) for k in ("tier1", "self", "tier2"))]
+    if res.get("named_term_scan"):
+        lines.append("- 具名字串掃描：%s%s" % (res["named_term_scan"], "。驗收機不放鹽也不放任何密鑰；這一種以本機帶鹽跑的全套測試為證據"
+                                           "（寄「可以合併」之前，程式會核對本機那一份全綠、沒有 skipped）" if res["named_term_scan"] == NAMED_SCAN_NOT_RUN else ""))
     lk = res.get("lockdown") or {}
     jobs = [lk] + list(lk.get("mutation_shards") or [])
     lines.append("- 每一段的封鎖層級（每一段都要 3／3，IPv4 與 IPv6 的防火牆規則都要有）：%s" % "；".join(
@@ -1424,6 +1456,7 @@ def cmd_collect(a):
                             mutation_shards=[lockdown_brief(x) for x in mut_lockdowns]),
            "verifier_changed": bool(cmp_.get("verifier_changed")), "verifier_source": cmp_.get("verifier_source"),
            "allowed_hosts_from": "main" if allowed else "（讀不到 net_policy，白名單為空）", "privacy_scanner": "main" if guards is not None else "（讀不到）",
+           "named_term_scan": named_term_scan_status(guards),
            "generated_at": now_iso(), "schema": 2}
     privacy = privacy_scan({"verify-result": json.dumps(res, ensure_ascii=False), "failures": failures,
                             "egress-hosts": "\n".join(sorted((egress_raw.get("hosts") or {}).keys()))}, guards)

@@ -40,7 +40,7 @@ import iw_notify as N            # noqa: E402
 import iw_review as R            # noqa: E402
 import iw_state as ST            # noqa: E402
 import autopilot_install as INST  # noqa: E402
-from test_autopilot_prepush import Sandbox, run_git, fake_gh_entries, write_fake_gh, FAKE_GH_ENV, BOT_LOGIN   # noqa: E402
+from test_autopilot_prepush import Sandbox, run_git, fake_gh_entries, write_fake_gh, FAKE_GH_ENV, BOT_LOGIN, SANDBOX_NAMED_TERM   # noqa: E402
 
 CFG = C.load_json(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "autopilot", "config.json"))
 
@@ -2694,6 +2694,64 @@ class TestGate(FlowBase):
         _resp_file(sb, ["| 301 | P0 | js/app.js:3 | 採納並修 | commit abc1234 |"])
         self.assertEqual(self.send("ready"), 0, self.errs)
 
+    def test_only_the_pr_from_this_branch_into_main_counts(self):
+        """Codex 對 P2 的第七次審查（P0）：找 PR 的時候原本只照分支名稱、直接拿第一筆，沒有確認它是要合併進正式版的。
+        同一條分支可以另外開一個對著別的分支的 PR——那個 PR 的 diff 可以是空的，Codex 對同一個 commit 的完成訊號卻照樣算數，
+        最後合併進正式版的是沒被審過的完整改動。現在只認「這個倉庫的這條分支 → 這個倉庫的正式版分支」的那一個；對得上的不是剛好一個就當成找不到。
+        對照組：不看基底、不看分支在哪個倉庫、有兩個時拿第一個 → 紅。"""
+        self.ready_setup()
+        here = {"full_name": "fake/invest-watch"}
+
+        def other(number, base="release", head_repo=None):
+            return {"number": number, "html_url": "https://example.invalid/pull/%d" % number, "title": "y", "created_at": "2026-10-03T23:30:00Z",
+                    "head": {"sha": "{sha}", "ref": "{branch}", "repo": dict(head_repo or here)}, "base": {"ref": base, "repo": here}}
+        for kw in (dict(pr_base="release"),                                              # 唯一的 PR 是對著別的分支的
+                   dict(pr_head_repo={"full_name": "someone/invest-watch"}),             # 分支在別人的倉庫（fork）
+                   dict(pr_base="main-old")):
+            self.fake_gh(**kw)
+            self.errs = []
+            self.assertEqual(self.send("ready"), 3, kw)
+            msg = "".join(self.errs)
+            self.assertIn("外部審查還沒完成", msg)
+            self.assertIn("沒有一個是從這個倉庫的這條分支合併進 main 的", msg)
+            self.assertEqual(self.sent, [])
+        self.fake_gh(extra_prs=[other(8, base="main")])                                   # 對著正式版的有兩個：看不出哪一個算數
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)
+        self.assertIn("看不出哪一個算數", "".join(self.errs))
+        entries = fake_gh_entries()
+        for e in entries:                                                                # 同一條分支另外開了一個對著別的分支的 PR，而且排在前面
+            if e["match"] == "pulls?head=":
+                e["text"] = json.dumps([other(8)] + json.loads(e["text"]))
+        write_fake_gh(self.fake, entries)
+        N._GATE_CACHE.clear()
+        self.assertEqual(self.send("ready"), 0, self.errs)                               # 認的是對著正式版的那一個（7 號），不是排第一的
+        self.assertIn("https://example.invalid/pull/7", body_of(self.sent[-1]))
+        self.assertNotIn("pull/8", body_of(self.sent[-1]))
+        pr, err = R.find_pr(self.sb.main, CFG, "feat/stopX1", runner=lambda args: (0, json.dumps([other(8)])))
+        self.assertIsNone(pr)
+        self.assertIn("沒有一個", err)
+
+    def test_the_local_test_record_must_be_all_green_with_nothing_skipped(self):
+        """驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；它們掃過沒有，唯一的證據是本機帶鹽跑的那一份（Cowork 2026-10-06 的裁決）。
+        所以本機的 tests.txt 要是全綠、而且沒有 skipped，才能寄「可以合併」的信。對照組：有 skipped 也照樣寄 → 紅。"""
+        self.ready_setup()
+        runs = os.path.join(self.sb.main, ".autopilot", "runs", "X1")
+        os.makedirs(runs, exist_ok=True)
+        for tail, want in (("OK (skipped=3)", "有 skipped 多半是沒有帶鹽跑"), ("FAILED (failures=1)", "不是全綠"), ("OK (skipped=1, expected failures=2)", "有 skipped"),
+                           ("", "不是全綠")):
+            with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+                fh.write("....s..\n" + "-" * 70 + "\nRan 830 tests in 100.0s\n\n" + tail + "\n")
+            self.errs = []
+            self.assertEqual(self.send("ready", tests_txt=False), 3, tail)
+            self.assertIn(want, "".join(self.errs), tail)
+            self.assertEqual(self.sent, [])
+        self.assertEqual(N.local_test_problem(os.path.join(runs, "沒有這個檔.txt")), "讀不到本機的測試紀錄")
+        with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
+            fh.write("......\n" + "-" * 70 + "\nRan 830 tests in 100.0s\n\nOK\n")
+        self.assertIsNone(N.local_test_problem(os.path.join(runs, "tests.txt")))
+        self.assertEqual(self.send("ready", tests_txt=False), 0, self.errs)
+
     def test_numbers_come_from_the_verifier(self):
         """本機 tests.txt 的條數跟驗收機對不上＝要你決定，不寄 ready。對照組：拿掉比對 → 紅。"""
         self.ready_setup()
@@ -3259,7 +3317,9 @@ class TestPrCommands(FlowBase):
         self.assertIn("`.gitignore`", sent_body)
         self.assertNotIn("`js/app.js`", sent_body)                                      # 不在保護範圍的檔不列
         for bad, want in (("路徑在 D:" + "\\Claude_" + "use\\x\n", "本機的絕對路徑"), ("<pasted_content id=\"1\">規格原文</pasted_content>\n", "規格原文不放進 PR"),
-                          ("ghp_" + "A" * 30 + "\n", "像權杖的字串"), ("持有 " + "1,000 股\n", "隱私掃描命中")):
+                          ("ghp_" + "A" * 30 + "\n", "像權杖的字串"), ("持有 " + "1,000 股\n", "隱私掃描命中"),
+                          ("這一段提到 " + SANDBOX_NAMED_TERM + "\n", "具名字串命中"), ("放在 /ho" + "me/someone/x\n", "本機的絕對路徑"),
+                          ("連線用 pass" + "word=hunter2abc\n", "像密碼或密鑰的寫法")):
             with io.open(body, "w", encoding="utf-8") as fh:
                 fh.write(bad)
             self.errs = []

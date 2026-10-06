@@ -305,13 +305,27 @@ def find_pr(main_root, cfg, branch, runner=None, hints=None):
     if not s:
         return None, "看不出這個倉庫在 GitHub 的名字"
     owner = s.split("/")[0]
-    obj, err = gh_json(["api", "repos/%s/pulls?head=%s:%s&state=open&per_page=5" % (s, owner, branch)], runner=runner, hints=hints)
+    hints = dict(hints or {}, branch=branch)
+    obj, err = gh_json(["api", "repos/%s/pulls?head=%s:%s&state=open&per_page=100" % (s, owner, branch)], runner=runner, hints=hints)
     if obj is None:
         return None, err
     prs = obj if isinstance(obj, list) else []
     if not prs:
         return None, "找不到分支 %s 的 PR（還沒開？）" % branch
-    pr = prs[0]
+    # 只認「從這個倉庫的這條分支、合併進這個倉庫的正式版分支」的那一個 PR（2026-10-06 Codex 的審查意見，P0）：
+    # 原本只照分支名稱找、直接拿第一筆。同一條分支可以另外開一個對著別的分支的 PR——那個 PR 的 diff 可以是空的或不完整，
+    # Codex 對同一個 commit 的完成訊號卻照樣算數，最後合併進正式版的是沒被審過的完整改動。對得上的不是剛好一個，就當成找不到。
+    def full(side):
+        return str(((side or {}).get("repo") or {}).get("full_name") or "").lower()
+    main = cfg["mainBranch"]
+    ours = [p for p in prs if (p.get("base") or {}).get("ref") == main and full(p.get("base")) == s.lower()
+            and (p.get("head") or {}).get("ref") == branch and full(p.get("head")) == s.lower()]
+    if not ours:
+        return None, ("分支 %s 有開著的 PR（%d 個），但沒有一個是從這個倉庫的這條分支合併進 %s 的：外部審查只認對著 %s 的那一個"
+                      % (branch, len(prs), main, main))
+    if len(ours) > 1:
+        return None, "分支 %s 對著 %s 的 PR 有 %d 個，看不出哪一個算數：請只留一個" % (branch, main, len(ours))
+    pr = ours[0]
     return {"number": pr.get("number"), "url": pr.get("html_url"), "head": ((pr.get("head") or {}).get("sha") or "").lower(), "title": pr.get("title"),
             "created_at": pr.get("created_at"), "body": pr.get("body")}, None
 

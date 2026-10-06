@@ -570,6 +570,9 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             if local_ran is None:                                      # 沒有證據不能當成對得上（2026-10-05 Codex 的審查意見：原本缺檔就略過比對）
                 return fail("找不到本機的測試紀錄，或讀不出條數：.autopilot/runs/%s/tests.txt 要有全套測試的輸出（「Ran N tests」那一行）。"
                             "本機的條數要跟驗收機的（%s）對得上才能寄「可以合併」的信。" % (stage, vs.get("ran")))
+            local_problem = local_test_problem(os.path.join(runs_dir, "tests.txt"))
+            if local_problem:                                          # 具名字串的掃描只有本機這一份是證據：要全綠、沒有 skipped
+                return fail("%s。.autopilot/runs/%s/tests.txt 要是帶鹽跑完、最後一行是「OK」的全套測試輸出，才能寄「可以合併」的信。" % (local_problem, stage))
             if local_ran != vs.get("ran"):
                 return fail("本機的測試條數（%s，tests.txt）跟驗收機的（%s）對不上。數字以驗收機為準，對不上是「要你決定」：請改寄 --kind stop。" % (local_ran, vs.get("ran")))
             # PR 內文最後那一段「動到的保護範圍檔」是開 PR、改內文的那個當下列的；之後為了回應審查又加的 commit 可能動到別的保護檔
@@ -727,6 +730,25 @@ def local_test_count(path):
     return int(found[-1]) if found else None
 
 
+def local_test_problem(path):
+    """本機 tests.txt 的最後結論是不是「全綠、沒有 skipped」。是回 None；不是回一句原因。
+    驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；它們有沒有掃過，唯一的證據就是本機帶鹽跑的這一份（Cowork 2026-10-06 的裁決）。
+    所以本機這一份不可以有 skipped——有 skipped 多半就是沒有帶鹽跑。"""
+    try:
+        text = io.open(path, encoding="utf-8", errors="replace").read()
+    except Exception:                                              # noqa: B902
+        return "讀不到本機的測試紀錄"
+    tail = text[text.rfind("\nRan "):] if "\nRan " in text else (text if text.startswith("Ran ") else "")
+    lines = [x.strip() for x in tail.split("\n") if x.strip()]
+    verdict = lines[1] if len(lines) > 1 else ""
+    if verdict == "OK":
+        return None
+    m = re.match(r"^OK \((.*)\)$", verdict)
+    if m:
+        return "本機的全套測試不是完整的全綠（%s）：有 skipped 多半是沒有帶鹽跑，具名字串那幾條就沒有掃到。請在有鹽的電腦上重跑全套" % m.group(1)[:60]
+    return "本機的全套測試不是全綠（最後一行是「%s」）" % verdict[:60]
+
+
 def mark_external_incomplete(sd, stage, head, ext):
     """程式記下「外部審查未完成」：David 手打「免外部審查 <階段>」的前提。"""
     rec = {"stage": stage, "sha": head, "status": "incomplete", "why": (ext or {}).get("why"), "pr": (ext or {}).get("pr_url"), "at": C.iso()}
@@ -782,7 +804,27 @@ _PR_LOCAL = (
     re.compile(r"\\\\[A-Za-z0-9_.$-]+\\[A-Za-z0-9_.$-]"),                                   # 網路磁碟：\\主機\分享
     re.compile(r"(?i)\bfile:/"),                                                            # file:// 網址
 )
-_PR_TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
+# 公開文字裡像密鑰的東西。2026-10-06 Codex 的審查意見（P0）：原本只認兩種 GitHub 權杖的開頭，別家的金鑰、JWT、私鑰區塊、
+# 「password＝值」這類寫法都掃不到。SECRET_PATTERNS 是格式很明確的那幾種（驗收機那一份 SECRET_PATTERNS 要跟這裡一樣，有測試釘住）；
+# _PR_KEY_VALUE 是「敏感的鍵名後面直接接一個值」，只用在公開文字（PR 內文、commit 訊息、標籤訊息）——那幾種文字本來就不該有這種寫法。
+SECRET_PATTERNS = (
+    r"gh[opsur]_[A-Za-z0-9]{20,}",                                  # GitHub 的各種權杖
+    r"github_pat_[A-Za-z0-9_]{20,}",
+    r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA)[0-9A-Z]{16}\b",           # AWS 的金鑰編號
+    r"\bxox[abeoprs]-[A-Za-z0-9-]{10,}",                            # Slack 的權杖
+    r"hooks\.slack\.com/services/[A-Za-z0-9/]{20,}",                # Slack 的 webhook
+    r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",   # JWT
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----",                       # 私鑰區塊
+    r"\bsk-[A-Za-z0-9_-]{20,}",                                     # sk- 開頭的 API 金鑰
+    r"\bAIza[0-9A-Za-z_-]{35}",                                     # Google 的 API 金鑰
+    r"\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}",                      # Stripe 的金鑰
+    r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]{20,}",                      # Authorization 標頭裡的權杖
+)
+_PR_SECRETS = tuple(re.compile(p) for p in SECRET_PATTERNS)
+_PR_KEY_VALUE = (
+    re.compile(r"(?i)(?<![A-Za-z0-9])(?:password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret)\s*[=:]\s*[^\s，。、；）)\]】」]{6,}"),
+    re.compile(r"(?:密碼|權杖|金鑰|密鑰)\s*[=:：]\s*[A-Za-z0-9_+/=.\-]{6,}"),
+)
 _PR_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # 公開文字裡可以出現的電子郵件：只有這幾個確切的系統地址，寫在這一個地方（驗收機那一份 SYSTEM_MAIL_* 要跟這裡一樣，有測試釘住）。
 # 2026-10-06 Codex 的審查意見（P0）：原本寫成「地址裡有 noreply 就放行」，某人+noreply@公司 這種私人信箱也過；@github.com 整個網域也放行。
@@ -803,6 +845,8 @@ def pr_text_problems(main_root, title, body):
 
 
 _GUARDS_CACHE = {}
+NO_SALT = ("具名字串的鹽讀不到：這一種掃不了，不能送出。鹽放在倉庫外，只有施工用的那台電腦有；"
+           "請停下來寄 --kind stop，信裡寫明鹽不在（這是小事，補上鹽就可以繼續）")
 
 
 def text_privacy_problems(main_root, text):
@@ -812,8 +856,10 @@ def text_privacy_problems(main_root, text):
     problems = []
     if any(rx.search(text) for rx in _PR_LOCAL):
         problems.append("有本機的絕對路徑")
-    if _PR_TOKEN.search(text):
+    if any(rx.search(text) for rx in _PR_SECRETS):
         problems.append("有像權杖的字串")
+    if any(rx.search(text) for rx in _PR_KEY_VALUE):
+        problems.append("有像密碼或密鑰的寫法（敏感的鍵名後面直接接了值）")
     for m in _PR_MAIL.findall(text):
         if not public_mail_ok(m):
             problems.append("有電子郵件地址")
@@ -833,6 +879,16 @@ def text_privacy_problems(main_root, text):
         hits = list(mod.privacy_hits(text)) + list(mod.profile_key_hits(text)) + list(mod.fxplan_key_hits(text))
         if hits:
             problems.append("隱私掃描命中（個人資料的字樣或設定鍵名，%d 處）" % len(hits))      # 只說有幾處：這句話會進紀錄檔
+        # 具名字串（私人清單上的名稱；倉庫裡只有加鹽的雜湊，鹽放在倉庫外）。2026-10-06 Codex 的審查意見（P0）：公開文字原本完全沒比這一種——
+        # 清單上的名稱只要不帶通用的隱私字樣就過了。鹽或雜湊清單讀不到＝這一種掃不了＝不能送出（Cowork 的裁決：缺鹽就擋；
+        # 施工一律在有鹽的那台電腦上做。驗收機不放鹽，那一邊的具名字串掃描由本機帶鹽的全套測試當證據）。
+        salt, entries = mod.load_salt(), mod.load_digests()
+        if not salt:
+            problems.append(NO_SALT)
+        elif not entries:
+            problems.append("具名字串的雜湊清單讀不到或是空的：這一種掃不了，不能送出")
+        elif mod.named_term_hits(text, salt, entries):
+            problems.append("具名字串命中（私人清單上的名稱）")
     except Exception as e:                                         # noqa: B902
         problems.append("隱私掃描器讀不到（%r）" % (e,))
     return problems
