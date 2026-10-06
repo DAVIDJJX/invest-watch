@@ -2200,18 +2200,6 @@ def _resp_file(sb, rows):
         fh.write("# 第三方審查回覆\n\n| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n" + "\n".join(rows) + "\n")
 
 
-RULING = "10_Cowork裁決_收尾.md"
-BY_RULING = "Cowork 裁決：" + RULING
-
-
-def _ruling_file(sb, name=RULING):
-    """報告資料夾裡放一份 Cowork 的裁決檔（P1 要「不採納」，理由欄得指到這樣的檔）。"""
-    p = os.path.join(sb.main, ".autopilot", "runs", "X1", name)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with io.open(p, "w", encoding="utf-8") as fh:
-        fh.write("裁決\n")
-
-
 def _summary(status="✅ **Completed**", when="2026-10-04T00:20:00Z", commit="{sha7}", login=BOT_LOGIN, review="📝 **Code Review**", cid=900):
     """Codex 自己那則「Codex Review Summary」進度留言（格式照 2026-10-05 這個倉庫 1 號 PR 上實際看到的）。
     假的驗收機那一次執行（＝推送的時間）是 2026-10-04T00:00:00Z，開 PR 是 2026-10-03T23:00:00Z。"""
@@ -2329,51 +2317,90 @@ class TestResponseTable(unittest.TestCase):
         findings = [{"id": 7, "severity": "P0"}]
         self.assertEqual(R.responses_problems(findings, self.rows(["| 7 | P0 | a.py:1 | 尚未採納 | 之後再說 |"])), ([7], [], []))     # 沒回覆，不是「採納」
 
-    def test_a_p0_can_never_be_rejected_and_a_p1_rejection_needs_a_cowork_ruling_file(self):
-        """2026-10-06 裁決第三節：P0 不能不採納；P1 要不採納，理由欄只能是「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」，
-        而且那個檔真的在報告資料夾裡——沒有就當成還沒回覆；等級不到 P1 的可以直接不採納。
-        對照組：P1 不採納不看裁決檔、或 P0 不採納放行 → 紅。"""
+    def test_a_p0_can_never_be_rejected_and_a_p1_rejection_needs_a_ruling_the_hook_recorded(self):
+        """2026-10-06 裁決第三節：P0 不能不採納；P1 要不採納，理由欄只能是「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」；
+        等級不到 P1 的可以直接不採納。
+        Codex 對 P2 的第五次審查（P0）：原本只看報告資料夾裡有沒有一個檔名像裁決、不是空的檔——那個資料夾施工的一方本來就寫得到。
+        現在只認 hook 存的裁決紀錄：階段對、核對過是人打的、沒有被判冒充；原件（狀態資料夾）與副本（報告資料夾）的內容都跟當時記的雜湊一樣；
+        而且裁決的內容點名了這一條留言。對照組：不比雜湊、不看是不是人打的、不看有沒有點名、P0 有裁決就放行 → 紅。"""
         d = tempfile.mkdtemp(prefix="iw-ruling-")
         self.addCleanup(shutil.rmtree, d, True)
+        runs, sd = os.path.join(d, "runs"), os.path.join(d, "state")
+        os.makedirs(runs)
+        os.makedirs(sd)
 
-        def put(name, text="裁決內容\n"):
-            with io.open(os.path.join(d, name), "w", encoding="utf-8") as fh:
+        def put(folder, name, text):
+            p = os.path.join(folder, name)
+            with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write(text)
-        put("10_Cowork裁決_收尾.md")
-        put("05_Cowork回覆_整合.md")
-        put("02_驗收報告.md")
-        put("11_Cowork裁決_空的.md", "")
-        for reason, want in (("Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", None)),
-                             ("Cowork裁決: `05_Cowork回覆_整合.md`", ("05_Cowork回覆_整合.md", None)),
-                             ("延後到 P3，Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", "P3")),
-                             ("延後到 A2-1, Cowork 裁決：10_Cowork裁決_收尾.md", ("10_Cowork裁決_收尾.md", "A2-1")),
-                             ("Cowork 裁決：12_Cowork裁決_沒有這個檔.md", (None, None)),          # 檔不在
-                             ("Cowork 裁決：11_Cowork裁決_空的.md", (None, None)),                # 空檔
-                             ("Cowork 裁決：02_驗收報告.md", (None, None)),                       # 不是 Cowork 的回覆或裁決
-                             ("Cowork 裁決：../10_Cowork裁決_收尾.md", (None, None)),             # 不能帶路徑
-                             ("Cowork 裁決：", (None, None)),
-                             ("我覺得不用改，Cowork 裁決：10_Cowork裁決_收尾.md", (None, None)),  # 前面不能加別的話
-                             ("那不是問題", (None, None)), ("", (None, None))):
-            self.assertEqual(R.ruling_file(reason, d), want, reason)
-        p = os.path.join(d, "03.md")
+            return p
 
-        def problems(sev, cell4, reason):
+        def record(name, body, stage="X1", **over):
+            orig = put(sd, "orig-" + name, body)
+            copy = put(runs, name, "<!-- hook 存的 -->\n\n" + body + "\n")
+            r = {"stage": stage, "name": name, "path": copy, "original": orig, "sha256": ST.file_sha256(orig), "copy_sha256": ST.file_sha256(copy),
+                 "verified": True, "prompt_id": "p-1"}
+            r.update(over)
+            return r
+        good = record("裁決-20261006-090000.md", "留言 7：不採納，理由是……\n留言 5409995249-1 也不採納。")
+        st = {"rulings": [good,
+                          record("裁決-別的階段.md", "留言 7：不採納", stage="Y2"),
+                          record("裁決-還沒核對.md", "留言 7：不採納", verified=None),
+                          record("裁決-冒充的.md", "留言 7：不採納", forged=True),
+                          record("裁決-舊版沒有雜湊.md", "留言 7：不採納", sha256=None),
+                          record("裁決-沒有點名.md", "那一條不採納。留言 77 與 17 另外處理。")]}
+        recs = R.ruling_records(st, "X1")
+        self.assertEqual(sorted(r["name"] for r in recs), ["裁決-20261006-090000.md", "裁決-沒有點名.md"])    # 別的階段、還沒核對、冒充的、沒有雜湊的都不算
+        self.assertEqual(R.ruling_records({}, "X1"), [])
+        put(runs, "10_Cowork裁決_自己放的.md", "留言 7：不採納\n")                           # 施工的一方自己放進報告資料夾的檔
+        ok = "Cowork 裁決：裁決-20261006-090000.md"
+        for reason, fid, want in ((ok, 7, ("裁決-20261006-090000.md", None)),
+                                  ("Cowork裁決: `裁決-20261006-090000.md`", 7, ("裁決-20261006-090000.md", None)),
+                                  ("延後到 P3，" + ok, 7, ("裁決-20261006-090000.md", "P3")),
+                                  ("延後到 A2-1, " + ok, "5409995249-1", ("裁決-20261006-090000.md", "A2-1")),
+                                  (ok, 77, (None, None)),                                          # 這份裁決沒有點名 77
+                                  (ok, 5409995249, (None, None)),                                  # 點名的是 5409995249-1，不是 5409995249
+                                  ("Cowork 裁決：裁決-沒有點名.md", 7, (None, None)),              # 裡面只有 77 與 17，沒有 7
+                                  ("Cowork 裁決：10_Cowork裁決_自己放的.md", 7, (None, None)),     # 不是 hook 存的：檔名再像也不算
+                                  ("Cowork 裁決：裁決-別的階段.md", 7, (None, None)),
+                                  ("Cowork 裁決：裁決-還沒核對.md", 7, (None, None)),
+                                  ("Cowork 裁決：裁決-冒充的.md", 7, (None, None)),
+                                  ("Cowork 裁決：沒有這個檔.md", 7, (None, None)),
+                                  ("Cowork 裁決：../runs/裁決-20261006-090000.md", 7, (None, None)),   # 不能帶路徑
+                                  ("Cowork 裁決：", 7, (None, None)),
+                                  ("我覺得不用改，" + ok, 7, (None, None)),                        # 前面不能加別的話
+                                  ("那不是問題", 7, (None, None)), ("", 7, (None, None))):
+            self.assertEqual(R.ruling_file(reason, runs, recs, finding_id=fid), want, (reason, fid))
+        self.assertEqual(R.ruling_file(ok, runs, None, finding_id=7), (None, None))          # 沒有給紀錄＝沒有任何一份算數
+        p = os.path.join(runs, "03.md")
+
+        def problems(sev, cell4, reason, records=recs):
             with io.open(p, "w", encoding="utf-8") as fh:
                 fh.write("| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |\n|---|---|---|---|---|\n| 7 | %s | a.py:1 | %s | %s |\n" % (sev, cell4, reason))
             f = {"id": 7, "severity": sev}
-            missing, rejected, unruled = R.responses_problems([f], R.parse_responses(p))
+            missing, rejected, unruled = R.responses_problems([f], R.parse_responses(p, records))
             return missing, [x["id"] for x in rejected], [x["id"] for x in unruled]
-        ok = "Cowork 裁決：10_Cowork裁決_收尾.md"
-        self.assertEqual(problems("P0", "不採納", ok), ([], [7], []))                      # P0：有裁決檔也不行
+        self.assertEqual(problems("P0", "不採納", ok), ([], [7], []))                      # P0：有裁決也不行
         self.assertEqual(problems("P0", "不採納", "那不是問題"), ([], [7], []))
-        self.assertEqual(problems("P1", "不採納", "那不是問題"), ([], [], [7]))            # P1：沒有裁決檔＝還沒回覆
-        self.assertEqual(problems("P1", "不採納", "Cowork 裁決：12_Cowork裁決_沒有這個檔.md"), ([], [], [7]))
+        self.assertEqual(problems("P1", "不採納", "那不是問題"), ([], [], [7]))            # P1：沒有裁決＝還沒回覆
+        self.assertEqual(problems("P1", "不採納", "Cowork 裁決：10_Cowork裁決_自己放的.md"), ([], [], [7]))
+        self.assertEqual(problems("P1", "不採納", ok, records=None), ([], [], [7]))        # 呼叫的人沒給紀錄：一律不算
         self.assertEqual(problems("P1", "不採納", ok), ([], [], []))
         self.assertEqual(problems("P1", "不採納", "延後到 P3，" + ok), ([], [], []))
         self.assertEqual(problems("P2", "不採納", "小事"), ([], [], []))                    # 不到 P1：可以直接不採納
         self.assertEqual(problems("P1", "採納並修", "commit abc1234"), ([], [], []))
-        rows = R.parse_responses(p)
-        self.assertEqual((rows[7]["ruling"], rows[7]["deferred_to"]), (None, None))         # 採納的那一列不看裁決檔
+        rows = R.parse_responses(p, recs)
+        self.assertEqual((rows[7]["ruling"], rows[7]["deferred_to"]), (None, None))         # 採納的那一列不看裁決
+        put(runs, "裁決-20261006-090000.md", "<!-- hook 存的 -->\n\n留言 7：不採納，理由是……\n留言 5409995249-1 也不採納。\n（事後加的一句）\n")
+        self.assertEqual(problems("P1", "不採納", ok), ([], [], [7]))                      # 副本被改過：雜湊對不上
+        put(runs, "裁決-20261006-090000.md", "<!-- hook 存的 -->\n\n留言 7：不採納，理由是……\n留言 5409995249-1 也不採納。\n")
+        self.assertEqual(problems("P1", "不採納", ok), ([], [], []))
+        put(sd, "orig-裁決-20261006-090000.md", "留言 7 與留言 8：不採納")
+        self.assertEqual(problems("P1", "不採納", ok), ([], [], [7]))                      # 原件被改過：雜湊對不上
+        os.remove(os.path.join(sd, "orig-裁決-20261006-090000.md"))
+        self.assertEqual(problems("P1", "不採納", ok), ([], [], [7]))                      # 原件不見了
+        self.assertIsNone(ST.file_sha256(os.path.join(sd, "沒有這個檔")))
+        self.assertIsNone(ST.file_sha256(None))
         self.assertEqual(R.round_cap({"externalReview": {"maxRounds": {"default": 4, "P2": 6}}}, "P2"), 6)
         self.assertEqual(R.round_cap({"externalReview": {"maxRounds": {"default": 4, "P2": 6}}}, "A2-1"), 4)
         self.assertEqual(R.round_cap({"externalReview": {}}, "X1"), 4)
@@ -2403,6 +2430,17 @@ def _bot_comment(cid, body, line, commit="{sha}"):
 
 
 class TestGate(FlowBase):
+    def typed_ruling(self, *ids):
+        """David 第一行手打「裁決：X1」、下面貼 Cowork 寫的內容（點名這幾條留言）；下一個動作之前程式核對那一則是人打的。
+        回傳 hook 存在報告資料夾的那份副本的檔名——P1 要「不採納」，理由欄得指到它。"""
+        self.say("裁決：X1\n" + "\n".join("留言 %s：不採納，理由是……" % i for i in ids))
+        rc, why = self.bash("git status --short", cwd=self.sb.wt)
+        self.assertEqual(rc, 0, why)
+        r = self.state()["rulings"][-1]
+        self.assertIs(r.get("verified"), True)
+        self.assertTrue(r["sha256"] and r["copy_sha256"])
+        return os.path.basename(r["path"])
+
     def ready_setup(self):
         self.start()
         self.push_branch()
@@ -2551,17 +2589,59 @@ class TestGate(FlowBase):
         self.assertEqual(self.send("ready"), 3)                                        # P0：有裁決檔也不能不採納
         self.assertIn("有 P0 被判「不採納」", "".join(self.errs))
         fixed = base + ["| 102 | P0 | js/app.js:9 | 採納並修 | 改掉 |"]
-        for reason in ("其實沒事", "Cowork 裁決：12_Cowork裁決_沒有這個檔.md"):
+        # 沒標等級的從嚴當 P1。P1 不採納：沒有理由欄指到的裁決、指到不存在的檔、指到自己放進報告資料夾的檔（上面那個，檔名再像也不算）——都當成還沒回覆
+        for reason in ("其實沒事", "Cowork 裁決：12_Cowork裁決_沒有這個檔.md", "Cowork 裁決：10_Cowork裁決_收尾.md"):
             _resp_file(sb, fixed + ["| 103 | P1 | js/app.js:1 | 不採納 | %s |" % reason])
             self.errs = []
-            self.assertEqual(self.send("ready"), 3, reason)                            # 沒標等級的從嚴當 P1；P1 不採納沒有裁決檔＝還沒回覆
+            self.assertEqual(self.send("ready"), 3, reason)
             self.assertIn("沒有指到 Cowork 的裁決檔", "".join(self.errs))
+            self.assertIn("自己放進資料夾的檔不算", "".join(self.errs))
             self.assertIn("103", "".join(self.errs))
         self.assertEqual(self.sent, [])
-        _resp_file(sb, fixed + ["| 103 | P1 | js/app.js:1 | 不採納 | 延後到 P3，Cowork 裁決：10_Cowork裁決_收尾.md |"])
+        name = self.typed_ruling(103)                                                  # David 手打「裁決：X1」、貼上點名 103 的裁決；程式存檔、核對是人打的
+        _resp_file(sb, fixed + ["| 103 | P1 | js/app.js:1 | 不採納 | 延後到 P3，Cowork 裁決：%s |" % name])
         self.assertEqual(self.send("ready"), 0, self.errs)
         line = [x for x in body_of(self.sent[-1]).split("\n") if x.startswith("外部審查（GPT）")][0]
-        self.assertIn("Codex；重大 5 條；採納 4、不採納 1（依 Cowork 裁決：10_Cowork裁決_收尾.md（延後到 P3））；別人的留言 1 則（忽略）；審了 1 輪（上限 4 輪）", line)
+        self.assertIn("Codex；重大 5 條；採納 4、不採納 1（依 Cowork 裁決：%s（延後到 P3））；別人的留言 1 則（忽略）；審了 1 輪（上限 4 輪）" % name, line)
+
+    def test_a_ruling_must_be_one_the_hook_recorded_from_a_human_and_left_untouched(self):
+        """Codex 對 P2 的第五次審查（P0）：P1 的「不採納」原本只看報告資料夾裡有沒有檔名像裁決的檔，施工的一方自己建一個就過了。
+        現在只認 hook 存的裁決（David 手打「裁決：<階段>」貼進來的）：不是人打的不算、還沒核對的不算、副本被改過不算、沒點名那一條不算。
+        對照組：照檔名認、不比雜湊、不看是不是人打的 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        self.fake_gh(comments=[_bot_comment(701, "[P1] 針對最新 commit 的意見", 3), _bot_comment(702, "[P1] 另一條", 5)])
+        name = self.typed_ruling(701)                                                  # 這份裁決只點名 701
+
+        def rows(reason_701, reason_702="Cowork 裁決：" + name):
+            _resp_file(sb, ["| 701 | P1 | js/app.js:3 | 不採納 | %s |" % reason_701, "| 702 | P1 | js/app.js:5 | 不採納 | %s |" % reason_702])
+            self.errs = []
+            rc = self.send("ready")
+            return rc, "".join(self.errs)
+        rc, msg = rows("Cowork 裁決：" + name)
+        self.assertEqual(rc, 3)                                                        # 702 沒有被這份裁決點名
+        self.assertIn("沒有指到 Cowork 的裁決檔", msg)
+        self.assertIn("702", msg)
+        self.assertNotIn("701", msg)
+        copy = os.path.join(sb.main, ".autopilot", "runs", "X1", name)
+        saved = io.open(copy, encoding="utf-8").read()
+        with io.open(copy, "a", encoding="utf-8", newline="\n") as fh:
+            fh.write("\n留言 702：也不採納。\n")                                        # 施工的一方事後在副本裡補一句：雜湊對不上，整份都不算
+        rc, msg = rows("Cowork 裁決：" + name)
+        self.assertEqual(rc, 3)
+        self.assertIn("701", msg)
+        self.assertIn("702", msg)
+        with io.open(copy, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(saved)
+        self.say("裁決：X1\n留言 702：不採納。", human=False)                           # 不是人打的「裁決」：存了也不算（下一個動作前會被判冒充）
+        forged = os.path.basename(self.state()["rulings"][-1]["path"])
+        self.assertFalse(self.state()["rulings"][-1].get("verified"))
+        self.assertEqual(R.ruling_records(self.state(), "X1")[0]["name"], name)        # 還沒核對的那一份不在可用的紀錄裡
+        self.assertEqual(len(R.ruling_records(self.state(), "X1")), 1)
+        rc, msg = rows("Cowork 裁決：" + name, "Cowork 裁決：" + forged)
+        self.assertEqual(rc, 3)
+        self.assertIn("702", msg)
+        self.assertEqual(self.sent, [])
 
     def test_a_finding_on_the_latest_commit_cannot_be_answered_as_already_fixed(self):
         """施工時補的一條：針對最新 commit 的意見，回覆不能寫「採納並修」了事——要修它，一定得有比被審的那個 commit 更新的 commit；
@@ -2569,7 +2649,7 @@ class TestGate(FlowBase):
         舊 commit 的意見寫「採納並修」照常算；真的不修就照「不採納」的規矩。對照組：不擋 → 紅。"""
         sb = self.sb
         self.ready_setup()
-        _ruling_file(sb)
+        by_ruling = "Cowork 裁決：" + self.typed_ruling(601)
         self.fake_gh(comments=[_bot_comment(601, "[P1] 針對最新 commit 的意見", 3), _bot_comment(602, "[P1] 舊 commit 的意見", 5, commit="0" * 40)])
         _resp_file(sb, ["| 601 | P1 | js/app.js:3 | 採納並修 | commit abc1234 |", "| 602 | P1 | js/app.js:5 | 採納並修 | commit abc1234 |"])
         self.errs = []
@@ -2582,7 +2662,7 @@ class TestGate(FlowBase):
         self.assertEqual(self.sent, [])
         self.assertEqual([f["id"] for f in R.unfixed_on_head([{"id": 1, "on_head": True}, {"id": 2, "on_head": False}, {"id": 3, "on_head": True}],
                                                               {1: {"response": "adopt"}, 2: {"response": "adopt"}, 3: {"response": "reject"}})], [1])
-        _resp_file(sb, ["| 601 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 602 | P1 | js/app.js:5 | 採納並修 | commit abc1234 |"])
+        _resp_file(sb, ["| 601 | P1 | js/app.js:3 | 不採納 | %s |" % by_ruling, "| 602 | P1 | js/app.js:5 | 採納並修 | commit abc1234 |"])
         self.assertEqual(self.send("ready"), 0, self.errs)
 
     def test_a_p0_on_the_latest_commit_blocks_until_it_is_fixed_and_reviewed_again(self):
@@ -2652,11 +2732,11 @@ class TestGate(FlowBase):
         self.errs = []
         self.assertEqual(self.send("ready"), 3)
         self.assertIn("還有 1 條沒有回覆", "".join(self.errs))
-        _ruling_file(self.sb)
-        _resp_file(self.sb, ["| 401 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING])
+        name = self.typed_ruling(401)
+        _resp_file(self.sb, ["| 401 | P1 | js/app.js:3 | 不採納 | Cowork 裁決：%s |" % name])
         self.assertEqual(self.send("ready"), 0, self.errs)
         line = [x for x in body_of(self.sent[-1]).split("\n") if x.startswith("外部審查（GPT）")][0]
-        self.assertIn("Codex；重大 1 條；採納 0、不採納 1（依 Cowork 裁決：%s）" % RULING, line)
+        self.assertIn("Codex；重大 1 條；採納 0、不採納 1（依 Cowork 裁決：%s）" % name, line)
         self.assertNotIn("沒有意見", line)
 
     def test_a_summary_comment_in_an_unexpected_format_stops_the_ready_mail(self):
@@ -2738,8 +2818,8 @@ class TestGate(FlowBase):
         self.assertEqual(self.send("ready"), 3)                                        # 這三條都是針對最新 commit 的：寫「採納並修」不算，修的 commit 還沒推
         self.assertIn("有 2 條針對最新 commit", "".join(self.errs))
         self.assertIn("1-1", "".join(self.errs))
-        _ruling_file(sb)
-        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 1-1 | P1 | scripts/x.py:10 | 不採納 | %s |" % BY_RULING,
+        by_ruling = "Cowork 裁決：" + self.typed_ruling(201, "1-1")
+        _resp_file(sb, ["| 201 | P1 | js/app.js:3 | 不採納 | %s |" % by_ruling, "| 1-1 | P1 | scripts/x.py:10 | 不採納 | %s |" % by_ruling,
                         "| 1-2 | P2 | js/app.js:7 | 不採納 | 小事 |"])
         self.assertEqual(self.send("ready"), 0, self.errs)                             # 標了 P2 的可以直接不採納；P1 要有裁決檔
         self.assertIn("重大 2 條", body_of(self.sent[-1]))
@@ -2768,8 +2848,8 @@ class TestGate(FlowBase):
         self.assertIn("還有 3 條沒有回覆", msg)                                           # 501、502、55-1（55-2 跟 501 同一次 review 同一行，不重複算）
         self.assertIn("55-1", msg)
         self.assertNotIn("55-2", msg)
-        _ruling_file(sb)
-        _resp_file(sb, ["| 501 | P1 | js/app.js:3 | 採納並修 | a |", "| 502 | P1 | js/app.js:3 | 不採納 | %s |" % BY_RULING, "| 55-1 | P0 | scripts/x.py:10 | 採納並修 | c |"])
+        by_ruling = "Cowork 裁決：" + self.typed_ruling(502)
+        _resp_file(sb, ["| 501 | P1 | js/app.js:3 | 採納並修 | a |", "| 502 | P1 | js/app.js:3 | 不採納 | %s |" % by_ruling, "| 55-1 | P0 | scripts/x.py:10 | 採納並修 | c |"])
         self.assertEqual(self.send("ready"), 0, self.errs)                             # 舊 review 的 P0 修掉了、最新的 commit 沒有 P0
         self.assertIn("重大 3 條；採納 2、不採納 1", body_of(self.sent[-1]))
 

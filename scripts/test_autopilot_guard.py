@@ -702,8 +702,8 @@ class TestAutopilotOnly(Base):
                           ("gh pr create --fill", 1),
                           ("gh api repos/davidjjx/invest-watch/commits", 8),
                           ("gh run rerun 123", 3),                                           # 2026-10-06 起：重跑驗收有自己的規則（見 TestRerunTheVerifier）；這一次不是現在這個 commit 的驗收
-                          ("gh run cancel 123", 8),
-                          ("gh run delete 123", 8),
+                          ("gh run cancel 123", 1),                                          # 會動到執行紀錄的：兩種模式都擋（見 TestRerunTheVerifier）
+                          ("gh run delete 123", 1),
                           ("gh run list -R someone/else", 8),
                           ("gh release create v1", 8)):
             self.blocked(self.bash(cmd, state=st), code=code, msg=cmd)
@@ -1877,6 +1877,24 @@ class TestRerunTheVerifier(Base):
         self.blocked(self.bash("gh run rerun 701", state=self.state()), code=3, has="別的流程")
         self.git.verify_runs = [self.rec(702, event="workflow_dispatch")]                        # 手動觸發的那一次：關卡不認，重跑也不准
         self.blocked(self.bash("gh run rerun 702"), has="不是由推送觸發")
+
+    def test_runs_cannot_be_deleted_or_cancelled_in_either_mode(self):
+        """Codex 對 P2 的第五次審查（P0）：一般模式原本放行 gh run delete。同一個 commit 可以有兩次由推送觸發的驗收（推分支、推標籤），
+        關卡認最新的那一次——把最新的、紅的那一次刪掉，比較舊的綠的就重新算數。驗收機的執行紀錄是證據：確定只讀的子指令才放行，
+        其他一律擋（gh 以後加的新子指令也是），兩種模式都一樣；能改變結果的只有有範圍的 rerun。對照組：只在自動駕駛中擋 → 紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run delete 501", "gh run delete", "gh run delete 501 -R davidjjx/invest-watch", "gh run cancel 501", "gh run cancel 501 --force",
+                        "gh run some-future-subcommand 501", "gh workflow some-future-subcommand verify.yml"):
+                block = self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+                self.assertNotIn("清單裡", block.reason, cmd)                                      # 不是靠自動駕駛的允許清單擋的
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run list", "gh run view 501", "gh run view 501 --log-failed", "gh run watch 501 -i 20", "gh workflow list", "gh workflow view verify.yml"):
+                self.allowed(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh run --help"))
+        self.assertEqual(G.GH_RUN_READS, set(["list", "view", "watch", "download"]))
+        for cmd in ("gh api -X DELETE repos/davidjjx/invest-watch/actions/runs/501", "gh api --method POST repos/davidjjx/invest-watch/actions/runs/501/cancel",
+                    "gh api -X DELETE repos/davidjjx/invest-watch/actions/artifacts/9"):               # 直接打 API 刪執行、取消、刪結果檔：寫入一律擋
+            self.blocked(self.bash(cmd), code=1, msg=cmd)
 
     def test_other_forms_and_failed_lookups_are_blocked(self):
         self.git.verify_runs = [self.rec()]

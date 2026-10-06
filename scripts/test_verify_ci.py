@@ -49,7 +49,12 @@ GREEN_TESTS = {"defined": 830, "ran": 830, "passed": 828, "failed": [], "errors"
 GREEN_CMP = {"tests_defined_main": 820, "mutations_total": 150, "mutations_main": 146, "mutation_anchor_problems": [], "verifier_changed": False}
 GREEN_MUT = {"total_ran": 150, "red": 149, "survivors": ["M105"], "known_exceptions": ["M105"], "unexplained_survivors": [], "anchor_errors": [], "missing": 0}
 GREEN_LOCK = {"layers": {"python": "sitecustomize", "browser": "x", "ip": "iptables"}, "level": "3/3",
-              "iptables": {"ipv4": True, "ipv6": True}, "selftest": {"python": "blocked+logged", "ip": "blocked"}}
+              "iptables": {"ipv4": True, "ipv6": True},
+              "selftest": {"python": "blocked+logged", "ip": "blocked", "checkout": "readonly", "results": "readonly", "scratch": "writable"}}
+# 每一步跑完之後的封存紀錄（結果檔由原本的使用者收好、受測的 checkout 跟 commit 一樣）
+GOOD_STAGE = {"sealed": ["x.json"], "missing": [], "leftovers_stopped": False, "tree_clean": True, "tree_changes": [], "head": "a" * 40}
+GREEN_SEAL_MAIN = {"stages": {"run-tests": GOOD_STAGE, "compare": GOOD_STAGE}}
+GREEN_SEAL_SHARD = {"stages": {"mutations": GOOD_STAGE}}
 # 沒有系統層的那一種（10/6 凌晨真的發生過：執行機太慢，建使用者逾時，那一片只剩 Python 與瀏覽器兩層）
 NO_IP_LOCK = {"layers": {"python": "sitecustomize", "browser": "x", "ip": None}, "level": "2/3", "selftest": {"python": "blocked+logged"},
               "notes": ["建不出使用者 iwtest：執行失敗"]}
@@ -253,17 +258,21 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         self.assertEqual(V.weakest_level([{"level": "3/3"}, {"level": "2/3"}]), "2/3")
         self.assertEqual(V.weakest_level([{"level": "3/3"}, None]), "0/3")
 
-    def collect(self, shard_egress=None, shard2_lock=True, export_hits=None, shard2_export=True, main_lock=None):
-        """shard2_lock：True＝第 2 片的封鎖紀錄是完整的；False＝沒有紀錄；給一個 dict＝用那一份紀錄。main_lock：全套測試那一段的封鎖紀錄。"""
+    def collect(self, shard_egress=None, shard2_lock=True, export_hits=None, shard2_export=True, main_lock=None, main_seal=GREEN_SEAL_MAIN,
+                shard2_seal=GREEN_SEAL_SHARD, main_cmp=None):
+        """shard2_lock：True＝第 2 片的封鎖紀錄是完整的；False＝沒有紀錄；給一個 dict＝用那一份紀錄。main_lock：全套測試那一段的封鎖紀錄。
+        main_seal／shard2_seal：那一段的封存紀錄（None＝沒有 seal.json）。main_cmp：加進 compare.json 的欄位。"""
         inp = os.path.join(self.tmp, "in")
         shutil.rmtree(inp, True)
         raw = {"hosts": {}, "blocked_ips": [], "python_events": 0, "browser_netlogs": 0}
         main = os.path.join(inp, "verify-partial")
         os.makedirs(main)
         V.write_json(os.path.join(main, "tests.json"), GREEN_TESTS)
-        V.write_json(os.path.join(main, "compare.json"), dict(GREEN_CMP, mutations_total=2, mutations_main=None))
+        V.write_json(os.path.join(main, "compare.json"), dict(GREEN_CMP, mutations_total=2, mutations_main=None, **(main_cmp or {})))
         V.write_json(os.path.join(main, "lockdown.json"), main_lock or GREEN_LOCK)
         V.write_json(os.path.join(main, "egress.json"), raw)
+        if main_seal is not None:
+            V.write_json(os.path.join(main, "seal.json"), main_seal)
         V.write_json(os.path.join(main, "export.json"), {"privacy_hits": [], "exported": ["tests.json"]})
         for i in (1, 2):
             d = os.path.join(inp, "verify-mutations-%d" % i)
@@ -274,6 +283,9 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
                 V.write_json(os.path.join(d, "lockdown.json"), shard2_lock if (i == 2 and isinstance(shard2_lock, dict)) else GREEN_LOCK)
             if i == 1 or shard2_export:
                 V.write_json(os.path.join(d, "export.json"), {"privacy_hits": (export_hits or []) if i == 1 else [], "exported": []})
+            seal = GREEN_SEAL_SHARD if i == 1 else shard2_seal
+            if seal is not None:
+                V.write_json(os.path.join(d, "seal.json"), seal)
         out = tempfile.mkdtemp(prefix="out-", dir=self.tmp)
         with contextlib.redirect_stdout(io.StringIO()):
             rc = V.cmd_collect(argparse.Namespace(repo=ROOT, out=out, inputs=inp, main_ref="origin/main", summary=None))
@@ -322,6 +334,40 @@ class TestEveryJobRunsUnderLockdown(unittest.TestCase):
         rc, res = self.collect(shard2_lock=NO_IP_LOCK, shard_egress={"hosts": {"rate.bot.com.tw": {"count": 1, "via": ["python"]}}, "blocked_ips": []})
         self.assertEqual((rc, res["red_kind"], len(res["lockdown_reasons"])), (1, "other", 1))             # 兩種紅都有：不能只當成重跑就好
         self.assertNotIn("這一次紅是因為", self.summary)
+
+
+class TestCollectChecksTheSeals(unittest.TestCase):
+    """判定那一段把每一段的封存紀錄算進去（Codex 對 P2 的第五次審查）：少一步的紀錄、或受測的 checkout 被動過，就是紅。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="iw-seals-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def collect(self, **kw):
+        return TestEveryJobRunsUnderLockdown.collect(self, **kw)
+
+    def test_collect_reds_when_a_step_was_not_sealed_or_the_checkout_changed(self):
+        """對照組：判定那一段不讀封存紀錄 → 紅。"""
+        rc, res = self.collect()
+        self.assertEqual((rc, [s["job"] for s in res["seals"]]), (0, ["verify-partial", "verify-mutations-1", "verify-mutations-2"]), res.get("reasons"))
+        self.assertEqual(sorted(res["seals"][0]["stages"]), ["compare", "run-tests"])
+        self.assertIn("3 段都正常", self.summary)
+        rc, res = self.collect(main_seal=None)                                           # 全套測試那一段沒有封存紀錄
+        self.assertEqual(rc, 1)
+        for stage in ("run-tests", "compare"):
+            self.assertTrue(any("verify-partial：沒有「%s」那一步的封存紀錄" % stage in r for r in res["reasons"]), res["reasons"])
+        dirty = {"stages": {"mutations": dict(GOOD_STAGE, tree_clean=False, tree_changes=[" M scripts/x.py"])}}
+        rc, res = self.collect(shard2_seal=dirty)                                        # 第 2 片突變跑完之後，受測的 checkout 跟 commit 不一樣
+        self.assertEqual((rc, res["red_kind"]), (1, "other"))                            # 這不是重跑就好的那一種紅
+        self.assertTrue(any("verify-mutations-2：受測的 checkout 在「mutations」那一步之後跟 commit 不一樣" in r for r in res["reasons"]), res["reasons"])
+        self.assertIn("有問題（verify-mutations-2）", self.summary)
+        rc, res = self.collect(shard2_seal={"stages": {}})
+        self.assertEqual(rc, 1)
+        rc, res = self.collect(main_cmp={"tests_defined": 831})                          # 測試那一邊回報跑了 830 條，這個 commit 裡定義了 831 條
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("有測試沒有被跑到" in r for r in res["reasons"]), res["reasons"])
+        rc, res = self.collect(main_cmp={"tests_defined": 830})
+        self.assertEqual(rc, 0, res.get("reasons"))
 
 
 class TestLockdownStepsRetry(unittest.TestCase):
@@ -407,6 +453,263 @@ class TestLockdownStepsRetry(unittest.TestCase):
         self.assertEqual((ipt["ipv4"], ipt["ipv6"]), (True, False))
         self.assertFalse(V.firewall_complete(ipt))
         self.assertEqual(V.system_layer_gap({"layers": {"ip": "x"}, "iptables": ipt, "selftest": {"ip": "blocked"}}), "防火牆少了 IPv6 的規則")
+
+
+class TestTheTestUserCannotTouchTheEvidence(unittest.TestCase):
+    """Codex 對 P2 的第五次審查（P0）：原本封鎖時把整個 checkout 與結果資料夾改成所有使用者可寫，而分支上的測試就是用測試用的使用者跑的——
+    新增的測試可以先把受測的程式改掉，或留一個背景程序事後覆寫 tests.json／compare.json／突變結果，讓判定對著原來的 commit 出綠燈。
+    現在：checkout 與結果資料夾對那個使用者唯讀（用它自己實際找一次來證明）；它只寫得到兩個資料夾；每一個會執行分支程式碼的步驟跑完，
+    由原本的使用者停掉它留下的程序、把結果收進它寫不到的地方、核對 checkout 跟 commit 一模一樣；判定時少一步的紀錄或 checkout 被動過就是紅。
+    擋不住的（照實寫在文件裡）：測試在自己的程序裡說謊。那一種靠外部審查看 diff。"""
+
+    def git(self, args, cwd):
+        env = dict((k, v) for k, v in os.environ.items() if not k.startswith("GIT_"))
+        env.update(GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.invalid", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.invalid")
+        p = subprocess.run(["git"] + args, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(p.returncode, 0, p.stderr.decode("utf-8", "replace"))
+
+    def put(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with io.open(path, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="iw-seal-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo, self.out = os.path.join(self.tmp, "repo"), os.path.join(self.tmp, "out")
+        os.makedirs(self.repo)
+        self.git(["init", "-q", "-b", "main"], self.repo)
+        for k, v in (("commit.gpgsign", "false"), ("core.autocrlf", "false")):
+            self.git(["config", k, v], self.repo)
+        self.put(os.path.join(self.repo, "scripts", "x.py"), "X = 1\n")
+        self.put(os.path.join(self.repo, ".gitignore"), "__pycache__/\n")
+        self.git(["add", "-A"], self.repo)
+        self.git(["commit", "-q", "-m", "c"], self.repo)
+        self.inner = os.path.join(self.out, V.INNER_DIR)
+        os.makedirs(self.inner)
+        saved = (V.sudo, V.run, V.is_linux, V.SEAL_MAX_BYTES)
+
+        def restore():
+            V.sudo, V.run, V.is_linux, V.SEAL_MAX_BYTES = saved
+        self.addCleanup(restore)
+        self.calls = []
+        self.find_says = {}                                                              # 假的 find：{資料夾: 它說找到的第一個寫得到的路徑}
+        V.sudo = self.fake_sudo
+        self.lock = {"user": "iwtest", "tree_changes_at_lockdown": []}
+
+    def fake_sudo(self, cmd, timeout=120):
+        cmd = list(cmd)
+        self.calls.append(cmd)
+        if cmd[:1] == ["find"] and "-delete" in cmd:                                     # 清空測試那一邊的資料夾：替身真的清
+            for name in os.listdir(cmd[1]):
+                p = os.path.join(cmd[1], name)
+                shutil.rmtree(p) if os.path.isdir(p) else os.remove(p)
+            return 0, ""
+        if "find" in cmd:
+            return 0, self.find_says.get(cmd[cmd.index("find") + 1], "")
+        if "curl" in cmd:
+            return 7, "curl: (7) Failed to connect"                                      # 被防火牆擋下
+        if cmd[:1] == ["pkill"]:
+            return 1, ""                                                                 # 沒有留下來的程序
+        return 0, ""
+
+    def test_a_finished_step_is_sealed_by_the_trusted_side(self):
+        """對照組：不停掉留下來的程序、不核對 checkout、捷徑也照讀 → 紅。"""
+        self.put(os.path.join(self.inner, "tests.json"), json.dumps(GREEN_TESTS))
+        self.put(os.path.join(self.inner, "tests-verbose.txt"), "ok\n")
+        rec = V.seal_stage(self.out, self.lock, self.repo, "run-tests", ["tests.json", "tests-verbose.txt", "nope.json"])
+        self.assertEqual((rec["sealed"], rec["missing"], rec["tree_clean"], rec["tree_changes"], rec["leftovers_stopped"]),
+                         (["tests.json", "tests-verbose.txt"], ["nope.json"], True, [], False))
+        self.assertEqual(self.calls[0], ["pkill", "-KILL", "-u", "iwtest"])               # 先停掉它留下來的程序，才去讀它寫的檔
+        self.assertEqual(V.read_json(os.path.join(self.out, "tests.json"), {})["ran"], GREEN_TESTS["ran"])   # 收進它寫不到的結果資料夾
+        self.assertEqual(V.read_json(os.path.join(self.out, V.SEAL_FILE), {})["stages"]["run-tests"]["tree_clean"], True)
+        self.assertEqual(len(rec["head"]), 40)
+        self.put(os.path.join(self.repo, "scripts", "x.py"), "X = 2  # 測試把受測的程式改掉了\n")
+        self.put(os.path.join(self.repo, "scripts", "new.py"), "Y = 1\n")
+        self.put(os.path.join(self.repo, "scripts", "__pycache__", "x.pyc"), "忽略的檔不算")
+        rec = V.seal_stage(self.out, self.lock, self.repo, "compare", [])
+        self.assertIs(rec["tree_clean"], False)
+        self.assertEqual(sorted(c.split()[-1] for c in rec["tree_changes"]), ["scripts/new.py", "scripts/x.py"])
+        self.assertEqual(sorted(V.read_json(os.path.join(self.out, V.SEAL_FILE), {})["stages"]), ["compare", "run-tests"])   # 每一步各記一筆
+        rec = V.seal_stage(self.out, {"user": "iwtest", "tree_changes_at_lockdown": [" M scripts/x.py", "?? scripts/new.py"]}, self.repo, "mutations", [])
+        self.assertIs(rec["tree_clean"], True)                                           # 封鎖之前就有的差異不算在這一步頭上
+        self.assertIs(V.seal_stage(self.out, self.lock, os.path.join(self.tmp, "not-a-repo"), "x", [])["tree_clean"], False)   # 查不出來＝不算乾淨
+        V.SEAL_MAX_BYTES = 10
+        self.put(os.path.join(self.inner, "big.json"), "x" * 50)
+        self.assertEqual(V.seal_stage(self.out, self.lock, self.repo, "y", ["big.json"])["missing"], ["big.json"])            # 太大的不收
+        self.assertIsNone(V.read_plain(self.inner))                                      # 資料夾不讀
+        self.assertIsNone(V.read_plain(os.path.join(self.inner, "沒有這個檔")))
+        link = os.path.join(self.inner, "link.json")
+        try:
+            os.symlink(os.path.join(self.out, V.SEAL_FILE), link)
+        except (OSError, NotImplementedError, AttributeError):
+            link = None                                                                  # 這台電腦不能建捷徑（Windows 沒有權限）：這一小段跳過
+        if link:
+            self.assertIsNone(V.read_plain(link))                                        # 捷徑不讀（它可以指到任何地方）
+        fake_link = os.path.join(self.inner, "fake-link.json")                           # 不能建捷徑的電腦上也要測得到：讓系統說這個檔是捷徑
+        self.put(fake_link, "{}")
+        self.assertEqual(V.read_plain(fake_link), "{}")
+        real_islink = os.path.islink
+        os.path.islink = lambda p: str(p).endswith("fake-link.json") or real_islink(p)
+        try:
+            self.assertIsNone(V.read_plain(fake_link))
+            self.assertEqual(V.seal_stage(self.out, self.lock, self.repo, "z", ["fake-link.json"])["missing"], ["fake-link.json"])
+        finally:
+            os.path.islink = real_islink
+        self.assertIsNone(V.stop_leftovers({}))                                          # 沒有測試用的使用者：沒有東西可停
+        self.assertIsNone(V.checkout_changes(os.path.join(self.tmp, "not-a-repo")))
+
+    def test_judge_wants_a_clean_seal_for_every_step_of_every_job(self):
+        """對照組：判定不看封存紀錄 → 紅。"""
+        self.assertEqual(V.seal_problems("verify-partial", GREEN_SEAL_MAIN, ["run-tests", "compare"]), [])
+        p = V.seal_problems("verify-partial", {"stages": {"run-tests": GOOD_STAGE}}, ["run-tests", "compare"])
+        self.assertEqual(len(p), 1)
+        self.assertIn("verify-partial：沒有「compare」那一步的封存紀錄", p[0])
+        dirty = dict(GOOD_STAGE, tree_clean=False, tree_changes=[" M scripts/x.py"])
+        p = V.seal_problems("verify-mutations-2", {"stages": {"mutations": dirty}}, ["mutations"])
+        self.assertIn("受測的 checkout 在「mutations」那一步之後跟 commit 不一樣（ M scripts/x.py）——驗的內容不是這個 commit", p[0])
+        self.assertTrue(V.seal_problems("x", {"stages": {"mutations": dict(GOOD_STAGE, tree_clean=None)}}, ["mutations"]))   # 查不出來也算
+        p = V.seal_problems("x", {"stages": {"mutations": dict(GOOD_STAGE, missing=["mut-1-of-6.json"])}}, ["mutations"])
+        self.assertIn("沒有交出結果檔（mut-1-of-6.json）", p[0])
+        self.assertEqual(len(V.seal_problems("x", None, ["run-tests", "compare"])), 2)
+        mut = dict(GREEN_MUT, shards=["1/1"])
+
+        def j(seals):
+            return V.judge(GREEN_TESTS, egress([]), GREEN_CMP, mut, GREEN_LOCK, [], mut_lockdowns=[GREEN_LOCK], seals=seals)
+        self.assertEqual(j([("verify-partial", GREEN_SEAL_MAIN, ["run-tests", "compare"]), ("verify-mutations-1", GREEN_SEAL_SHARD, ["mutations"])]), [])
+        self.assertEqual(len(j([("verify-partial", GREEN_SEAL_MAIN, ["run-tests", "compare"]), ("verify-mutations-1", {}, ["mutations"])])), 1)
+        self.assertTrue(any("驗的內容不是這個 commit" in r for r in j([("verify-partial", {"stages": {"run-tests": dirty, "compare": GOOD_STAGE}}, ["run-tests", "compare"])])))
+        self.assertEqual(j(None), [])                                                    # 舊的呼叫方式（沒給這一項）不檢查
+
+    def test_fewer_tests_ran_than_the_commit_defines_is_red(self):
+        """「這個 commit 定義了幾條測試」是原本的使用者從檔案數的（不執行分支的程式碼）；「跑了幾條」是測試那一邊回報的。回報的比較少＝有測試沒被跑到。
+        對照組：不比 → 紅。"""
+        def j(ran, defined):
+            return V.judge(dict(GREEN_TESTS, ran=ran), egress([]), dict(GREEN_CMP, tests_defined=defined), GREEN_MUT, GREEN_LOCK, [])
+        self.assertEqual(j(830, 830), [])
+        self.assertEqual(j(831, 830), [])                                                # 動態產生的測試會讓跑的比數的多：可以
+        r = j(829, 830)
+        self.assertEqual(len(r), 1)
+        self.assertIn("跑的測試（829 條）比這個 commit 裡定義的（830 條）少", r[0])
+        self.assertEqual(V.judge(GREEN_TESTS, egress([]), GREEN_CMP, GREEN_MUT, GREEN_LOCK, []), [])     # 沒有靜態計數（舊的結果）：不比
+
+    def test_the_isolation_selftest_asks_the_test_user_what_it_can_write(self):
+        """對照組：不看隔離的自我測試、或找的時候沒有略過放行的兩個資料夾 → 紅。"""
+        res = V.isolation_selftest(self.repo, self.out, "iwtest")
+        self.assertEqual(res, {"checkout": "readonly", "results": "readonly", "scratch": "writable"})
+        finds = [c for c in self.calls if "find" in c]
+        self.assertEqual(finds[0], ["-u", "iwtest", "find", self.repo, "-writable", "-print", "-quit"])
+        self.assertEqual(finds[1][:4], ["-u", "iwtest", "find", self.out])
+        self.assertIn(os.path.join(self.out, "egress"), finds[1])                         # 放行的兩個資料夾略過不找
+        self.assertIn(os.path.join(self.out, V.INNER_DIR), finds[1])
+        self.assertIn("-prune", finds[1])
+        self.find_says = {self.repo: os.path.join(self.repo, "scripts") + "\n"}
+        self.assertEqual(V.isolation_selftest(self.repo, self.out, "iwtest")["checkout"], "WRITABLE")
+        self.find_says = {self.out: os.path.join(self.out, "lockdown.json") + "\n"}
+        self.assertEqual(V.isolation_selftest(self.repo, self.out, "iwtest")["results"], "WRITABLE")
+        V.sudo = lambda cmd, timeout=120: (1, "find: Permission denied")                 # 找的過程出錯：也算寫得到（寧可紅）
+        self.assertEqual(V.isolation_selftest(self.repo, self.out, "iwtest"), {"checkout": "WRITABLE", "results": "WRITABLE", "scratch": "NOT writable"})
+        ok = GREEN_LOCK["selftest"]
+        self.assertIsNone(V.system_layer_gap(GREEN_LOCK))
+        self.assertEqual(V.system_layer_gap(dict(GREEN_LOCK, selftest=dict(ok, checkout="WRITABLE"))), "測試用的使用者改得到受測的 checkout")
+        self.assertEqual(V.system_layer_gap(dict(GREEN_LOCK, selftest=dict(ok, results="WRITABLE"))), "測試用的使用者改得到結果檔")
+        self.assertEqual(V.system_layer_gap(dict(GREEN_LOCK, selftest={"python": "blocked+logged", "ip": "blocked"})), "測試用的使用者改得到受測的 checkout")
+        reasons = V.judge(GREEN_TESTS, egress([]), GREEN_CMP, GREEN_MUT, dict(GREEN_LOCK, selftest=dict(ok, results="WRITABLE")), [])
+        self.assertTrue(reasons and reasons[0].startswith(V.LOCKDOWN_RED), reasons)
+
+    def test_lockdown_makes_the_checkout_and_the_results_read_only_for_the_test_user(self):
+        """封鎖那一步實際下的權限指令（sudo 用替身）：checkout 與結果資料夾都是「讀得到、改不到」，只有兩個資料夾交給那個使用者。
+        對照組：改回所有使用者可寫 → 紅。"""
+        V.is_linux = lambda: True
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(V.cmd_lockdown(argparse.Namespace(out=self.out, repo=self.repo)), 0)
+        chmods = [c for c in self.calls if c[:1] == ["chmod"]]
+        self.assertIn(["chmod", "-R", "a+rX,go-w", self.repo], chmods)
+        self.assertIn(["chmod", "-R", "a+rX,go-w", self.out], chmods)
+        self.assertFalse([c for c in self.calls if any("a+rwX" in str(x) or "o+w" in str(x) or "a+w" in str(x) for x in c)], "不可以有任何「所有人可寫」的權限指令")
+        egress_dir, inner = os.path.join(self.out, "egress"), self.inner
+        self.assertIn(["chown", "-R", "iwtest", egress_dir, inner], self.calls)           # 只有這兩個資料夾交給它
+        self.assertLess(self.calls.index(["chmod", "-R", "a+rX,go-w", self.out]), self.calls.index(["chown", "-R", "iwtest", egress_dir, inner]))
+        info = V.read_json(os.path.join(self.out, "lockdown.json"), {})
+        self.assertEqual((info["user"], info["tree_changes_at_lockdown"]), ("iwtest", []))
+        self.assertEqual((info["selftest"]["checkout"], info["selftest"]["results"], info["selftest"]["scratch"], info["selftest"]["ip"]),
+                         ("readonly", "readonly", "writable", "blocked"))
+        self.assertIsNone(V.system_layer_gap(info))
+        self.calls[:] = []
+        self.find_says = {self.repo: os.path.join(self.repo, ".git") + "\n"}             # 那個使用者說它在 checkout 裡找到寫得到的東西
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            V.cmd_lockdown(argparse.Namespace(out=self.out, repo=self.repo))
+        info = V.read_json(os.path.join(self.out, "lockdown.json"), {})
+        self.assertEqual(info["selftest"]["checkout"], "WRITABLE")
+        self.assertEqual(V.system_layer_gap(info), "測試用的使用者改得到受測的 checkout")
+        self.assertIn("隔離的自我測試沒過", said.getvalue())
+
+    def test_every_step_writes_through_the_scratch_folder_and_unlock_only_opens_the_logs(self):
+        """全套測試、跟 main 比、每一片突變：測試用的使用者那一邊只寫得到 inner；跑完由原本的使用者收進結果資料夾。
+        解除封鎖時只把紀錄那個資料夾放寬成可讀（原本是把整個結果資料夾改成所有人可寫）。對照組：直接寫進結果資料夾 → 紅。"""
+        V.write_json(os.path.join(self.out, "lockdown.json"), dict(GREEN_LOCK, user="iwtest", browser="/x/w.sh", tree_changes_at_lockdown=[]))
+        ran = []
+
+        def fake_run(cmd, cwd=None, timeout=120, env=None, inp=None):
+            cmd = list(cmd)
+            ran.append(cmd)
+            if "run-tests-inner" in cmd:                                                 # 測試那一邊：把結果寫到它拿到的路徑
+                V.write_json(cmd[cmd.index("--out") + 1], GREEN_TESTS)
+                self.put(cmd[cmd.index("--log") + 1], "ok\n")
+            elif "--inner" in cmd:                                                       # 跟 main 比裡面、要載入分支定義的那一塊
+                V.write_json(os.path.join(self.inner, V.COMPARE_INNER), {"mutations_total": 2, "items": {"M01": "aaa", "M02": "bbb"}, "mutation_anchor_problems": []})
+            elif any(str(x).endswith("run_mutations.py") for x in cmd):
+                V.write_json(cmd[cmd.index("--out") + 1], {"shard": "1/2", "results": []})
+            return 0, ""
+        V.run = fake_run
+        self.put(os.path.join(self.inner, "tests.json"), json.dumps(dict(GREEN_TESTS, ran=1)))            # 開始之前就躺在那個資料夾裡的假結果
+        self.put(os.path.join(self.inner, "mut-1-of-2.json"), json.dumps({"shard": "1/2", "results": [{"id": "M01", "ok": True}]}))
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(V.cmd_run_tests(argparse.Namespace(out=self.out, repo=self.repo, timeout=5)), 0)
+            self.assertIn(["find", self.inner, "-mindepth", "1", "-delete"], self.calls)  # 每一步開始前先把那個資料夾清空
+            self.assertFalse(os.path.exists(os.path.join(self.inner, "mut-1-of-2.json")))
+            cmd = ran[-1]
+            self.assertEqual(cmd[cmd.index("--out") + 1], os.path.join(self.inner, "tests.json"))
+            self.assertEqual(cmd[cmd.index("--log") + 1], os.path.join(self.inner, "tests-verbose.txt"))
+            self.assertEqual(V.read_json(os.path.join(self.out, "tests.json"), {})["ran"], GREEN_TESTS["ran"])
+            V.cmd_compare(argparse.Namespace(out=self.out, repo=self.repo, main_ref="origin/main", inner=False))
+            cmp_ = V.read_json(os.path.join(self.out, "compare.json"), {})
+            self.assertEqual((cmp_["mutations_total"], cmp_["mutation_anchor_problems"], cmp_["tests_defined"]), (2, [], 0))
+            self.assertEqual(len(cmp_["head_sha"]), 40)                                  # git 的比對是原本的使用者這一邊做的
+            V.cmd_mutations(argparse.Namespace(out=self.out, repo=self.repo, shard="1/2", main_ref="origin/main", copy_dir=self.tmp, timeout=5))
+            cmd = ran[-1]
+            self.assertEqual(cmd[cmd.index("--out") + 1], os.path.join(self.inner, "mut-1-of-2.json"))
+            self.assertTrue(os.path.exists(os.path.join(self.out, "mut-1-of-2.json")))
+            seal = V.read_json(os.path.join(self.out, V.SEAL_FILE), {})["stages"]
+            self.assertEqual(sorted(seal), ["compare", "mutations", "run-tests"])
+            self.assertEqual([seal[s]["sealed"] for s in ("run-tests", "compare", "mutations")],
+                             [["tests.json", "tests-verbose.txt"], [V.COMPARE_INNER], ["mut-1-of-2.json"]])
+            self.assertTrue(all(seal[s]["tree_clean"] for s in seal))
+            self.assertEqual(len([c for c in self.calls if c[:1] == ["pkill"]]), 6)       # 每一步：開始前清空時停一次、收結果之前再停一次
+            self.assertEqual(len([c for c in self.calls if c[:1] == ["find"] and "-delete" in c]), 3)
+            # 測試那一邊算「跟 main 比」的那一塊：只寫 inner，不寫正式的 compare.json
+            os.remove(os.path.join(self.out, "compare.json"))
+            V.cmd_compare(argparse.Namespace(out=self.out, repo=self.repo, main_ref="origin/main", inner=True))
+            self.assertFalse(os.path.exists(os.path.join(self.out, "compare.json")))
+            self.assertIn("mutations_total", V.read_json(os.path.join(self.inner, V.COMPARE_INNER), {}))
+            # 那一邊這一次什麼都沒交出來（上面那一份還躺在資料夾裡）：開始前會先清空，所以舊的那一份不會被當成這一次的結果；
+            # 突變那一塊記成有問題（判定會紅），不是沿用舊的、也不是當成 0 個沒事
+            self.assertTrue(os.path.exists(os.path.join(self.inner, V.COMPARE_INNER)))
+            V.run = lambda cmd, cwd=None, timeout=120, env=None, inp=None: (0, "")
+            V.cmd_compare(argparse.Namespace(out=self.out, repo=self.repo, main_ref="origin/main", inner=False))
+            self.assertTrue(V.read_json(os.path.join(self.out, "compare.json"), {})["mutation_anchor_problems"])
+            self.assertFalse(os.path.exists(os.path.join(self.inner, V.COMPARE_INNER)))
+            # 沒有測試用的使用者（本機）：一樣先清空
+            self.put(os.path.join(self.inner, "old.json"), "{}")
+            os.makedirs(os.path.join(self.inner, "sub"))
+            V.clear_inner(self.out, {})
+            self.assertEqual(os.listdir(self.inner), [])
+            self.calls[:] = []
+            V.cmd_unlock(argparse.Namespace(out=self.out))
+        self.assertEqual(self.calls[0], ["pkill", "-KILL", "-u", "iwtest"])
+        self.assertIn(["chmod", "-R", "a+rX", os.path.join(self.out, "egress")], self.calls)
+        self.assertFalse([c for c in self.calls if c[:1] == ["chmod"] and (self.out in c or any("w" in str(x) for x in c[2:3]))], self.calls)   # 不動整個結果資料夾、不給寫
+        self.assertIn(V.SEAL_FILE, V.EXPORT_FILES)                                       # 封存紀錄跟著結果一起交給判定那一段
 
 
 class TestScanBeforeUpload(unittest.TestCase):

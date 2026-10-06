@@ -696,7 +696,12 @@ def prompt(inp, env):
         body = ST.strip_paste_wrapper(cmd.get("rest") or "")
         if not body.strip():
             return _out(system="（自動駕駛）裁決沒有內容：第一行手打「裁決：%s」之後，下面要貼 Cowork 寫的內容。" % stage)
-        stamp = env.t().astimezone().strftime("%Y%m%d-%H%M%S")
+        base_stamp = stamp = env.t().astimezone().strftime("%Y%m%d-%H%M%S")
+        n = 1
+        while (os.path.exists(os.path.join(env.sd, "rulings", "%s-%s.md" % (stage, stamp)))
+               or os.path.exists(os.path.join(env.main_root, *("%s/%s/裁決-%s.md" % (cfg["runsDir"], stage, stamp)).split("/")))):
+            n += 1                                                  # 同一秒的第二則（或那個檔名已經有人放了東西）：換一個名字，不蓋掉既有的原件與副本
+            stamp = "%s-%d" % (base_stamp, n)
         orig = ST.save_ruling(env.sd, stage, body, stamp)
         rel = "%s/%s/裁決-%s.md" % (cfg["runsDir"], stage, stamp)
         copy = os.path.join(env.main_root, *rel.split("/"))
@@ -708,9 +713,12 @@ def prompt(inp, env):
         except Exception:                                           # noqa: B902
             copy = orig
         count = [0]
+        # 原件與副本各記一個內容雜湊：之後拿這份裁決當「不採納」的依據時，程式會核對兩個檔都沒有被改過（iw_review.ruling_records）
+        rec = {"stage": stage, "at": now, "path": copy, "original": orig, "prompt_id": inp.get("prompt_id"),
+               "name": os.path.basename(copy), "sha256": ST.file_sha256(orig), "copy_sha256": ST.file_sha256(copy)}
 
         def fn(s):
-            s.setdefault("rulings", []).append({"stage": stage, "at": now, "path": copy, "original": orig, "prompt_id": inp.get("prompt_id")})
+            s.setdefault("rulings", []).append(rec)
             count[0] = len([r for r in s["rulings"] if r.get("stage") == stage])
         ST.update(env.sd, fn)
         remember()

@@ -49,6 +49,11 @@ credential credential-manager credential-store credential-cache submodule bisect
 # 會寫的列不完、gh 以後還會加新的，所以反過來只列「確定只讀的」；不在這裡的一律擋。
 GH_PR_READS = set("view list diff checks status".split())
 GH_ISSUE_READS = set("view list status".split())
+# gh run／gh workflow：驗收機的執行紀錄是證據。確定不會改到紀錄的才放行；rerun（重跑驗收）與 workflow run（觸發通知）各有自己的規則。
+# 2026-10-06 Codex 的審查意見：一般模式原本放行 gh run delete——同一個 commit 可以有兩次執行（推分支、推標籤），關卡認最新的那一次；
+# 把最新的紅的刪掉，比較舊的綠的就重新算數。
+GH_RUN_READS = set("list view watch download".split())
+GH_WORKFLOW_READS = set("list view".split())
 
 READONLY_PROGRAMS =set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
 test [ [[ echo printf true false : pwd basename dirname realpath which type date sort uniq cut tr awk sed find du df sleep wait cd pushd popd
@@ -1830,6 +1835,11 @@ def _gh(argv, ctx, auto, cwd=None):
     if sub == "issue" and sub2 and sub2 not in GH_ISSUE_READS:
         raise Block("gh issue %s 不是確定只讀的子指令（只讀的只有 %s）；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。"
                     % (sub2, "、".join(sorted(GH_ISSUE_READS))), 1)
+    if sub == "run" and sub2 and sub2 not in GH_RUN_READS and sub2 != "rerun":
+        raise Block("gh run %s 會動到 GitHub 上的執行紀錄（刪掉或取消一次驗收，比較舊的結果就可能重新算數），兩種模式都不允許。"
+                    "能用的只有 %s，以及有範圍的 rerun（只准重跑現在這個 commit 的驗收）。" % (sub2, "、".join(sorted(GH_RUN_READS))), 1)
+    if sub == "workflow" and sub2 and sub2 not in GH_WORKFLOW_READS and sub2 not in ("run", "enable", "disable"):
+        raise Block("gh workflow %s 不是確定只讀的子指令（只讀的只有 %s；run 與 enable／disable 另有規則）。" % (sub2, "、".join(sorted(GH_WORKFLOW_READS))), 1)
     if sub == "api":
         # gh 接受把短旗標黏在一起寫（-fbody=x、-XPOST、-iXPOST），帶了欄位又沒寫方法就自動變成 POST。逐種寫法去認是認不完的
         # （2026-10-05 Codex 的審查意見：-fbody=x 就這樣漏掉了），所以反過來：每一個選項都要是認得的寫法；認不得的一律擋。

@@ -18,6 +18,9 @@ verify_ci.py — 驗收機（停點 P2）：在 GitHub 的執行機上，從實�
 系統層擋下的連線（只留下 IP）→紅；突變分片沒有封鎖→紅；測試數或突變數變少→紅；存活的突變不在 main 的例外清單→紅；結果檔含不該公開的字串→紅。
 2026-10-06 的裁決（取代 10/4 的「沒有系統層→不紅，只寫封鎖層級 2／3」）：全套測試與每一片突變都要有系統層封鎖，IPv4 與 IPv6 的規則都要；
 哪一段缺了，那一次驗收就是紅，原因以「封鎖沒設成」開頭（跟測試紅分開）。結果檔照樣寫每一段的層級。對策是重跑那一次驗收。
+誰改得到什麼（2026-10-06，Codex 的審查意見）：分支上的測試用另一個使用者跑；受測的 checkout 與結果資料夾對它唯讀，它只寫得到結果資料夾底下的
+egress（對外請求的紀錄）與 inner（它交出來的原始結果）。每一個會執行分支程式碼的步驟跑完，原本的使用者停掉它留下的程序、把結果收進它寫不到的地方、
+核對 checkout 跟 commit 一模一樣，記在 seal.json；少一步的紀錄或 checkout 被動過→紅。擋不住的：測試在自己的程序裡回報假數字（靠外部審查看 diff）。
 分支改了驗收機本身（verify.yml、這個檔、突變執行器、例外清單）→ 結果標 verifier_changed，判定照 main 的版本做；寄「可以合併」那一關不認這種綠。
 
 只用標準函式庫；離線測試在 scripts/test_verify_ci.py（判定、比對、解析、掃描都是純函式）。
@@ -59,6 +62,13 @@ SELFTEST_IP = "1.1.1.1"                        # 封鎖之後故意連一次，�
 LOCKDOWN_STEP_TIMEOUT = 300
 LOCKDOWN_TRIES = 2
 LOCKDOWN_RED = "封鎖沒設成"                    # 紅的原因用這幾個字開頭＝封鎖本身沒設成，不是測試紅
+# 2026-10-06 Codex 的審查意見（P0）：原本整個 checkout 與結果資料夾對所有使用者可寫，而分支上的測試就是用測試用的使用者跑的——
+# 測試可以把受測的程式改掉，也可以留一個背景程序事後覆寫 tests.json／compare.json／突變結果，讓判定對著原來的 commit 出綠燈。
+# 現在：checkout 與結果資料夾對測試用的使用者唯讀；它只寫得到結果資料夾底下的兩個資料夾（對外請求的紀錄、它那一邊交出來的原始結果）；
+# 每一個會執行分支程式碼的步驟跑完，由原本的使用者停掉它留下的程序、把結果收進它寫不到的地方、再核對 checkout 跟 commit 一模一樣。
+INNER_DIR = "inner"                            # 測試用的使用者那一邊交出來的原始結果先放這裡
+SEAL_FILE = "seal.json"                        # 每一步收好之後的紀錄（收了哪些檔、checkout 有沒有被動過）
+SEAL_MAX_BYTES = 64 * 1024 * 1024              # 一個結果檔最多收這麼大（超過就不收，那一步會因為缺結果而紅）
 
 SITECUSTOMIZE = r'''# iw-verify：第 3 層封鎖。所有 Python 程序（含測試開的子程序）一啟動就載入；記下每一個對外的名稱與連線，然後拒絕。
 import io, json, os, socket, time
@@ -224,6 +234,11 @@ def load_module(path, name):
     return mod
 
 
+def is_linux():
+    """系統層的封鎖（另一個使用者、防火牆、檔案權限）只在 Linux 的執行機上做。獨立成一個函式，離線測試才換得掉。"""
+    return sys.platform.startswith("linux")
+
+
 def find_chrome():
     forced = os.environ.get("IW_BROWSER")
     if forced and os.path.exists(forced):
@@ -287,6 +302,116 @@ def set_firewall(user, retried=None):
     return {"ipv4": ok4, "ipv6": ok6, "applied": applied, "log": log in applied["iptables"]}
 
 
+def isolation_selftest(repo, out, user):
+    """用測試用的使用者實際找一次：受測的 checkout 裡、結果資料夾裡（放行的那兩個資料夾除外），有沒有任何它寫得到的東西。
+    回傳 {"checkout": "readonly" 或 "WRITABLE", "results": 同上, "scratch": "writable" 或 "NOT writable"}。找的過程出錯也算寫得到（寧可紅）。"""
+    res = {}
+    rc, o = sudo(["-u", user, "find", repo, "-writable", "-print", "-quit"], timeout=LOCKDOWN_STEP_TIMEOUT)
+    res["checkout"] = "readonly" if (rc == 0 and not (o or "").strip()) else "WRITABLE"
+    rc, o = sudo(["-u", user, "find", out, "(", "-path", os.path.join(out, "egress"), "-o", "-path", os.path.join(out, INNER_DIR), ")", "-prune",
+                  "-o", "-writable", "-print", "-quit"], timeout=LOCKDOWN_STEP_TIMEOUT)
+    res["results"] = "readonly" if (rc == 0 and not (o or "").strip()) else "WRITABLE"
+    ok = all(sudo(["-u", user, "test", "-w", os.path.join(out, d)], timeout=30)[0] == 0 for d in ("egress", INNER_DIR))
+    res["scratch"] = "writable" if ok else "NOT writable"
+    return res
+
+
+def read_plain(path, limit=None):
+    """只讀一般的檔：捷徑（symlink）、資料夾、裝置一律不讀——測試用的使用者寫得到的資料夾裡，什麼都可能出現。讀不到、太大回 None。"""
+    try:
+        if os.path.islink(path) or not os.path.isfile(path):
+            return None
+        if limit is not None and os.path.getsize(path) > limit:
+            return None
+        with io.open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except Exception:                                              # noqa: B902
+        return None
+
+
+def stop_leftovers(lock):
+    """把測試用的使用者還在跑的程序全部停掉（測試可以留一個背景程序，等這一步結束之後再回頭動手腳）。
+    回傳有沒有程序被停掉；沒有那個使用者（沒有系統層）回 None。"""
+    user = (lock or {}).get("user")
+    if not user:
+        return None
+    rc, _o = sudo(["pkill", "-KILL", "-u", user], timeout=60)       # 0＝有程序被停掉；1＝本來就沒有
+    return rc == 0
+
+
+def clear_inner(out, lock):
+    """一個會執行分支程式碼的步驟開始之前，把測試用的使用者寫得到的那個結果資料夾清空。
+    上一個步驟（或它留下的程序）放在那裡的檔，不可以被當成這一步交出來的結果——例如這一步的程序還沒寫出結果就結束了。回傳那個資料夾。"""
+    inner = os.path.join(out, INNER_DIR)
+    os.makedirs(inner, exist_ok=True)
+    stop_leftovers(lock)
+    if (lock or {}).get("user"):
+        sudo(["find", inner, "-mindepth", "1", "-delete"], timeout=120)     # 資料夾是那個使用者的：要用 sudo 才清得掉
+    else:
+        for name in os.listdir(inner):
+            p = os.path.join(inner, name)
+            try:
+                if os.path.isdir(p) and not os.path.islink(p):
+                    shutil.rmtree(p)
+                else:
+                    os.remove(p)
+            except Exception:                                      # noqa: B902
+                pass
+    return inner
+
+
+def checkout_changes(repo):
+    """受測的 checkout 跟 commit 比，改了、多了、少了哪些檔（git status；被 .gitignore 忽略的不算）。查不出來回 None。"""
+    try:
+        rc, o = git(repo, ["status", "--porcelain", "--untracked-files=all"])
+    except Exception:                                              # noqa: B902
+        return None
+    if rc != 0:
+        return None
+    return [line.rstrip() for line in o.splitlines() if line.strip()]
+
+
+def seal_stage(out, lock, repo, stage, names):
+    """一個會執行分支程式碼的步驟跑完之後，由原本的（可信的）使用者做三件事，記進 seal.json：
+    1. 停掉測試用的使用者留下來的程序；
+    2. 把那一步交出來的結果檔，從它寫得到的資料夾收進它寫不到的結果資料夾（之後它再也改不到；捷徑、太大的檔不收）；
+    3. 核對受測的 checkout 跟 commit 一模一樣——被改過就表示驗的內容不是這個 commit。
+    判定時哪一步沒有這份紀錄、或 checkout 被動過，就是紅。"""
+    stopped = stop_leftovers(lock)
+    inner = os.path.join(out, INNER_DIR)
+    if (lock or {}).get("user"):
+        sudo(["chmod", "-R", "a+rX", inner], timeout=120)           # 它寫的檔，別人預設不一定讀得到
+    sealed, missing = [], []
+    for name in names:
+        dst = os.path.join(out, name)
+        try:
+            if os.path.lexists(dst):
+                os.remove(dst)                                      # 上一次留下來的同名結果不沿用：這一步沒交出來，就是沒有
+        except Exception:                                          # noqa: B902
+            pass
+        text = read_plain(os.path.join(inner, name), SEAL_MAX_BYTES)
+        if text is None:
+            missing.append(name)
+            continue
+        write_text(dst, text)
+        sealed.append(name)
+    changes = checkout_changes(repo)
+    base = (lock or {}).get("tree_changes_at_lockdown") or []
+    new = None if changes is None else [c for c in changes if c not in base]
+    try:
+        rc, head = git(repo, ["rev-parse", "HEAD"])
+    except Exception:                                              # noqa: B902
+        rc, head = 1, ""
+    rec = {"sealed": sealed, "missing": missing, "leftovers_stopped": stopped, "tree_clean": new == [],
+           "tree_changes": None if new is None else new[:20], "head": head.strip() if rc == 0 else None, "at": now_iso()}
+    seal = read_json(os.path.join(out, SEAL_FILE), {}) or {}
+    seal.setdefault("stages", {})[stage] = rec
+    write_json(os.path.join(out, SEAL_FILE), seal)
+    if new:
+        print("注意：受測的 checkout 在「%s」這一步之後跟 commit 不一樣（%d 處）——判定會是紅。" % (stage, len(new)))
+    return rec
+
+
 def firewall_complete(ipt):
     """IPv4 與 IPv6 的規則都設成了，才算有系統層（2026-10-06 裁決；原本只看 IPv4）。"""
     ipt = ipt or {}
@@ -298,8 +423,10 @@ def cmd_lockdown(a):
     os.makedirs(out, exist_ok=True)
     egress = os.path.join(out, "egress")
     os.makedirs(egress, exist_ok=True)
+    inner = os.path.join(out, INNER_DIR)
+    os.makedirs(inner, exist_ok=True)
     info = {"started_at": now_iso(), "layers": {"python": "sitecustomize", "browser": None, "ip": None}, "user": None, "notes": [],
-            "browser": None, "selftest": {}}
+            "browser": None, "selftest": {}, "tree_changes_at_lockdown": checkout_changes(os.path.abspath(a.repo))}
     pyguard = os.path.join(out, "pyguard")
     write_text(os.path.join(pyguard, "sitecustomize.py"), SITECUSTOMIZE)
     chrome = find_chrome()
@@ -321,7 +448,7 @@ def cmd_lockdown(a):
         info["notes"].append("Python 層的自我測試沒過")
     # 第 1 層：另一個使用者＋iptables（Linux、免密碼 sudo 才有）。只擋那個使用者的對外封包——
     # 直接把整台執行機的對外連線封掉，會弄斷它自己跟 GitHub 的連線（紀錄傳不回去、工作可能被判失聯）。
-    if sys.platform.startswith("linux"):
+    if is_linux():
         retried = info["retried"] = []                              # 哪幾步第一次沒成、再試了一次（寫進結果，看得出這台執行機當時慢不慢）
         slow = LOCKDOWN_STEP_TIMEOUT
         rc, o = sudo_retry(["-v"], retried=retried, label="sudo -v")
@@ -333,8 +460,11 @@ def cmd_lockdown(a):
                 info["user"] = TEST_USER
                 home = "/tmp/%s-home" % TEST_USER
                 repo = os.path.abspath(a.repo)
-                sudo(["chmod", "-R", "a+rwX", repo], timeout=slow)
-                sudo(["chmod", "-R", "a+rwX", out], timeout=slow)
+                # 受測的 checkout 與結果資料夾：那個使用者讀得到、改不到。它只寫得到結果資料夾底下的兩個資料夾（對外請求的紀錄、它交出來的原始結果）。
+                sudo(["chmod", "-R", "a+rX,go-w", repo], timeout=slow)
+                sudo(["chmod", "-R", "a+rX,go-w", out], timeout=slow)
+                sudo(["chown", "-R", TEST_USER, egress, inner], timeout=slow)
+                sudo(["chmod", "-R", "u+rwX", egress, inner], timeout=slow)
                 for base in (repo, out, HERE):                      # 讓那個使用者走得到倉庫、結果資料夾與驗收程式（上層資料夾預設別人進不去）
                     d = os.path.dirname(base)
                     while d and d != os.path.dirname(d):
@@ -356,6 +486,11 @@ def cmd_lockdown(a):
                         info["notes"].append("系統層自我測試沒過：以 %s 連 %s 竟然成功" % (TEST_USER, SELFTEST_IP))
                 else:
                     info["notes"].append("防火牆規則沒有設成（IPv4：%s；IPv6：%s）：沒有系統層的封鎖" % ("有" if ok4 else "沒有", "有" if ok6 else "沒有"))
+                # 隔離的自我測試：用那個使用者實際找一次，checkout 與結果資料夾裡有沒有它寫得到的東西
+                info["selftest"].update(isolation_selftest(repo, out, TEST_USER))
+                for key, what in (("checkout", "受測的 checkout"), ("results", "結果資料夾")):
+                    if info["selftest"].get(key) != "readonly":
+                        info["notes"].append("隔離的自我測試沒過：測試用的使用者寫得到%s裡的東西" % what)
                 if chrome:                                          # 瀏覽器在那個使用者底下開不開得起來：幾種開法依序試，第一個成功的就用
                     probe = ["-u", TEST_USER, "env", "HOME=" + home, info["browser"], "--headless=new", "--disable-gpu", "--no-first-run",
                              "--user-data-dir=/tmp/%s-probe" % TEST_USER, "--dump-dom", "about:blank"]
@@ -430,13 +565,15 @@ def cmd_run_tests(a):
     repo = os.path.abspath(a.repo)
     lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
     user = lock.get("user")
+    inner_dir = clear_inner(out, lock)                              # 測試那一邊只寫得到這裡（開始前先清空）；跑完由這一邊收進結果資料夾
     inner = [sys.executable, "-X", "utf8", "-W", "ignore", os.path.join(HERE, "verify_ci.py"), "run-tests-inner", "--repo", repo,
-             "--out", os.path.join(out, "tests.json"), "--log", os.path.join(out, "tests-verbose.txt")]
+             "--out", os.path.join(inner_dir, "tests.json"), "--log", os.path.join(inner_dir, "tests-verbose.txt")]
     cmd, env = locked_command(out, lock, inner)
     print("跑全套測試（%s）…" % ("使用者 %s、封鎖層級 %s" % (user, lock.get("level")) if user else "封鎖層級 %s" % lock.get("level", "?")))
     t0 = time.time()
     rc, o = run(cmd, cwd=repo, timeout=a.timeout, env=env)
     print(safe_tail(o, 4000))
+    seal_stage(out, lock, repo, "run-tests", ["tests.json", "tests-verbose.txt"])
     res = read_json(os.path.join(out, "tests.json"), {}) or {}
     print("Ran %s tests in %.0fs — %s" % (res.get("ran"), time.time() - t0, "OK" if res.get("ok") else "FAILED"))
     return 0 if res.get("ok") else (rc or 1)
@@ -556,18 +693,20 @@ def cmd_unlock(a):
     out = os.path.abspath(a.out)
     lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
     egress_dir = os.path.join(out, "egress")
-    if lock.get("user"):                                            # 測試用的使用者寫出來的檔（瀏覽器的 netlog）別人預設讀不到：先放寬，才收集得到、也才上傳得了
-        sudo(["chmod", "-R", "a+rwX", out], timeout=120)
+    if lock.get("user"):
+        stop_leftovers(lock)                                        # 收集之前先把它留下來的程序停掉
+        # 它寫出來的紀錄（瀏覽器的 netlog）別人預設讀不到：只放寬「讀」，而且只放寬紀錄那個資料夾（原本是整個結果資料夾都改成可寫）
+        sudo(["chmod", "-R", "a+rX", egress_dir], timeout=120)
     hosts = {}
-    py_hosts, py_events = parse_python_log(_read(os.path.join(egress_dir, "python.jsonl")))
+    py_hosts, py_events = parse_python_log(read_plain(os.path.join(egress_dir, "python.jsonl")) or "")
     for h, n in py_hosts.items():
         hosts.setdefault(h, {"count": 0, "via": []})
         hosts[h]["count"] += n
         if "python" not in hosts[h]["via"]:
             hosts[h]["via"].append("python")
-    netlogs = sorted(glob.glob(os.path.join(egress_dir, "chrome-netlog-*.json")))
+    netlogs = sorted(p for p in glob.glob(os.path.join(egress_dir, "chrome-netlog-*.json")) if not os.path.islink(p))
     for p in netlogs:
-        for h, n in parse_netlog_hosts(_read(p)).items():
+        for h, n in parse_netlog_hosts(read_plain(p) or "").items():
             hosts.setdefault(h, {"count": 0, "via": []})
             hosts[h]["count"] += n
             if "browser" not in hosts[h]["via"]:
@@ -631,7 +770,7 @@ def _read(path):
 # ---------------------------------------------------------------- 4b. 上傳之前：只帶必要的、掃過的
 
 # 判定那一段需要的檔。除此之外（完整的詳細輸出、瀏覽器的 netlog、封鎖用的暫存檔與包裝）一律不上傳。
-EXPORT_FILES = ("tests.json", "compare.json", "lockdown.json", "egress.json")
+EXPORT_FILES = ("tests.json", "compare.json", "lockdown.json", "egress.json", SEAL_FILE)
 EXPORT_FAILURE_CHARS = 20000
 NOT_EXPORTED_BUT_SCANNED = ("tests-verbose.txt",)
 
@@ -749,47 +888,69 @@ def branch_test_sources(repo):
     return srcs
 
 
+COMPARE_INNER = "compare-inner.json"
+
+
+def branch_mutation_part(repo):
+    """要載入分支上的突變定義（＝執行分支的程式碼）才算得出來的那一塊：有幾個、每一個的內容雜湊、錨點對不對。
+    有封鎖的時候，這一塊在測試用的使用者那一邊算；其餘的比對（git、測試的靜態計數、保護範圍、驗收機本身）都留在原本的使用者這一邊。"""
+    defs_path = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
+    branch_defs = load_module(defs_path, "iw_defs_branch").MUTATIONS if os.path.exists(defs_path) else []
+    runner_path = os.path.join(HERE, "run_mutations.py")
+    if not os.path.exists(runner_path):
+        runner_path = os.path.join(repo, "scripts", "mutations", "run_mutations.py")
+    try:
+        problems = load_module(runner_path, "iw_runner").check_anchors(repo, branch_defs) if os.path.exists(runner_path) else ["找不到突變的執行器"]
+    except Exception as e:                                          # noqa: B902
+        problems = ["核對錨點時出錯：%r" % (e,)]
+    return {"mutations_total": len(branch_defs), "items": mutation_items(branch_defs), "mutation_anchor_problems": problems}
+
+
 def cmd_compare(a):
     repo, out = os.path.abspath(a.repo), os.path.abspath(a.out)
     os.makedirs(out, exist_ok=True)
     lock = read_json(os.path.join(out, "lockdown.json"), None)
-    if lock and not getattr(a, "inner", False):                    # 這一步會載入分支上的突變定義（＝執行分支的程式碼）：有封鎖就在封鎖裡跑
-        inner = [sys.executable, "-X", "utf8", os.path.join(HERE, "verify_ci.py"), "compare", "--out", out, "--repo", repo,
-                 "--main-ref", a.main_ref, "--inner"]
-        cmd, env = locked_command(out, lock, inner)
-        rc, o = run(cmd, cwd=repo, timeout=600, env=env)
-        print(safe_tail(o, 4000))
-        return rc
+    inner_dir = os.path.join(out, INNER_DIR)
+    if getattr(a, "inner", False):                                  # 測試用的使用者那一邊：只算要載入分支程式碼的那一塊，寫到它寫得到的資料夾
+        os.makedirs(inner_dir, exist_ok=True)
+        write_json(os.path.join(inner_dir, COMPARE_INNER), branch_mutation_part(repo))
+        return 0
     main_ref = a.main_ref
     rc, main_sha = git(repo, ["rev-parse", main_ref])
     rc2, head_sha = git(repo, ["rev-parse", "HEAD"])
     res = {"main_ref": main_ref, "main_sha": main_sha.strip() if rc == 0 else None, "head_sha": head_sha.strip() if rc2 == 0 else None}
-    # 測試
+    # 測試（靜態計數：只讀檔、不執行分支的程式碼）
     branch_tests = collect_tests(branch_test_sources(repo))
     main_srcs = main_test_sources(repo, main_ref)
     main_tests = collect_tests(main_srcs) if main_srcs is not None else None
     res["tests_defined"] = len(branch_tests)
     res["tests_defined_main"] = len(main_tests) if main_tests is not None else None
     res["tests_removed"], res["tests_modified"] = diff_items(main_tests or {}, branch_tests)
-    # 突變
-    defs_path = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
-    branch_defs = load_module(defs_path, "iw_defs_branch").MUTATIONS if os.path.exists(defs_path) else []
+    # 突變：分支上的定義要載入才讀得到（＝執行分支的程式碼）。有封鎖就交給測試用的使用者那一邊在封鎖裡算，這一邊只收它交出來的結果
+    if lock:
+        inner = [sys.executable, "-X", "utf8", os.path.join(HERE, "verify_ci.py"), "compare", "--out", out, "--repo", repo,
+                 "--main-ref", a.main_ref, "--inner"]
+        clear_inner(out, lock)                                      # 上一步留在那個資料夾裡的東西先清掉
+        cmd, env = locked_command(out, lock, inner)
+        rc, o = run(cmd, cwd=repo, timeout=600, env=env)
+        print(safe_tail(o, 4000))
+        seal_stage(out, lock, repo, "compare", [COMPARE_INNER])
+        part = read_json(os.path.join(out, COMPARE_INNER), None)
+        if not isinstance(part, dict) or not isinstance(part.get("items"), dict):
+            part = {"mutations_total": 0, "items": {}, "mutation_anchor_problems": ["突變定義那一塊沒有算出來（封鎖裡的那一步沒有交出結果）"]}
+    else:
+        part = branch_mutation_part(repo)
     main_defs_text = git_show(repo, main_ref, "scripts/mutations/autopilot_mutations.py")
     main_defs = None
-    if main_defs_text is not None:
+    if main_defs_text is not None:                                  # main 上的定義是放行過的程式碼：在這一邊載入
         tmp = os.path.join(out, "main_autopilot_mutations.py")
         write_text(tmp, main_defs_text)
         main_defs = load_module(tmp, "iw_defs_main").MUTATIONS
-    res["mutations_total"] = len(branch_defs)
+    branch_items = dict((str(k), str(v)) for k, v in part["items"].items())
+    res["mutations_total"] = len(branch_items)
     res["mutations_main"] = len(main_defs) if main_defs is not None else None
-    res["mutations_removed"], res["mutations_modified"] = diff_items(mutation_items(main_defs or []), mutation_items(branch_defs))
-    runner_path = os.path.join(HERE, "run_mutations.py")
-    if not os.path.exists(runner_path):
-        runner_path = os.path.join(repo, "scripts", "mutations", "run_mutations.py")
-    try:
-        res["mutation_anchor_problems"] = load_module(runner_path, "iw_runner").check_anchors(repo, branch_defs) if os.path.exists(runner_path) else ["找不到突變的執行器"]
-    except Exception as e:                                          # noqa: B902
-        res["mutation_anchor_problems"] = ["核對錨點時出錯：%r" % (e,)]
+    res["mutations_removed"], res["mutations_modified"] = diff_items(mutation_items(main_defs or []), branch_items)
+    res["mutation_anchor_problems"] = [str(x) for x in (part.get("mutation_anchor_problems") or [])]
     # 保護範圍（清單用 main 上的 config）
     cfg_text = git_show(repo, main_ref, ".claude/autopilot/config.json") or _read(os.path.join(repo, ".claude", "autopilot", "config.json"))
     try:
@@ -835,8 +996,10 @@ def cmd_mutations(a):
         known = os.path.join(repo, "scripts", "mutations", "known_survivors.json")
     defs = os.path.join(repo, "scripts", "mutations", "autopilot_mutations.py")
     tag = a.shard.replace("/", "-of-")
+    inner_dir = clear_inner(out, lock)                              # 突變那一邊只寫得到這裡（開始前先清空）；跑完由這一邊收進結果資料夾
+    result_name = "mut-%s.json" % tag
     cmd = [sys.executable, "-X", "utf8", runner, "--defs", defs, "--known", known, "--repo", repo, "--copy", os.path.join(a.copy_dir, "iw-mutcopy-" + tag),
-           "--shard", a.shard, "--no-baseline", "--out", os.path.join(out, "mut-%s.json" % tag), "--timeout", str(a.timeout)]
+           "--shard", a.shard, "--no-baseline", "--out", os.path.join(inner_dir, result_name), "--timeout", str(a.timeout)]
     browser = (lock or {}).get("browser") or find_chrome()
     if browser:
         cmd += ["--browser", browser]
@@ -848,6 +1011,7 @@ def cmd_mutations(a):
         print("跑這一片突變（%s、封鎖層級 %s）…" % ("使用者 %s" % lock.get("user") if lock.get("user") else "原本的使用者", lock.get("level")))
         rc, o = run(lcmd, cwd=repo, timeout=a.timeout * 3, env=env)
     print(safe_tail(o, 6000))
+    seal_stage(out, lock, repo, "mutations", [result_name])
     return rc
 
 
@@ -944,7 +1108,30 @@ def system_layer_gap(lock):
         return "防火牆少了 %s 的規則" % "、".join(miss)
     if (lock.get("selftest") or {}).get("ip") != "blocked":
         return "系統層的自我測試沒過"
+    # 同一個使用者也是「改不到受測的檔與結果檔」那一道的基礎：自我測試要證明它在 checkout 與結果資料夾裡找不到任何寫得到的東西
+    if (lock.get("selftest") or {}).get("checkout") != "readonly":
+        return "測試用的使用者改得到受測的 checkout"
+    if (lock.get("selftest") or {}).get("results") != "readonly":
+        return "測試用的使用者改得到結果檔"
     return None
+
+
+def seal_problems(label, seal, stages):
+    """這一段的封存紀錄（seal.json）有沒有問題。stages：這一段一定要有的步驟。回傳原因的清單（空的＝沒問題）。
+    少了哪一步的紀錄、那一步交出來的結果檔沒收到、或 checkout 在那一步之後跟 commit 不一樣——都算：驗的內容不能確定就是這個 commit。"""
+    out = []
+    recs = (seal or {}).get("stages") or {}
+    for stage in stages:
+        r = recs.get(stage)
+        if not isinstance(r, dict):
+            out.append("%s：沒有「%s」那一步的封存紀錄（結果檔有沒有收好、受測的檔有沒有被動過，查不到）" % (label, stage))
+            continue
+        if r.get("tree_clean") is not True:
+            what = "、".join(str(x) for x in (r.get("tree_changes") or [])[:5]) or "查不出來"
+            out.append("%s：受測的 checkout 在「%s」那一步之後跟 commit 不一樣（%s）——驗的內容不是這個 commit" % (label, stage, what[:200]))
+        if r.get("missing"):
+            out.append("%s：「%s」那一步沒有交出結果檔（%s）" % (label, stage, "、".join(str(x) for x in r["missing"])[:120]))
+    return out
 
 
 def lockdown_brief(lock, job=None):
@@ -956,9 +1143,10 @@ def lockdown_brief(lock, job=None):
             "notes": lock.get("notes"), "retried": lock.get("retried") or []}
 
 
-def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
+def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None, seals=None):
     """回傳紅的原因清單（空的＝綠）。每一條規則在 scripts/test_verify_ci.py 都有「改壞→紅」的對照。
-    mut_lockdowns：每一片突變的封鎖紀錄（None＝舊的呼叫方式，不檢查這一項）。"""
+    mut_lockdowns：每一片突變的封鎖紀錄（None＝舊的呼叫方式，不檢查這一項）。
+    seals：每一段的封存紀錄，[(這一段的名字, seal.json 的內容, 一定要有的步驟)]（None＝不檢查這一項）。"""
     reasons = []
     tests = tests or {}
     cmp_ = cmp_ or {}
@@ -976,6 +1164,10 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
             reasons.append("有 %d 條預期失敗的測試竟然過了" % len(tests["unexpected_successes"]))
     if cmp_.get("tests_defined_main") is not None and tests.get("defined", 0) < cmp_["tests_defined_main"]:
         reasons.append("測試數變少：main %d → 這裡 %d" % (cmp_["tests_defined_main"], tests.get("defined", 0)))
+    # 「這個 commit 裡定義了幾條測試」是原本的使用者從檔案數出來的（不執行分支的程式碼）；「跑了幾條」是測試那一邊回報的。
+    # 回報的比數出來的少＝有測試沒有被跑到（被跳過載入、或回報不實）。
+    if tests and cmp_.get("tests_defined") is not None and int(tests.get("ran") or 0) < int(cmp_["tests_defined"]):
+        reasons.append("跑的測試（%d 條）比這個 commit 裡定義的（%d 條）少：有測試沒有被跑到" % (int(tests.get("ran") or 0), int(cmp_["tests_defined"])))
     if cmp_.get("mutations_main") is not None and int(cmp_.get("mutations_total") or 0) < cmp_["mutations_main"]:
         reasons.append("突變數變少：main %d → 這裡 %d" % (cmp_["mutations_main"], cmp_.get("mutations_total") or 0))
     if cmp_.get("mutation_anchor_problems"):
@@ -1012,6 +1204,8 @@ def judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=None):
         if gaps:
             reasons.append("%s：有 %d 片突變沒有完整的系統層封鎖：%s。這不是測試紅；對策是重跑這一次驗收，不是接受比較弱的證據"
                            % (LOCKDOWN_RED, len(gaps), "、".join(gaps)[:300]))
+    for label, seal, stages in (seals or []):                       # 每一段：結果檔有沒有由原本的使用者收好、受測的 checkout 有沒有被動過
+        reasons += seal_problems(label, seal, stages)
     if privacy:
         reasons.append("隱私掃描沒過（含不該公開的字串，或有一段沒有掃描）：%s" % "；".join(privacy)[:300])
     return reasons
@@ -1078,6 +1272,11 @@ def summary_md(res):
     jobs = [lk] + list(lk.get("mutation_shards") or [])
     lines.append("- 每一段的封鎖層級（每一段都要 3／3，IPv4 與 IPv6 的防火牆規則都要有）：%s" % "；".join(
         "%s %s%s" % (j.get("job") or "?", j.get("level") or "沒有紀錄", "（%s）" % j["system_layer_gap"] if j.get("system_layer_gap") else "") for j in jobs))
+    seals = res.get("seals") or []
+    if seals:
+        bad = [str(s.get("job")) for s in seals if not s.get("stages") or any(st.get("tree_clean") is not True or st.get("missing") for st in s["stages"].values())]
+        lines.append("- 結果檔由原本的使用者保管（測試用的使用者改不到），每一步之後核對受測的 checkout 跟 commit 一模一樣：%s"
+                     % ("%d 段都正常" % len(seals) if not bad else "有問題（%s）" % "、".join(bad)))
     again = ["%s：%s" % (j.get("job") or "?", "、".join(j["retried"])) for j in jobs if j.get("retried")]
     if again:
         lines.append("- 封鎖時第一次沒成、自動再試了一次的步驟：%s" % "；".join(again))
@@ -1138,6 +1337,9 @@ def cmd_collect(a):
         x = read_json(os.path.join(d, "lockdown.json"), None)
         if x:
             mut_lockdowns.append(dict(x, job=os.path.basename(d)))     # 哪一片：資料夾名＝那一段上傳時的名字（verify-mutations-N）
+    # 每一段的封存紀錄：全套測試那一段要有「跑全套」「跟 main 比」兩步，每一片突變要有「跑突變」那一步
+    seals = [(os.path.basename(main_dir), pick(main_dir, SEAL_FILE), ["run-tests", "compare"])] if main_dir else []
+    seals += [(os.path.basename(d), pick(d, SEAL_FILE), ["mutations"]) for d in shard_dirs]
     egress_raw = merge_egress_raw([pick(main_dir, "egress.json")] + [pick(d, "egress.json") for d in shard_dirs])
     egress_raw["layers"] = lockdown.get("layers") or {}
     egress_raw["level"] = weakest_level([lockdown] + mut_lockdowns + [None] * max(0, len(shard_dirs) - len(mut_lockdowns)))
@@ -1184,7 +1386,10 @@ def cmd_collect(a):
     privacy = job_privacy + privacy
     if guards is None:
         privacy = privacy + ["隱私掃描器讀不到（main 上的 test_analysis_guards.py）"]
-    reasons = judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=mut_lockdowns)
+    reasons = judge(tests, egress, cmp_, mut, lockdown, privacy, mut_lockdowns=mut_lockdowns, seals=seals)
+    res["seals"] = [{"job": label, "stages": dict((s, dict((k, ((seal.get("stages") or {}).get(s) or {}).get(k)) for k in ("tree_clean", "sealed", "missing", "leftovers_stopped")))
+                                                  for s in stages if isinstance((seal.get("stages") or {}).get(s), dict))}
+                    for label, seal, stages in seals]
     res["reasons"] = reasons
     res["red"] = bool(reasons)
     # 紅的原因分兩種：封鎖沒設成（對策是重跑），其他（測試、突變、對外連線、隱私…）。只有前一種時 red_kind 是 lockdown。

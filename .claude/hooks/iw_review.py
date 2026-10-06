@@ -506,11 +506,12 @@ def blank_reason(text):
     return not re.sub(r"[\s\-—–−_＿.。…．·、,，:：;；/／\\()（）\[\]【】「」『』*`~?？!！]+", "", text or "")
 
 
-def parse_responses(path):
-    """03_第三方審查.md 的表：| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |。回傳 {id: {severity, response, reason}}。
+def parse_responses(path, rulings=None):
+    """03_第三方審查.md 的表：| 留言 id | 等級 | 檔案:行 | 回覆 | 理由或修在哪 |。回傳 {id: {severity, response, reason, ruling, deferred_to}}。
     2026-10-05 Codex 的審查意見：原本回覆欄只要「包含」採納兩個字就算（「尚未採納」也算採納），第五欄也不看。現在：
     回覆欄只認兩種、而且要一字不差——「採納並修」或「不採納」；第五欄（理由或修在哪）不可以是空的；
-    同一個編號出現兩次而且回覆不一樣，也不算。不符合的一律記成 other（＝還沒回覆）。"""
+    同一個編號出現兩次而且回覆不一樣，也不算。不符合的一律記成 other（＝還沒回覆）。
+    rulings：這個階段 hook 存的裁決紀錄（ruling_records）；「不採納」那一列的 ruling 只有在理由欄指到其中一份、而且那一份點名了這一條時才有值。"""
     rows, conflict = {}, set()
     try:
         text = io.open(path, encoding="utf-8").read()
@@ -538,31 +539,53 @@ def parse_responses(path):
             conflict.add(key)
         if key in conflict:
             kind = "other"
-        ruling, deferred = ruling_file(reason, os.path.dirname(os.path.abspath(path))) if kind == "reject" else (None, None)
+        ruling, deferred = (ruling_file(reason, os.path.dirname(os.path.abspath(path)), rulings, finding_id=cells[0])
+                            if kind == "reject" else (None, None))
         rows[key] = {"severity": cells[1], "response": kind, "reason": reason, "raw": resp, "ruling": ruling, "deferred_to": deferred}
     return rows
 
 
 _RULING = re.compile(r"^(?:延後到\s*(?P<stage>[^\s，,]+?)\s*[，,]\s*)?Cowork\s*裁決\s*[：:]\s*(?P<file>.+?)\s*$")
-_RULING_NAME = re.compile(r"Cowork(回覆|裁決)")
 
 
-def ruling_file(reason, folder):
-    """「不採納」重大意見的理由欄（2026-10-06 裁決第三節）：只認「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」，
-    而且那個檔真的在這個階段的報告資料夾裡、不是空的、檔名是 Cowork 回覆或裁決的那一種。回傳 (檔名, 延後到哪個階段或 None)；不符合回 (None, None)。
-    檔名只是指到哪一份；那一份算不算數，靠的是 David 打字指名它（信裡會把檔名列出來給他看）。"""
+def ruling_records(st, stage):
+    """這個階段可以拿來當「不採納」依據的裁決紀錄。只有 hook 存的那幾份算：David 第一行手打「裁決：<階段>」、下面貼 Cowork 寫的內容，
+    hook 把原件存在狀態資料夾（施工的一方寫不到）、副本存在報告資料夾，各記一個內容雜湊；事後核對過那一則是人打的（verified）、沒有被判冒充。
+    2026-10-06 Codex 的審查意見（P0）：原本只看報告資料夾裡有沒有一個檔名像裁決、不是空的檔——那個資料夾施工的一方本來就寫得到，
+    自己建一個檔就能把 P1 標成「不採納」。回傳 [{name, original, sha256, copy_sha256}]。"""
+    out = []
+    for r in (st or {}).get("rulings") or []:
+        if r.get("stage") != stage or r.get("forged") or r.get("verified") is not True:
+            continue
+        if not (r.get("name") and r.get("original") and r.get("sha256") and r.get("copy_sha256")):
+            continue                                                # 舊版記的（沒有雜湊）不能當依據
+        out.append({"name": r["name"], "original": r["original"], "sha256": r["sha256"], "copy_sha256": r["copy_sha256"]})
+    return out
+
+
+def ruling_file(reason, folder, records=None, finding_id=None):
+    """「不採納」重大意見的理由欄（2026-10-06 裁決第三節）：只認「Cowork 裁決：<檔名>」或「延後到 <階段>，Cowork 裁決：<檔名>」，一字不差。
+    <檔名>要是 hook 存的那份裁決的副本（見 ruling_records）；原件與副本現在的內容都要跟 hook 當時記的雜湊一樣；
+    而且裁決的內容裡要寫得出這一條意見的留言編號——一份裁決只能拿來回答它點名的那幾條。檔名、檔案大小都不是依據。
+    回傳 (檔名, 延後到哪個階段或 None)；不符合回 (None, None)。"""
     m = _RULING.match((reason or "").strip())
     if not m:
         return None, None
     name = m.group("file").strip().strip("`「」『』 ")
-    if not name or name != os.path.basename(name) or "/" in name or "\\" in name or name.startswith(".") or not _RULING_NAME.search(name):
+    if not name or name != os.path.basename(name) or "/" in name or "\\" in name or name.startswith("."):
         return None, None
-    p = os.path.join(folder, name)
-    try:
-        if not (os.path.isfile(p) and os.path.getsize(p) > 0):
+    rec = next((x for x in (records or []) if x.get("name") == name), None)
+    if rec is None:                                                 # 不是 hook 存的裁決（報告資料夾裡自己放的檔不算）
+        return None, None
+    if ST.file_sha256(rec.get("original")) != rec.get("sha256") or ST.file_sha256(os.path.join(folder, name)) != rec.get("copy_sha256"):
+        return None, None                                           # 原件或副本被改過（或讀不到）
+    if finding_id is not None:
+        try:
+            text = io.open(rec["original"], encoding="utf-8", errors="replace").read()
+        except Exception:                                          # noqa: B902
             return None, None
-    except Exception:                                              # noqa: B902
-        return None, None
+        if not re.search(r"(?<![0-9-])%s(?![0-9-])" % re.escape(str(finding_id)), text):
+            return None, None                                       # 這份裁決沒有點名這一條意見
     return name, m.group("stage")
 
 

@@ -543,7 +543,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                     return fail("Codex 對最新的 commit（%s）提了 %d 條 P0：%s。P0 不能不採納，一定要修：修好、推上去、再請它審一次（%s；"
                                 "到了上限還沒過就停下來寄 --kind stop，等級「要你決定」）。"
                                 % (head[:7], len(ext["p0_on_head"]), ids(ext["p0_on_head"]), left))
-                rows = R.parse_responses(os.path.join(runs_dir, cfg["externalReview"]["responsesFile"]))
+                rows = R.parse_responses(os.path.join(runs_dir, cfg["externalReview"]["responsesFile"]), R.ruling_records(ST.load(sd), stage))
                 missing, rejected, unruled = R.responses_problems(ext.get("findings") or [], rows)
                 if missing:
                     return fail("Codex 的意見還有 %d 條沒有回覆（留言 id：%s）。這個 PR 上它提過的每一條都要回，不分是哪個 commit 的："
@@ -554,9 +554,10 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                     return fail("有 P0 被判「不採納」：%s。P0 不能不採納，一定要修。不能寄「可以合併」的信。" % ids(rejected))
                 if unruled:
                     return fail("有 P1 被判「不採納」，但理由欄沒有指到 Cowork 的裁決檔：%s。P1 要不採納，理由欄只能寫「Cowork 裁決：<檔名>」或"
-                                "「延後到 <階段>，Cowork 裁決：<檔名>」，而且那個檔要在 .autopilot/runs/%s/ 裡；沒有裁決檔就視為還沒回覆。"
-                                "還沒有裁決的話：請改寄 --kind stop（等級「要你決定」），把這幾條列成表，由 David 與 Cowork 裁決。"
-                                % (ids(unruled), stage))
+                                "「延後到 <階段>，Cowork 裁決：<檔名>」。<檔名>要是程式存的那一份（.autopilot/runs/%s/ 裡的「裁決-<時間>.md」）："
+                                "David 第一行手打「裁決：%s」、下面貼 Cowork 寫的內容，程式存檔、核對過是人打的；內容沒有被改過，而且裁決裡要寫出這一條的留言編號。"
+                                "自己放進資料夾的檔不算。沒有這樣的裁決就視為還沒回覆：請改寄 --kind stop（等級「要你決定」），把這幾條列成表，由 David 與 Cowork 裁決。"
+                                % (ids(unruled), stage, stage))
                 unfixed = R.unfixed_on_head(ext.get("findings") or [], rows)
                 if unfixed:
                     return fail("有 %d 條針對最新 commit（%s）的意見，回覆寫的是「採納並修」：%s。但最新的 commit 就是被審的那一個——修的 commit 還沒推上來。"
@@ -763,7 +764,7 @@ def gate_lines(main_root, sd, cfg, stage, head, kind):
             ext = R.external_status(main_root, sd, cfg, stage, head, st)
     except Exception as e:                                         # noqa: B902
         return "驗收機：查不到（%r）\n外部審查（GPT）：查不到" % (e,)
-    rows = R.parse_responses(os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage, cfg["externalReview"]["responsesFile"]])))
+    rows = R.parse_responses(os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage, cfg["externalReview"]["responsesFile"]])), R.ruling_records(st, stage))
     lines = [R.gate_line_verify(vs), R.gate_line_external(ext, rows)]
     ws = st.get("waived_stages") or []
     if ext.get("mode") == "waived" and ws and ws[-1] != stage:

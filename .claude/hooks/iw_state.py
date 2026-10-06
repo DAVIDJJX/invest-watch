@@ -10,6 +10,7 @@ iw_state.py — 自動駕駛的狀態、放行通行證、對話紀錄核對。
 
 這些檔只有 hook 與我們自己的腳本會寫；守門會擋下模型用改檔工具或指令寫這個資料夾。
 """
+import hashlib
 import io
 import json
 import os
@@ -169,6 +170,20 @@ def save_spec(sd, stage, text):
     with io.open(p, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
     return p
+
+
+def file_sha256(path):
+    """一個檔內容的 SHA-256（十六進位）。讀不到、不是一般的檔（例如捷徑）回 None——拿它比對的地方一律把 None 當成對不上。"""
+    try:
+        if not path or os.path.islink(path) or not os.path.isfile(path):
+            return None
+        h = hashlib.sha256()
+        with io.open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 16), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:                                              # noqa: B902
+        return None
 
 
 def save_ruling(sd, stage, text, stamp):
