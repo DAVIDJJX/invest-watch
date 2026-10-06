@@ -22,6 +22,7 @@ iw_prepush.py — 第二道保護：git push 之前，看「實際要推上去�
 由 .git/hooks/pre-push 的入口決定：在 Claude Code 裡擋，其他情況放行。
 """
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -90,6 +91,35 @@ def all_plain(repo, shas, allowed=None, prefix=None):
 
 
 MAX_SCAN_COMMITS = 2000
+MAX_TAG_DEPTH = 5                                                    # 標籤可以指到另一個標籤：最多往下看這麼多層，再多就擋
+
+
+def tag_message_problem(repo, main_root, sha):
+    """這次要推的東西如果是帶訊息的標籤（annotated tag），標籤自己的訊息有沒有不該公開的東西。可以推回 None；不行回一句原因。
+    2026-10-06 Codex 的審查意見（P0）：推送前只看 commit 的訊息；帶訊息的標籤，訊息存在標籤物件裡，git log 讀不到它，
+    裡面的個人資料、權杖、信箱、本機路徑會直接公開。標籤的訊息照 commit 訊息的規矩掃；讀不到、看不出是什麼，一律擋。
+    不帶訊息的標籤（直接指到 commit）沒有自己的訊息，這裡不管；它指到的 commit 由 commit_message_problem 掃。"""
+    import iw_notify as N      # noqa: E402
+    cur = sha
+    for _depth in range(MAX_TAG_DEPTH + 1):
+        rc, kind = C.git(["cat-file", "-t", cur], repo)
+        if rc != 0:
+            return "看不出這次要推的東西（%s）是什麼，沒辦法檢查標籤的訊息，先擋下。" % str(cur)[:7]
+        if kind.strip() != "tag":
+            return None                                             # 不是標籤物件（commit）：沒有標籤訊息要掃
+        rc, raw = C.git(["cat-file", "-p", cur], repo)
+        if rc != 0:
+            return "讀不到標籤（%s）的內容，沒辦法檢查標籤的訊息，先擋下。" % str(cur)[:7]
+        head, _sep, msg = raw.replace("\r\n", "\n").partition("\n\n")
+        problems = N.text_privacy_problems(main_root, msg)
+        if problems:
+            return ("標籤的訊息裡有不該公開的東西——一推上公開倉庫就收不回來：%s（%s）。請把標籤刪掉、重打一個訊息乾淨的"
+                    "（或不帶訊息的）再推。" % (str(cur)[:7], "、".join(problems)))
+        m = re.search(r"(?m)^object ([0-9a-f]{40,64})$", head)
+        if not m:
+            return "讀不出標籤（%s）指到哪裡，先擋下。" % str(cur)[:7]
+        cur = m.group(1)
+    return "標籤一層指一層超過 %d 層，沒辦法逐層檢查訊息，先擋下。" % MAX_TAG_DEPTH
 
 
 def commit_message_problem(repo, main_root, cfg, lsha, rsha):
@@ -98,6 +128,9 @@ def commit_message_problem(repo, main_root, cfg, lsha, rsha):
     用主目錄上的隱私掃描器（＝main 的版本）。列不出要推的 commit、讀不到掃描器（那會算成每一筆都有問題）、筆數多到看不完——一律擋。
     只在 Claude Code 裡的推送做（呼叫的人判斷）；筆電排程與 David 自己終端機的推送不經過這裡。"""
     import iw_notify as N      # noqa: E402   用到才載入：排程的推送不必付這個成本
+    tag_problem = tag_message_problem(repo, main_root, lsha)        # 推的是帶訊息的標籤：標籤自己的訊息也要掃
+    if tag_problem:
+        return tag_problem
     if rsha != ZERO and has(repo, rsha):
         rng = ["%s..%s" % (rsha, lsha)]
     else:                                                           # 新的分支或標籤：還不在遠端任何分支上的那些 commit

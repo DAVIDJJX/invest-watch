@@ -785,6 +785,79 @@ class TestPrePush(unittest.TestCase):
         ok, msgs = sb.check([clean])                                                                          # 訊息乾淨、掃描器在：照常
         self.assertTrue(ok, msgs)
 
+    def test_public_text_scan_catches_every_absolute_path_form_and_passes_only_system_mail(self):
+        """Codex 對 P2 的第六次審查（兩條 P0）：公開文字（PR 內文、commit 訊息、標籤訊息）的掃描，本機路徑原本只認兩種寫法，
+        Unix 與 macOS 的家目錄、別的磁碟機路徑都掃不到；信箱的豁免寫成「地址裡有 noreply 就放行」，連整個 github.com 網域都放行。
+        現在任何絕對路徑的寫法都擋；信箱只放行確切的幾個系統地址。對照組：少認一種路徑、有 noreply 就放行 → 紅。"""
+        import iw_notify as N
+        main = self.sb.main
+        sl, bs, at = "/", "\\", "@"                                                       # 拼接：這個檔自己也在隱私掃描的範圍裡，失敗訊息也會進驗收機的紀錄
+        paths = (sl + "home" + sl + "alice/notes.txt", sl + "Users" + sl + "alice/Desktop/x.md", "D:" + bs + "work" + bs + "notes.txt", "E:" + sl + "data/x.csv",
+                 sl + "mnt" + sl + "c/proj/x", sl + "d" + sl + "proj/x.py", "~" + sl + "secret.txt", bs + bs + "nas" + bs + "share" + bs + "x", "file:" + sl + sl + sl + "x/y",
+                 sl + "root" + sl + ".ssh/id", sl + "Volumes" + sl + "disk/x")
+        for i, p in enumerate(paths):
+            for j, text in enumerate(("說明：放在 " + p, p, "見（" + p + "）", "path=" + p)):
+                self.assertIn("有本機的絕對路徑", N.text_privacy_problems(main, text), (i, j))
+        fine = ("PR：https://github.com/DAVIDJJX/invest-watch/pull/1", "改了 scripts/verify_ci.py 與 .claude/hooks/iw_guard.py", "docs/a/b.md 與 js/app.js",
+                "比例 3:1、時間 09:00、10/5～10/6", "P0／P1、A/B 測試、和/或", "見 README.md：第 3 節", "git@github.com:davidjjx/invest-watch.git",
+                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>", "流程檔 .github/workflows/verify.yml（home/ 底下沒有東西）",
+                "🤖 Generated with [Claude Code](https://claude.com/claude-code)")
+        for i, text in enumerate(fine):
+            self.assertEqual(N.text_privacy_problems(main, text), [], i)
+        for i, addr in enumerate(("someone+noreply" + at + "mail.example.org", "noreply" + at + "mail.example.org", "someone" + at + "github.com",
+                                  "x" + at + "example.com", "t" + at + "example.invalid", "someone" + at + "users.noreply.github.com.example.org")):
+            self.assertEqual(N.text_privacy_problems(main, "聯絡 " + addr), ["有電子郵件地址"], i)
+            self.assertFalse(N.public_mail_ok(addr), i)
+        for addr in N.PUBLIC_MAIL_EXACT + ("12345+someone@users.noreply.github.com", "NoReply@GitHub.com"):
+            self.assertEqual(N.text_privacy_problems(main, "署名 " + addr), [], addr)
+        self.assertEqual(N.PUBLIC_MAIL_EXACT, ("noreply@anthropic.com", "noreply@github.com", "git@github.com"))    # 放行清單就這幾個，寫在一個地方
+        self.assertEqual(N.PUBLIC_MAIL_DOMAINS, ("users.noreply.github.com",))
+
+    def test_the_message_of_an_annotated_tag_is_scanned_before_it_is_pushed(self):
+        """Codex 對 P2 的第六次審查（P0）：推送前只掃 commit 的訊息。帶訊息的標籤（annotated tag），訊息存在標籤物件裡，原本完全沒看——
+        守門允許建立與推送新標籤，所以標籤訊息裡的個人資料、權杖、信箱、本機路徑會直接公開。現在標籤的訊息照 commit 訊息的規矩掃；讀不到就擋。
+        對照組：不掃標籤的訊息、看不出要推的是什麼也放行 → 紅。"""
+        sb = self.sb
+        zero = "0" * 40
+        names = ("stopX1-ann-bad", "stopX1-ann-ok", "stopX1-light", "stopX1-ann-outer")
+        self.addCleanup(lambda: [run_git(["tag", "-d", n], sb.wt, check=False) for n in names])
+
+        def annotated(name, message, target):
+            run_git(["tag", "-a", name, "-m", message, target], sb.wt)
+            return run_git(["rev-parse", "refs/tags/" + name], sb.wt)[1].strip()          # 帶訊息的標籤：推的是標籤物件，不是 commit
+
+        def push(name, sha, **kw):
+            return sb.check(["refs/tags/%s %s refs/tags/%s %s" % (name, sha, name, zero)], **kw)
+        cases = (("gh" + "p_" + "A" * 30, "像權杖的字串"), ("/ho" + "me/" + "someone/notes.txt", "本機的絕對路徑"),
+                 ("聯絡 someone+noreply" + "@" + "mail.example.org", "電子郵件"), ("持有 " + "1,000 股", "隱私掃描命中"))
+        for i, (bad, word) in enumerate(cases):
+            run_git(["tag", "-d", "stopX1-ann-bad"], sb.wt, check=False)
+            tag_sha = annotated("stopX1-ann-bad", "停點 X1\n\n說明：" + bad, sb.cand)
+            self.assertNotEqual(tag_sha, sb.cand)
+            ok, msgs = push("stopX1-ann-bad", tag_sha)
+            said = " ".join(msgs)
+            self.assertFalse(ok, i)
+            self.assertIn("標籤的訊息", said)
+            self.assertIn(word, said)
+            self.assertNotIn(bad, said)                                                   # 擋下的訊息不重複那段不該公開的字
+            ok, msgs = push("stopX1-ann-bad", tag_sha, claude=False)
+            self.assertTrue(ok, msgs)                                                     # 不是從 Claude Code 推的：這一道不管
+        clean = annotated("stopX1-ann-ok", "停點 X1：做完了", sb.cand)
+        ok, msgs = push("stopX1-ann-ok", clean)
+        self.assertTrue(ok, msgs)                                                         # 訊息乾淨的帶訊息標籤：照常
+        run_git(["tag", "stopX1-light", sb.cand], sb.wt)
+        ok, msgs = push("stopX1-light", sb.cand)
+        self.assertTrue(ok, msgs)                                                         # 不帶訊息的標籤：沒有標籤訊息，照常
+        bad_inner = run_git(["rev-parse", "refs/tags/stopX1-ann-bad"], sb.wt)[1].strip()
+        outer = annotated("stopX1-ann-outer", "外面這一層是乾淨的", bad_inner)             # 標籤指到另一個標籤：裡面那一層的訊息也要掃
+        ok, msgs = push("stopX1-ann-outer", outer)
+        self.assertFalse(ok)
+        self.assertIn("標籤的訊息", " ".join(msgs))
+        ok, msgs = push("stopX1-ghost", "f" * 40)                                         # 看不出要推的是什麼：寧可擋
+        self.assertFalse(ok)
+        self.assertIn("看不出這次要推的東西", " ".join(msgs))
+        self.assertEqual(P.MAX_TAG_DEPTH, 5)
+
     def test_autopilot_cannot_push_anything_that_touches_the_verifier_or_the_workflows(self):
         """2026-10-05 裁決二：自動駕駛期間，推送前的檢查擋下所有動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md 的推送（分支與標籤都算）。
         啟動之前、David 在場時改好而且沒再變的不算；不在自動駕駛就不管（一般模式另有 blob 比對把關）。對照組：拿掉這一道 → 這一條會紅。"""

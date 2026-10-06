@@ -481,6 +481,8 @@ def cmd_lockdown(a):
                     info["layers"]["ip"] = "iptables+ip6tables(uid-owner %s%s)" % (TEST_USER, "" if ipt["log"] else "；只擋不記")
                     rc, o = sudo(["-u", TEST_USER, "curl", "-sS", "--max-time", "5", "http://%s/" % SELFTEST_IP], timeout=30)
                     info["selftest"]["ip"] = "blocked" if rc != 0 else "NOT blocked"
+                    # 這一次自我測試在核心的紀錄裡留下幾筆：現在就數好。收集的時候只扣掉這幾筆，多出來的都算受測的程式連的。
+                    info["selftest"]["ip_packets"] = selftest_packets(blocked_packets())
                     if rc == 0:
                         info["layers"]["ip"] = None
                         info["notes"].append("系統層自我測試沒過：以 %s 連 %s 竟然成功" % (TEST_USER, SELFTEST_IP))
@@ -689,6 +691,19 @@ def parse_iptables_log(text):
     return [{"ip": k[0], "proto": k[1], "port": k[2], "count": v} for k, v in sorted(blocked.items())]
 
 
+def blocked_packets():
+    """核心的紀錄裡，防火牆擋下並記下的封包（每個目的地一筆、附筆數）。讀不到回空的清單。"""
+    rc, o = sudo(["dmesg"], timeout=60)
+    if rc != 0:
+        rc, o = sudo(["journalctl", "-k", "--no-pager"], timeout=60)
+    return parse_iptables_log(o if rc == 0 else "")
+
+
+def selftest_packets(blocked):
+    """這份清單裡，連到自我測試那個位址（SELFTEST_IP 的 80 埠、TCP）的有幾筆。"""
+    return sum(int(b.get("count") or 0) for b in blocked if b.get("ip") == SELFTEST_IP and b.get("port") == "80" and b.get("proto") == "TCP")
+
+
 def cmd_unlock(a):
     out = os.path.abspath(a.out)
     lock = read_json(os.path.join(out, "lockdown.json"), {}) or {}
@@ -713,12 +728,15 @@ def cmd_unlock(a):
                 hosts[h]["via"].append("browser")
     blocked, counters, selftest_seen = [], None, False
     if (lock.get("layers") or {}).get("ip"):
-        rc, o = sudo(["dmesg"], timeout=60)
-        if rc != 0:
-            rc, o = sudo(["journalctl", "-k", "--no-pager"], timeout=60)
-        for b in parse_iptables_log(o if rc == 0 else ""):
-            if b["ip"] == SELFTEST_IP and b["port"] == "80":        # 封鎖時自己故意連的那一次：證明「擋下而且記到了」，不列進清單
-                selftest_seen = True
+        # 封鎖時驗收機自己故意連了一次 SELFTEST_IP 的 80 埠（證明「擋下而且記到了」）。那一次留下幾筆，封鎖當下就數好記在 lockdown.json；
+        # 這裡只扣掉那幾筆。2026-10-06 Codex 的審查意見：原本把所有連到那個位址的紀錄都當成自我測試丟掉——受測的程式如果也連同一個位址，會一起消失。
+        baseline = int((lock.get("selftest") or {}).get("ip_packets") or 0)
+        selftest_seen = baseline > 0
+        for b in blocked_packets():
+            if b["ip"] == SELFTEST_IP and b["port"] == "80" and b["proto"] == "TCP":
+                extra = int(b["count"]) - baseline
+                if extra > 0:                                       # 比自我測試多出來的：是受測的程式連的，照樣列進清單（判定會紅）
+                    blocked.append(dict(b, count=extra))
                 continue
             blocked.append(b)
         rc, counters = sudo(["iptables", "-L", "OUTPUT", "-v", "-n", "-x"], timeout=30)
@@ -1216,6 +1234,30 @@ _LOCAL_USER = re.compile(r"(?i)[a-z]:[\\/]+users[\\/]+(?!fake\b)[a-z0-9_.-]+")
 _LOCAL_ROOT = re.compile(r"(?i)[a-z]:[\\/]+claude_use")
 _TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
 _MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Unix／macOS 的家目錄路徑（/home/某人、/Users/某人）。2026-10-06 Codex 的審查意見：原本只認 Windows 的兩種寫法。
+# 驗收機的結果裡本來就會出現執行機自己的路徑，所以有一份排除清單——只准列 GitHub 執行機固定的帳號與這支程式自己建的測試用使用者，
+# 不可以隨手加（這個檔是保護範圍）。磁碟機開頭的路徑維持上面兩條：測試的輸出裡本來就有一看就知道是假的路徑（D:/Fake/…），沒辦法一律擋。
+_UNIX_HOME = re.compile(r"(?<![\w.:/~-])/(home|Users)/([^\s/\"'<>|:*?\\,;)\]}]+)")
+RUNNER_HOME_PREFIXES = ("/home/runner", "/home/" + TEST_USER)
+# 可以出現的電子郵件：確切的系統地址（跟 .claude/hooks/iw_notify.py 的 PUBLIC_MAIL_* 一樣，有測試釘住），加上保留給測試用的網域。
+# 原本寫成「地址裡有 noreply 就放行」、@github.com 整個網域也放行（同一條審查意見）。
+SYSTEM_MAIL_EXACT = ("noreply@anthropic.com", "noreply@github.com", "git@github.com")
+SYSTEM_MAIL_DOMAINS = ("users.noreply.github.com",)
+FIXTURE_MAIL_DOMAINS = ("example.com", "example.invalid")          # 測試資料用的假地址（保留網域，不會是誰的信箱）
+
+
+def mail_ok(addr):
+    a = (addr or "").strip().lower()
+    return a in SYSTEM_MAIL_EXACT or a.rsplit("@", 1)[-1] in SYSTEM_MAIL_DOMAINS + FIXTURE_MAIL_DOMAINS
+
+
+def unix_home_hit(text):
+    """文字裡有沒有 Unix／macOS 的家目錄路徑（排除清單上的執行機固定路徑不算）。"""
+    for m in _UNIX_HOME.finditer(text or ""):
+        path = "/%s/%s" % (m.group(1), m.group(2))
+        if path not in RUNNER_HOME_PREFIXES:
+            return True
+    return False
 
 
 def privacy_scan(texts, guards=None):
@@ -1228,10 +1270,12 @@ def privacy_scan(texts, guards=None):
             hits.append("%s：本機的使用者資料夾" % name)
         if _LOCAL_ROOT.search(text):
             hits.append("%s：本機的絕對路徑" % name)
+        if unix_home_hit(text):
+            hits.append("%s：本機的家目錄路徑" % name)
         if _TOKEN.search(text):
             hits.append("%s：像權杖的字串" % name)
         for m in _MAIL.findall(text):
-            if not (m.endswith(("@example.com", "@example.invalid", "@github.com")) or "noreply" in m or m.startswith("git@")):
+            if not mail_ok(m):
                 hits.append("%s：電子郵件" % name)
                 break
         if guards is not None:

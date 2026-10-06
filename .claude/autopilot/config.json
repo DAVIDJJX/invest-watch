@@ -66,13 +66,13 @@
   },
 
   "externalReview": {
-    "about": "外部審查員（P2）：OpenAI Codex 的程式碼審查。只認機器人帳號針對 PR 最新 commit 發出的 review；意見逐條回覆在 responsesFile；Codex 不能用時由 David 手打「免外部審查 <階段>」（一次性、綁 commit、waiverHours 內有效），只免外部審查。完成＝最新的 commit 審過而且沒有 P0，加上這個 PR 上它提過的每一條都有回覆。maxRounds：一個階段最多請它審幾輪（開 PR 時自動審的算第 1 輪；default 是一般的階段，另外列的是個別階段）；到上限還沒完成＝停下來寄「要你決定」，不是自動放行。",
+    "about": "外部審查員（P2）：OpenAI Codex 的程式碼審查。只認機器人帳號針對 PR 最新 commit 發出的 review；意見逐條回覆在 responsesFile；Codex 不能用時由 David 手打「免外部審查 <階段>」（一次性、綁 commit、waiverHours 內有效），只免外部審查。完成＝最新的 commit 審過而且沒有 P0，加上這個 PR 上它提過的每一條都有回覆。maxRounds：一個階段最多請它審幾輪（開 PR 時自動審的算第 1 輪；default 是一般的階段，另外列的是個別階段——P2 是原本的 6 輪加上到上限之後裁決加開的 2 輪）；到上限還沒完成＝停下來寄「要你決定」，不是自動放行。到上限之後要不要加開、怎麼收，見 docs/AUTOPILOT.md「到了輪數上限怎麼收」。",
     "botLogin": "chatgpt-codex-connector[bot]",
     "trigger": "@codex review",
     "timeoutMinutes": 60,
     "waiverHours": 24,
     "responsesFile": "03_第三方審查.md",
-    "maxRounds": {"default": 4, "P2": 6},
+    "maxRounds": {"default": 4, "P2": 8},
     "severityPattern": "\\[?P([01])\\]?"
   },
 

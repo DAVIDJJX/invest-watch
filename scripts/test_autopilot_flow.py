@@ -3283,8 +3283,8 @@ class TestPrCommands(FlowBase):
         到了上限就不再留言——停下來寄「要你決定」；上限不是自動放行（寄「可以合併」那一關照樣要完成條件）。查不到留言也不留。
         對照組：不看輪數 → 紅。"""
         sb = self.sb
-        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 6})
-        self.assertEqual((R.round_cap(CFG, "X1"), R.round_cap(CFG, "P2")), (4, 6))
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 8})
+        self.assertEqual((R.round_cap(CFG, "X1"), R.round_cap(CFG, "P2")), (4, 8))
         calls, orig = [], R.gh
 
         def spy(args, *a, **kw):

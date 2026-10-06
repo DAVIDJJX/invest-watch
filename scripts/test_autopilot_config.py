@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 import iw_common as C            # noqa: E402
 import iw_events as E            # noqa: E402
 import iw_hook as H              # noqa: E402
+import iw_notify as N            # noqa: E402
 import autopilot_install as INST  # noqa: E402
 import test_analysis_guards as G  # noqa: E402
 
@@ -396,9 +397,15 @@ class TestNewFilesHaveNoPrivateInformation(unittest.TestCase):
                 hits.append("本機的絕對路徑")
             if re.search(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}", text):
                 hits.append("像權杖的字串")
-            for m in re.findall(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
-                # 測試資料用的假地址、git 遠端網址裡的「git@主機」與「@github.com」前面那一段，都不是誰的信箱
-                if not (m.endswith(("@example.com", "@example.invalid", "@github.com")) or "noreply" in m or m.startswith("git@")):
+            for mm in re.finditer(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", text):
+                m = mm.group(0)
+                # git 遠端網址的兩種寫法不是誰的信箱：ssh 的「git@主機」，以及「https://帳號:密碼@主機」裡 @ 前後那一段（測試資料裡有這兩種假網址）
+                before = re.split(r"[\s\"'<>()]", text[max(0, mm.start() - 120):mm.start()])[-1]
+                if m.lower().startswith("git@") or "://" in before:
+                    continue
+                # 其餘可以出現的只有：確切的系統地址（清單在 iw_notify.PUBLIC_MAIL_*）與保留給測試用的網域。
+                # 原本寫成「地址裡有 noreply 就放行」、@github.com 整個網域也放行（Codex 對 P2 的第六次審查指出同一種寫法的洞）
+                if not (N.public_mail_ok(m) or m.lower().rsplit("@", 1)[-1] in ("example.com", "example.invalid")):
                     hits.append("電子郵件：" + m)
             if hits:
                 bad[rel] = hits
@@ -546,11 +553,12 @@ class TestThirdPartyGate(unittest.TestCase):
     def test_config_has_the_rerun_limit_and_the_round_caps(self):
         """2026-10-06 裁決：同一個 commit 的驗收最多重跑 2 次；Codex 的審查一般的階段最多 4 輪、P2 自己 6 輪。數字只寫在設定檔。"""
         self.assertEqual(CFG["verify"]["maxReruns"], 2)
-        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 6})
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 8})
         self.assertIn(["run", "rerun"], ALLOW["programs"]["ghAllowed"])
         guide = read("docs/AUTOPILOT.md")
         for must in ("gh run rerun", "最多重跑 2 次", "封鎖沒設成", "IPv4 與 IPv6", "ubuntu-24.04", "P2 是 6 輪", "一般的階段 4 輪", "上限不是自動放行",
-                     "Cowork 裁決：<檔名>", "延後到 <階段>，Cowork 裁決：<檔名>", "不分是哪個 commit", "Cowork裁決", "2027-04-06"):
+                     "Cowork 裁決：<檔名>", "延後到 <階段>，Cowork 裁決：<檔名>", "不分是哪個 commit", "Cowork裁決", "2027-04-06",
+                     "到了輪數上限怎麼收", "加過一次就不再加", "6＋2", "公開文字掃描統一", "4191058953", "測試在自己的程序裡說謊"):
             self.assertIn(must, guide, must)
         steps = read(".claude/skills/iw-autopilot/pr-steps.md")
         for must in ("gh run rerun", "輪", "Cowork 裁決："):

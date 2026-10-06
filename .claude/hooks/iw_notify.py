@@ -772,9 +772,28 @@ def gate_lines(main_root, sd, cfg, stage, head, kind):
     return "\n".join(lines)
 
 
-_PR_LOCAL = (re.compile(r"(?i)[a-z]:[\\/]+users[\\/]+(?!fake\b)[a-z0-9_.-]+"), re.compile(r"(?i)[a-z]:[\\/]+claude_use"))
+# 公開文字（PR 的標題內文、commit 訊息、標籤訊息）裡的本機絕對路徑：這幾種文字只該出現相對於倉庫的路徑，所以任何絕對路徑的寫法都擋。
+# 2026-10-06 Codex 的審查意見（P0）：原本只認「磁碟機:\Users\…」與專案資料夾兩種，/home/某人、/Users/某人、別的磁碟機路徑都掃不到。
+_PR_LOCAL = (
+    re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/]"),                                         # 磁碟機代號開頭：C:\…、D:/…（網址的 https:// 不算）
+    re.compile(r"(?<![\w.:/~-])/(?:home|Users|root|mnt|media|Volumes)/[^\s/]"),            # Unix／macOS 的家目錄與掛載點
+    re.compile(r"(?<![\w.:/~-])/[A-Za-z]/[^\s/]"),                                          # Git Bash 的寫法：/c/…、/d/…
+    re.compile(r"(?<![\w/.])~[\\/]"),                                                       # 家目錄的縮寫：~/…
+    re.compile(r"\\\\[A-Za-z0-9_.$-]+\\[A-Za-z0-9_.$-]"),                                   # 網路磁碟：\\主機\分享
+    re.compile(r"(?i)\bfile:/"),                                                            # file:// 網址
+)
 _PR_TOKEN = re.compile(r"gh[opsu]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}")
 _PR_MAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# 公開文字裡可以出現的電子郵件：只有這幾個確切的系統地址，寫在這一個地方（驗收機那一份 SYSTEM_MAIL_* 要跟這裡一樣，有測試釘住）。
+# 2026-10-06 Codex 的審查意見（P0）：原本寫成「地址裡有 noreply 就放行」，某人+noreply@公司 這種私人信箱也過；@github.com 整個網域也放行。
+PUBLIC_MAIL_EXACT = ("noreply@anthropic.com", "noreply@github.com", "git@github.com")
+PUBLIC_MAIL_DOMAINS = ("users.noreply.github.com",)                # GitHub 給每個帳號的匿名地址：<數字>+<帳號>@users.noreply.github.com
+
+
+def public_mail_ok(addr):
+    """這個電子郵件地址可不可以出現在公開文字裡：只有清單上確切的系統地址可以。"""
+    a = (addr or "").strip().lower()
+    return a in PUBLIC_MAIL_EXACT or a.rsplit("@", 1)[-1] in PUBLIC_MAIL_DOMAINS
 
 
 def pr_text_problems(main_root, title, body):
@@ -787,7 +806,7 @@ _GUARDS_CACHE = {}
 
 
 def text_privacy_problems(main_root, text):
-    """一段要公開的文字（PR 的標題內文、commit 訊息）有沒有不該公開的東西。回傳問題的類別（不帶命中的字本身）。
+    """一段要公開的文字（PR 的標題內文、commit 訊息、標籤訊息）有沒有不該公開的東西。回傳問題的類別（不帶命中的字本身）。
     掃描器（主目錄上的 scripts/test_analysis_guards.py＝main 的版本）讀不到就當成有問題（寧可擋）。"""
     text = text or ""
     problems = []
@@ -796,7 +815,7 @@ def text_privacy_problems(main_root, text):
     if _PR_TOKEN.search(text):
         problems.append("有像權杖的字串")
     for m in _PR_MAIL.findall(text):
-        if not (m.endswith(("@example.com", "@example.invalid", "@github.com")) or "noreply" in m or m.startswith("git@")):
+        if not public_mail_ok(m):
             problems.append("有電子郵件地址")
             break
     if "<pasted_content" in text or "pasted_content>" in text:

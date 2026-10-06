@@ -493,6 +493,7 @@ class TestTheTestUserCannotTouchTheEvidence(unittest.TestCase):
             V.sudo, V.run, V.is_linux, V.SEAL_MAX_BYTES = saved
         self.addCleanup(restore)
         self.calls = []
+        self.dmesg = ""
         self.find_says = {}                                                              # 假的 find：{資料夾: 它說找到的第一個寫得到的路徑}
         V.sudo = self.fake_sudo
         self.lock = {"user": "iwtest", "tree_changes_at_lockdown": []}
@@ -509,6 +510,8 @@ class TestTheTestUserCannotTouchTheEvidence(unittest.TestCase):
             return 0, self.find_says.get(cmd[cmd.index("find") + 1], "")
         if "curl" in cmd:
             return 7, "curl: (7) Failed to connect"                                      # 被防火牆擋下
+        if cmd[:1] == ["dmesg"]:
+            return 0, self.dmesg                                                         # 核心的紀錄（防火牆擋下的封包記在這裡）
         if cmd[:1] == ["pkill"]:
             return 1, ""                                                                 # 沒有留下來的程序
         return 0, ""
@@ -643,6 +646,36 @@ class TestTheTestUserCannotTouchTheEvidence(unittest.TestCase):
         self.assertEqual(info["selftest"]["checkout"], "WRITABLE")
         self.assertEqual(V.system_layer_gap(info), "測試用的使用者改得到受測的 checkout")
         self.assertIn("隔離的自我測試沒過", said.getvalue())
+
+    def test_only_the_packets_of_the_selftest_itself_are_set_aside(self):
+        """Codex 對 P2 的第六次審查（P1）：封鎖時驗收機自己故意往一個固定的位址連一次，證明「擋下而且記到了」；收集時原本把所有連到那個位址的紀錄
+        都當成自我測試丟掉——受測的程式如果也連同一個位址，會一起消失、驗收照樣綠。現在封鎖當下先數好自我測試留下幾筆，收集時只扣那幾筆。
+        對照組：全部丟掉、或封鎖時不數 → 紅。"""
+        def packets(n, proto="TCP", port="80"):
+            return "\n".join(["kernel: IWEGRESS IN= OUT=eth0 SRC=10.0.0.2 DST=%s LEN=60 PROTO=%s SPT=5 DPT=%s" % (V.SELFTEST_IP, proto, port)] * n)
+
+        def unlock():
+            with contextlib.redirect_stdout(io.StringIO()):
+                V.cmd_unlock(argparse.Namespace(out=self.out))
+            return V.read_json(os.path.join(self.out, "egress.json"), {})
+        V.is_linux = lambda: True
+        self.dmesg = packets(3)                                                          # 自我測試那一次連線留下 3 筆（重送也算）
+        with contextlib.redirect_stdout(io.StringIO()):
+            V.cmd_lockdown(argparse.Namespace(out=self.out, repo=self.repo))
+        info = V.read_json(os.path.join(self.out, "lockdown.json"), {})
+        self.assertEqual((info["selftest"]["ip"], info["selftest"]["ip_packets"]), ("blocked", 3))
+        res = unlock()
+        self.assertEqual((res["blocked_ips"], res["selftest"]["ip_logged"]), ([], True))  # 只有自我測試那 3 筆：不列
+        self.dmesg = packets(5)                                                          # 跑測試的時候，同一個位址又多了 2 筆
+        self.assertEqual(unlock()["blocked_ips"], [{"ip": V.SELFTEST_IP, "proto": "TCP", "port": "80", "count": 2}])
+        self.dmesg = packets(3) + "\n" + packets(1, proto="UDP") + "\n" + packets(2, port="443")
+        self.assertEqual(sorted((b["proto"], b["port"], b["count"]) for b in unlock()["blocked_ips"]), [("TCP", "443", 2), ("UDP", "80", 1)])   # 同一個位址、別的埠或別的協定：照列
+        self.dmesg = packets(2)                                                          # 紀錄比封鎖當下少（被擠掉了）：不會變成負的
+        self.assertEqual(unlock()["blocked_ips"], [])
+        e = V.judge_egress({"hosts": {}, "blocked_ips": [{"ip": V.SELFTEST_IP, "proto": "TCP", "port": "80", "count": 2}]}, ALLOWED)
+        self.assertTrue(any("系統層擋下了對外連線" in r for r in V.judge(GREEN_TESTS, e, GREEN_CMP, GREEN_MUT, GREEN_LOCK, [])))             # 多出來的那 2 筆會讓判定變紅
+        self.assertEqual(V.selftest_packets([{"ip": V.SELFTEST_IP, "proto": "TCP", "port": "80", "count": 3}, {"ip": V.SELFTEST_IP, "proto": "UDP", "port": "80", "count": 9},
+                                             {"ip": "9.9.9.9", "proto": "TCP", "port": "80", "count": 4}]), 3)
 
     def test_every_step_writes_through_the_scratch_folder_and_unlock_only_opens_the_logs(self):
         """全套測試、跟 main 比、每一片突變：測試用的使用者那一邊只寫得到 inner；跑完由原本的使用者收進結果資料夾。
@@ -909,6 +942,37 @@ class TestPrivacyScan(unittest.TestCase):
         hits = V.privacy_scan({"a": "see D:" + "\\Claude_" + "use\\x", "b": "C:/Us" + "ers/someone/x", "c": "ghp_" + "A" * 30,
                                "d": "mail someone" + "@" + "example.org", "e": "fine t@example.invalid noreply@github.com 1.2.3"})
         self.assertEqual(sorted(h.split("：")[0] for h in hits), ["a", "b", "c", "d"])
+
+    def test_home_folders_on_unix_and_mac_are_caught_but_the_runner_own_paths_are_not(self):
+        """Codex 對 P2 的第六次審查：路徑原本只認 Windows 的兩種寫法。驗收機的結果裡本來就有執行機自己的路徑，所以有一份排除清單——
+        只准列執行機固定的帳號與這支程式建的測試用使用者。對照組：不掃這一種、或排除清單變寬 → 紅。"""
+        home, users = "/ho" + "me/", "/Us" + "ers/"                                      # 拼接：測試的名字與失敗訊息會進驗收機的紀錄，不可以自己踩到
+        for i, text in enumerate(("log at " + home + "alice/notes.txt", "open(" + users + "alice/x.py)", "x=" + home + "bob", "見 " + users + "someone/Desktop/a.md")):
+            self.assertEqual(V.privacy_scan({"t": text}), ["t：本機的家目錄路徑"], i)
+        for i, text in enumerate(('File "' + home + 'runner/work/invest-watch/invest-watch/scripts/test_x.py", line 3',
+                                  "HOME=" + home + "runner", home + V.TEST_USER + "/.cache/x", "cwd " + home + "runner/work/_temp/verify-out",
+                                  "C:" + users + "fake/x",                                # Windows 的假路徑由另外兩條管，這一條不重複算
+                                  "https://example.invalid" + users + "alice", "scripts" + home + "x.py", "看 docs/home/page.md")):
+            self.assertEqual(V.privacy_scan({"t": text}), [], i)
+        self.assertEqual(V.RUNNER_HOME_PREFIXES, (home + "runner", home + "iwtest"))       # 排除清單就這兩個，不可以隨手加
+        self.assertTrue(V.unix_home_hit(home + "runner2/x"))                              # 名字只是開頭一樣的不算在清單裡
+        self.assertTrue(V.unix_home_hit(home + "iwtest-other/x"))
+
+    def test_only_exact_system_mail_addresses_and_fixture_domains_pass(self):
+        """同一次審查：信箱的豁免原本寫成「地址裡有 noreply 就放行」，@github.com 整個網域也放行。現在只放行確切的系統地址與保留給測試用的網域。
+        對照組：有 noreply 就放行 → 紅。"""
+        at = "@"
+        for i, addr in enumerate(("someone+noreply" + at + "mail.example.org", "noreply" + at + "mail.example.org", "someone" + at + "github.com",
+                                  "noreply.someone" + at + "mail.example.org", "someone" + at + "users.noreply.github.com.example.org")):
+            self.assertEqual(V.privacy_scan({"t": "contact " + addr}), ["t：電子郵件"], i)
+            self.assertFalse(V.mail_ok(addr), i)
+        for addr in ("noreply@anthropic.com", "noreply@github.com", "git@github.com", "12345+someone@users.noreply.github.com", "NoReply@GitHub.com",
+                     "t@example.invalid", "x@example.com"):
+            self.assertEqual(V.privacy_scan({"t": "by " + addr}), [], addr)
+        sys.path.insert(0, os.path.join(ROOT, ".claude", "hooks"))
+        import iw_notify as N                                                             # 兩邊的系統地址清單要一樣（各寫一份，靠這一條釘住）
+        self.assertEqual((V.SYSTEM_MAIL_EXACT, V.SYSTEM_MAIL_DOMAINS), (N.PUBLIC_MAIL_EXACT, N.PUBLIC_MAIL_DOMAINS))
+        self.assertEqual(V.FIXTURE_MAIL_DOMAINS, ("example.com", "example.invalid"))
 
     def test_uses_the_guards_module_when_given(self):
         planted = "持有 " + "10 股"                                                      # 拼接：這個檔自己也在隱私掃描範圍裡
