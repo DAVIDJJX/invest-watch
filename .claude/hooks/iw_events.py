@@ -265,7 +265,7 @@ def apply_effects(env, effects, inp):
 
 def reconcile_pushes(env):
     """推送前的檢查記下「試著推了什麼」；這裡看它有沒有真的上去（本機的 origin/main 有沒有包含它）。"""
-    ref = "refs/remotes/%s/%s" % (env.cfg["remote"], env.cfg["mainBranch"])
+    ref = C.remote_main_ref(env.cfg)
 
     def landed(sha):
         rc, _ = C.git(["merge-base", "--is-ancestor", sha, ref], env.main_root)
@@ -795,7 +795,7 @@ def prompt(inp, env):
         if st.get("status") in ("done", None) and not st.get("active"):
             return _out(system="（自動駕駛）階段 %s 現在不在進行中。要重新開始請輸入「自動駕駛：%s」。" % (stage, stage))
         wt = N.stage_worktree(env.main_root, cfg, stage)
-        base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+        base = C.remote_main_ref(cfg)
         hashes = {}
         for f in ((st.get("tier2") or {}).get("touched") or {}).keys():
             try:

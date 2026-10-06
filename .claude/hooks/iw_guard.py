@@ -22,6 +22,8 @@ import iw_state as ST
 from iw_common import Block
 
 MAIN = "main"
+REMOTE = "origin"
+REMOTE_MAIN = C.REMOTE_REF_FORMAT % (REMOTE, MAIN)                  # 遠端正式版的記號一律用全名（同名的標籤或本機分支蓋不過它）
 
 READONLY_GIT = set("""status diff log show rev-parse rev-list ls-files ls-tree cat-file describe merge-base merge-tree name-rev
 shortlog blame grep for-each-ref show-ref ls-remote count-objects check-ignore check-attr diff-tree diff-index diff-files var version
@@ -197,7 +199,7 @@ class GitInfo(object):
         return res
 
     def main_tips(self):
-        rc, out = C.git(["for-each-ref", "--format=%(objectname)", "refs/heads/" + MAIN, "refs/remotes/origin/" + MAIN], self.main_root)
+        rc, out = C.git(["for-each-ref", "--format=%(objectname)", "refs/heads/" + MAIN, REMOTE_MAIN], self.main_root)
         return set(out.split()) if rc == 0 else set()
 
     def upstream(self, cdir):
@@ -240,7 +242,7 @@ class GitInfo(object):
         return sorted(f for f in files if f)
 
     def changed_vs_main(self, cdir):
-        rc, out = C.git(["diff", "--name-only", "origin/" + MAIN + "...HEAD"], cdir)
+        rc, out = C.git(["diff", "--name-only", REMOTE_MAIN + "...HEAD"], cdir)
         return sorted(f for f in out.split("\n") if f) if rc == 0 else None
 
     def head_blobs(self, cdir):
@@ -1512,6 +1514,9 @@ def _git(words, cwd, ctx, auto):
         raise Block("主目錄（main 所在的資料夾）只能看、只能快轉跟上 origin/main；git %s 會動到它。請在 worktree 裡做。" % sub, 1)
     opts = [a for a in args if a.startswith("-")]
     pos = [a for a in args if not a.startswith("-")]
+    for name in _new_ref_names(sub, args):
+        if C.reserved_ref_name(name, REMOTE, literal=(sub != "fetch")):          # fetch 的目的地可能寫全名；其他的是要建立的名字本身，照字面看
+            raise Block(RESERVED_NAME_MSG % name, 4)
 
     if sub == "merge":
         if any(o in ("--abort", "--quit", "--continue") for o in opts):
@@ -1626,6 +1631,87 @@ def _git(words, cwd, ctx, auto):
     return
 
 
+RESERVED_NAME_MSG = ("分支或標籤的名字不可以以「origin/」「refs/」「remotes/」開頭（%s）：git 會把它跟「遠端的正式版在哪裡」那一類記號搞混——"
+                     "同名的標籤或本機分支排在前面，之後寫 origin/main 的地方拿到的就是它。請換一個名字。")
+# 各個會建立分支／標籤的子指令裡，「後面要接一個值」的選項（收名字的時候要跳過它們的值）
+_REF_VALUE_OPTS = {"tag": ("-m", "-F", "-u", "--message", "--file", "--local-user", "--cleanup", "--sort", "--format", "--contains",
+                           "--no-contains", "--points-at", "--merged", "--no-merged"),
+                   "branch": ("-u", "--set-upstream-to", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format")}
+_REF_QUERY_OPTS = {"tag": ("-l", "--list", "-d", "--delete", "-v", "--verify", "--contains", "--no-contains", "--points-at", "--merged", "--no-merged"),
+                   "branch": ("-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--delete", "-u", "--set-upstream-to", "--unset-upstream",
+                              "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--show-current", "--edit-description")}
+
+
+def _option_values(args, shorts, longs):
+    """選項後面接的值：短選項可以黏在一串裡（-qb 名字、-b名字），長選項可以用空白或等號（--orphan 名字、--orphan=名字）。"""
+    out = []
+    for i, a in enumerate(args):
+        if a == "--":
+            break
+        nxt = args[i + 1] if i + 1 < len(args) else None
+        if a.startswith("--"):
+            for f in longs:
+                if a == f and nxt is not None:
+                    out.append(nxt)
+                elif a.startswith(f + "="):
+                    out.append(a[len(f) + 1:])
+        elif a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:], 1):
+                if ch in shorts:
+                    rest = a[j + 1:]
+                    if rest:
+                        out.append(rest)
+                    elif nxt is not None:
+                        out.append(nxt)
+                    break
+    return out
+
+
+def _plain_positionals(args, value_opts):
+    """不是選項、也不是某個選項的值的那些參數（照順序）。"""
+    out, skip = [], False
+    for a in args:
+        if skip:
+            skip = False
+            continue
+        if a.startswith("-"):
+            skip = a in value_opts
+            continue
+        out.append(a)
+    return out
+
+
+def _new_ref_names(sub, args):
+    """這個 git 指令會建立（或改名成）哪些分支、標籤的名字。只用來擋「會跟遠端的記號撞名」的名字，所以寧可多認、不漏認；
+    起點（例如 git branch 新名字 origin/main 的第二個參數）不算名字。推送的目的地在 _git_push 另外看。"""
+    if sub in ("tag", "branch"):
+        if any(a in _REF_QUERY_OPTS[sub] or a.split("=", 1)[0] in _REF_QUERY_OPTS[sub] for a in args) or \
+                (sub == "branch" and _short_flag(args, "dDlar", "u")) or (sub == "tag" and _short_flag(args, "ldvn", "mFu")):
+            return []
+        pos = _plain_positionals(args, _REF_VALUE_OPTS[sub])
+        if not pos:
+            return []
+        if sub == "branch" and (_short_flag(args, "mMcC", "u") or any(a in ("--move", "--copy") for a in args)):
+            return [pos[-1]]                                         # 改名、複製：最後一個是新名字
+        return [pos[0]]
+    if sub in ("checkout", "switch"):
+        return _option_values(args, "bBcC" if sub == "switch" else "bB", ("--orphan", "--create", "--force-create"))
+    if sub == "worktree":
+        return _option_values(args, "bB", ())
+    if sub == "stash":
+        pos = [a for a in args if not a.startswith("-")]
+        return pos[1:2] if pos[:1] == ["branch"] else []
+    if sub == "fetch":                                               # git fetch <遠端> 來源:目的地——目的地是本機的分支或標籤時才算（refs/remotes/ 那一類另有規則）
+        pos = [a for a in args if not a.startswith("-")]
+        out = []
+        for a in pos[1:]:
+            dst = a.split(":", 1)[1] if ":" in a else ""
+            if dst and not (dst.startswith("refs/") and not dst.startswith(("refs/heads/", "refs/tags/"))):
+                out.append(dst)
+        return out
+    return []
+
+
 def _short_flag(args, letters, takes_value):
     """短選項（可以黏在一起，例如 -am）裡有沒有 letters 中的任何一個。takes_value：後面要接值的選項字母，遇到就停。"""
     skip = False
@@ -1713,6 +1799,8 @@ def _git_push(args, words, cdir, ctx, auto):
             dst = src
         if re.match(r"^(refs/)?remotes/", dst):
             raise Block("把東西推進 refs/remotes/（本機用來記遠端位置的記號）不是正常的推送，不允許。", 4)
+        if src != "" and not deleting and C.reserved_ref_name(dst, REMOTE):      # 推上去會變成一個跟遠端的記號撞名的分支或標籤
+            raise Block(RESERVED_NAME_MSG % dst, 4)
         short = re.sub(r"^refs/heads/", "", dst)
         if src == "":                                               # 刪除遠端的東西
             if dst.startswith("refs/tags/") or ctx.git.tag_exists(short) or short == MAIN:

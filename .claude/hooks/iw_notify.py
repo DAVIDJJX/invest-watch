@@ -364,7 +364,7 @@ def preexisting_protected(main_root, cfg, stage):
     wt = stage_worktree(main_root, cfg, stage)
     if not os.path.isdir(wt):
         return {}
-    rc, out = C.git(["-c", "core.quotepath=false", "diff", "--name-only", "%s/%s...HEAD" % (cfg["remote"], cfg["mainBranch"])], wt)
+    rc, out = C.git(["-c", "core.quotepath=false", "diff", "--name-only", "%s...HEAD" % C.remote_main_ref(cfg)], wt)
     if rc != 0:
         return {}
     hot = [f for f in out.split("\n") if f.strip() and (C.glob_match(f, cfg["tier1"]["paths"]) or C.glob_match(f, cfg["selfFiles"]["paths"]))]
@@ -416,7 +416,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
     if problems:
         return fail("停止報告的格式有問題，還沒寄：\n- " + "\n- ".join(problems))
     wt = a.worktree or stage_worktree(main_root, cfg, stage)
-    base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    base = C.remote_main_ref(cfg)                                   # 全名：同名的標籤或本機分支蓋不過它（「這個分支改了哪些檔」都跟它比）
     if not a.offline:
         # 「這個分支改了哪些檔」是跟 origin/main 比的；那是本機的一個記號，可以被改（改到分支的頂端，就會算成什麼都沒改）。
         # 所以先向遠端問一次 main 真正的位置。問不到時，「可以合併」的信不寄（反正也寄不出去）。
@@ -511,7 +511,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
             foreign = R.foreign_commit_check(main_root, sd, cfg, stage, fetch=not a.offline)   # P2：有人動了 PR 的分支？先看這個，訊息才說得清楚
             if foreign:
                 return fail("%s。不能寄「可以合併」的信；請改寄 --kind stop（等級「要你決定」），等 David 看過 PR。" % foreign)
-        rc2, remote_head = C.git(["rev-parse", "-q", "--verify", "refs/remotes/%s/%s" % (cfg["remote"], branch)], wt)
+        rc2, remote_head = C.git(["rev-parse", "-q", "--verify", C.REMOTE_REF_FORMAT % (cfg["remote"], branch)], wt)
         if rc != 0 or rc2 != 0 or remote_head != head:
             return fail("分支 %s 還沒推上去（或推上去的不是現在這個 commit）。David 要能在 GitHub 上看到才行。" % branch)
         ok_review = [r for r in (st.get("reviews") or []) if r.get("kind") == "acceptance" and r.get("verdict") == "APPROVE"
@@ -607,7 +607,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
     extra.append(gate_lines(main_root, sd, cfg, stage, head_for_lines, kind))
     extra = [x for x in extra if x]
     if not st.get("tripwire_baseline"):
-        rc, tip = C.git(["rev-parse", "-q", "--verify", "refs/remotes/%s/%s" % (cfg["remote"], cfg["mainBranch"])], main_root)
+        rc, tip = C.git(["rev-parse", "-q", "--verify", C.remote_main_ref(cfg)], main_root)
         if rc == 0:
             st["tripwire_baseline"] = tip
     safety, findings = tripwire(main_root, sd, cfg, st, fetch=not a.offline)
@@ -731,7 +731,7 @@ def protected_section(main_root, cfg, stage):
     if not os.path.isdir(wt):
         return head + "：讀不到這個階段的 worktree，沒有列。"
     try:
-        t1, sf, t2, _all = tier_files(wt, cfg, "%s/%s" % (cfg["remote"], cfg["mainBranch"]))
+        t1, sf, t2, _all = tier_files(wt, cfg, C.remote_main_ref(cfg))
     except Exception:                                              # noqa: B902
         return head + "：查不出這個分支動了哪些檔，沒有列。"
     if not (t1 or sf or t2):
@@ -813,6 +813,8 @@ def gate_lines(main_root, sd, cfg, stage, head, kind):
         return "驗收機：查不到（%r）\n外部審查（GPT）：查不到" % (e,)
     rows = R.parse_responses(os.path.join(main_root, *(cfg["runsDir"].split("/") + [stage, cfg["externalReview"]["responsesFile"]])), R.ruling_records(st, stage))
     lines = [R.gate_line_verify(vs), R.gate_line_external(ext, rows)]
+    if kind == "ready":                                             # 要放行的那一封：多列「刪了、改了哪些既有的測試與突變」（驗收機算的，名稱逐條）
+        lines += R.gate_lines_changed(vs)
     ws = st.get("waived_stages") or []
     if ext.get("mode") == "waived" and ws and ws[-1] != stage:
         lines.append("提醒：連續兩個階段（%s、%s）都免了外部審查，請 Codex 帳號的持有人檢查 Codex 的設定。" % (ws[-1], stage))
@@ -999,7 +1001,7 @@ def named_term_blob_problem(main_root, repo, blobs):
 
 def stage_named_term_problem(main_root, repo, cfg, head):
     """寄 ready 之前：這個階段跟正式版比、改到的每一個檔（head 那個 commit 裡的內容），比一次具名字串。沒有回 None；不能寄回一句原因。"""
-    base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    base = C.remote_main_ref(cfg)
     blobs = changed_blobs(repo, ["%s...%s" % (base, head)])
     if blobs is None:
         return "查不出這個階段（%s）跟 %s 比改了哪些檔，檔案內容裡的具名字串掃不了" % (str(head)[:7], base)

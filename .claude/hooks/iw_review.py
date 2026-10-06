@@ -132,7 +132,7 @@ def _vs(green, why, **kw):
 def verifier_changed(main_root, cfg, sha):
     """分支（sha）上的驗收機檔跟 origin/main 的 blob 比。回傳 (不同的檔清單, main 上還沒有驗收程式)。用 git 比，不信 CI 自己說的。"""
     files = (cfg.get("verify") or {}).get("files") or DEFAULT_VERIFIER_FILES
-    base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    base = C.remote_main_ref(cfg)                                   # 全名：同名的標籤或本機分支蓋不過它
     changed = []
     for f in files:
         rc1, a = C.git(["rev-parse", "-q", "--verify", "%s:%s" % (sha, f)], main_root)
@@ -687,7 +687,7 @@ def foreign_commit_check(main_root, sd, cfg, stage, fetch=True):
     rref = "refs/heads/" + branch
     if fetch:
         C.git(["fetch", "-q", cfg["remote"], branch], main_root, timeout=45)
-    rc, remote_sha = C.git(["rev-parse", "-q", "--verify", "refs/remotes/%s/%s" % (cfg["remote"], branch)], main_root)
+    rc, remote_sha = C.git(["rev-parse", "-q", "--verify", C.REMOTE_REF_FORMAT % (cfg["remote"], branch)], main_root)
     if rc != 0 or not remote_sha.strip():
         return None
     remote_sha = remote_sha.strip()
@@ -791,6 +791,33 @@ def gate_line_verify(vs):
     if int(vs.get("attempt") or 1) > 1:                             # 重跑過：照實寫出來（算數的是最後那一次嘗試）
         extra += "（重跑過 %d 次；這是第 %d 次嘗試的結果）" % (int(vs["attempt"]) - 1, int(vs["attempt"]))
     return "驗收機：%s%s%s" % (label, extra, "（%s）" % vs["url"] if vs.get("url") else "")
+
+
+CHANGED_LISTS = (("tests_removed", "被刪掉的既有測試"), ("tests_modified", "被改過的既有測試"),
+                 ("mutations_removed", "被刪掉的既有突變"), ("mutations_modified", "被改過的既有突變"))
+
+
+def gate_lines_changed(vs):
+    """寄「可以合併」的信多列的幾行：驗收機算出來、這個階段跟正式版比「刪了、改了哪些既有的測試與突變」，名稱逐條列。回傳一串字（list）。
+    2026-10-07 Cowork 的裁決（Codex 留言 4195162361、4195162374 延後）：驗收機的判定只比總數，刪掉一條再補一條、或把既有的改弱，數字不變就照樣綠；
+    要判紅得先有一條可信的放行路，那個另外設計。現在先做到「David 看得到」：清單由程式從驗收機的結果檔照抄進信裡，他看過才放行。
+    不判紅、不擋信；讀不到清單就照實寫讀不到，不可以寫成「沒有」。"""
+    cmp_ = ((vs or {}).get("result") or {}).get("compare")
+    title = "既有的測試與突變有沒有被刪改（驗收機跟正式版比的）"
+    if not isinstance(cmp_, dict):
+        return ["%s：讀不到（驗收機的結果裡沒有這一塊），請自己看 PR 的 diff。" % title]
+    missing = [label for key, label in CHANGED_LISTS if not isinstance(cmp_.get(key), list)]
+    if missing:
+        return ["%s：讀不到（結果裡缺：%s），請自己看 PR 的 diff。" % (title, "、".join(missing))]
+    if not any(cmp_[key] for key, _label in CHANGED_LISTS):
+        return ["%s：沒有被刪、沒有被改。" % title]
+    lines = ["⚠ %s：有。放行之前請看過下面的清單；每一條為什麼刪、為什麼改，寫在 PR 內文與 CHANGELOG。" % title]
+    for key, label in CHANGED_LISTS:
+        items = cmp_[key]
+        if items:
+            lines.append("- %s（%d 個）：" % (label, len(items)))
+            lines += ["  - %s" % (x if isinstance(x, str) else json.dumps(x, ensure_ascii=False)) for x in items]
+    return lines
 
 
 def gate_line_external(ext, rows=None):

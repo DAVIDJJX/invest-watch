@@ -65,17 +65,20 @@ FAKE_GH_ENV = "IW_TEST_FAKE_GH"
 
 def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
                     comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None,
-                    attempt=1, result_attempt=None, pr_base="main", pr_head_repo=None, extra_prs=None):
+                    attempt=1, result_attempt=None, pr_base="main", pr_head_repo=None, extra_prs=None, compare=None):
     """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
     沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
     event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。
     attempt：那一次執行現在是第幾次嘗試（重跑過就大於 1）；result_attempt：結果檔是第幾次嘗試寫的（預設跟 attempt 一樣）。
-    pr_base：那個 PR 要合併進哪一條分支；pr_head_repo：它的分支在哪個倉庫（預設＝這個倉庫）；extra_prs：同一條分支另外開著的 PR。"""
+    pr_base：那個 PR 要合併進哪一條分支；pr_head_repo：它的分支在哪個倉庫（預設＝這個倉庫）；extra_prs：同一條分支另外開著的 PR。
+    compare：結果檔裡「跟 main 比」那一塊（被刪改的既有測試與突變的清單）；預設沒有這一塊。"""
     run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
            "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": attempt, "created_at": "2026-10-04T00:00:00Z",
            "event": event, "path": path}
     result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [], "run_attempt": str(result_attempt or attempt),
               "tests": {"ran": ran, "defined": ran, "passed": ran, "failed": [], "errors": [], "skipped": []}, "egress": {"bot_hits": 0}, "schema": 1}
+    if compare is not None:
+        result["compare"] = compare
     reviews = []
     if codex:
         reviews.append({"id": 1, "user": {"login": BOT_LOGIN}, "state": "COMMENTED", "commit_id": review_commit,
@@ -1022,6 +1025,29 @@ class TestPrePush(unittest.TestCase):
         self.assertIn("不是 commit", P.file_content_problem(sb.wt, main, cfg, tag_sha, zero))
         ok, msgs = sb.check(["refs/tags/stopX1-blob %s refs/tags/stopX1-blob %s" % (tag_sha, zero)])
         self.assertFalse(ok)
+
+    def test_claude_cannot_push_a_branch_or_tag_whose_name_shadows_the_remote_refs(self):
+        """git 解析短名時標籤排在本機分支前面、本機分支排在遠端的記號前面；驗收機會把標籤全部抓下來。推一個叫 origin/main 的標籤上去，
+        寫短名的地方拿到的就是它（2026-10-06 審查代理指出；Cowork 裁決：檢查程式一律用全名，另外多擋一層——這種名字不讓它推上去）。
+        從 Claude Code 推送的分支與標籤，名字不准以 origin/、refs/、remotes/ 開頭（不分大小寫）。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道 → 紅。"""
+        sb = self.sb
+        zero = "0" * 40
+        for ref in ("refs/tags/origin/main", "refs/heads/origin/main", "refs/tags/Origin/Main", "refs/heads/origin/feat/x", "refs/heads/refs/heads/x",
+                    "refs/tags/refs/tags/stopX1", "refs/tags/remotes/origin/main", "refs/heads/REMOTES/x"):
+            line = ["%s %s %s %s" % (ref, sb.cand, ref, zero)]
+            ok, msgs = sb.check(line)
+            self.assertFalse(ok, ref)
+            self.assertIn("名字不可以以", " ".join(msgs), ref)
+            ok, msgs = sb.check(line, claude=False)
+            self.assertTrue(ok, (ref, msgs))                                              # 不是從 Claude Code 推的：這一道不管
+            self.assertIsNotNone(P.ref_name_problem(ref, {"remote": "origin"}), ref)
+        for ref in ("refs/heads/feat/stopX9", "refs/heads/feat/origin-notes", "refs/tags/stopX1-b", "refs/heads/feat/refs-cleanup", "refs/tags/originals"):
+            ok, msgs = sb.check(["%s %s %s %s" % (ref, sb.cand, ref, zero)])
+            self.assertTrue(ok, (ref, msgs))                                              # 正常的名字照常
+            self.assertIsNone(P.ref_name_problem(ref, {"remote": "origin"}), ref)
+        self.assertIsNotNone(P.ref_name_problem("refs/heads/upstream/x", {"remote": "upstream"}))     # 看的是設定裡遠端的名字
+        self.assertIsNone(P.ref_name_problem("refs/heads/upstream/x", {"remote": "origin"}))
 
     def test_loading_the_scanner_leaves_no_cache_files_in_the_main_checkout(self):
         """檢查程式載入主目錄上的隱私掃描器時，不可以在主目錄留下 scripts/__pycache__/：寄信前會查主目錄乾不乾淨，多出來的檔會把下一次寄信擋下。

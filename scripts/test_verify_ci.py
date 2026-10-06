@@ -1175,6 +1175,37 @@ class TestExtractVerifier(unittest.TestCase):
         self.assertEqual(io.open(os.path.join(dest, "verify_ci.py"), encoding="utf-8").read(), "# main verifier\n")
         self.assertEqual(json.load(io.open(os.path.join(dest, "verifier-source.json"), encoding="utf-8"))["source"], "main")
 
+    def test_a_tag_or_branch_named_like_the_remote_main_does_not_replace_the_main_copy(self):
+        """git 解析短名 origin/main 的順序是標籤 → 本機分支 → 遠端的記號；執行機會把標籤全部抓下來。有人推一個同名的標籤、指到自己的 commit，
+        寫短名的話「main 上的驗收程式」就變成它的（2026-10-06 審查代理指出，Cowork 裁決在 P2 修）。驗收程式把 --main-ref 一律換成全名：
+        這裡真的建同名的標籤與分支，取到的還是 main 的那一份，「驗收機本身有沒有改」也照樣看得出來。對照組：不換成全名 → 紅。"""
+        self.git(["checkout", "-q", "main"], self.repo)
+        self.write(self.repo, "scripts/verify_ci.py", "# main verifier\n")
+        self.git(["add", "-A"], self.repo)
+        self.git(["commit", "-q", "-m", "main2"], self.repo)
+        self.git(["update-ref", "refs/remotes/origin/main", "HEAD"], self.repo)
+        self.git(["checkout", "-q", "feat/stopX"], self.repo)
+        self.write(self.repo, "scripts/verify_ci.py", "# tampered\n")
+        self.git(["add", "-A"], self.repo)
+        self.git(["commit", "-q", "-m", "tamper"], self.repo)
+        for n, kind in enumerate(("tag", "branch")):
+            self.git([kind, "origin/main", "HEAD"], self.repo)                              # 同名的標籤／本機分支，指到分支的頂端
+            self.assertEqual(V.git_show(self.repo, "origin/main", "scripts/verify_ci.py"), "# tampered\n", kind)      # 短名真的被蓋過了
+            self.assertEqual(V.git_show(self.repo, V.MAIN_REF, "scripts/verify_ci.py"), "# main verifier\n", kind)    # 全名沒有
+            for ref in ("origin/main", V.MAIN_REF):
+                dest = os.path.join(self.tmp, "verifier-%d-%s" % (n, ref.replace("/", "_")))
+                self.assertEqual(V.main(["extract-verifier", "--repo", self.repo, "--main-ref", ref, "--dest", dest]), 0)
+                self.assertEqual(io.open(os.path.join(dest, "verify_ci.py"), encoding="utf-8").read(), "# main verifier\n", (kind, ref))
+                src = json.load(io.open(os.path.join(dest, "verifier-source.json"), encoding="utf-8"))
+                self.assertEqual((src["source"], src["main_ref"]), ("main", V.MAIN_REF), (kind, ref))
+            out = os.path.join(self.tmp, "out-%d" % n)
+            self.assertEqual(V.main(["compare", "--repo", self.repo, "--main-ref", "origin/main", "--out", out]), 0)
+            cmp_ = json.load(io.open(os.path.join(out, "compare.json"), encoding="utf-8"))
+            self.assertEqual(cmp_["main_ref"], V.MAIN_REF, kind)
+            self.assertTrue(cmp_["verifier_changed"], kind)                                 # 分支改了驗收程式：照樣看得出來
+            self.assertFalse(cmp_["verifier_first_time"], kind)
+            self.git([kind, "-d" if kind == "tag" else "-D", "origin/main"], self.repo)
+
     def test_compare_lists_removed_tests_and_touched_protected_files_and_flags_the_verifier(self):
         self.write(self.repo, "scripts/test_a.py", "import unittest\nclass TestA(unittest.TestCase):\n    def test_two(self):\n        pass\n")
         self.write(self.repo, "AGENTS.md", "x\n")

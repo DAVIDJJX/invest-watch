@@ -608,7 +608,7 @@ class TestThirdPartyGate(unittest.TestCase):
         self.assertRegex(text, r'(?m)^  push:\n    branches: \["feat/\*\*"\]\n    tags: \["stop\*"\]\n  workflow_dispatch:')
         self.assertNotIn("schedule:", text)
         self.assertNotRegex(text, r"(?m)^\s*pull_request")
-        self.assertIn("--main-ref origin/main", text)
+        self.assertIn("--main-ref refs/remotes/origin/main", text)
         self.assertEqual(sorted(set(re.findall(r"uses: (\S+)", text))),
                          ["actions/checkout@v4", "actions/download-artifact@v4", "actions/setup-python@v5", "actions/upload-artifact@v4"])   # 只用 GitHub 自家的 action
         self.assertNotIn("github.event.", text)                                    # 不把事件裡的字串塞進指令列
@@ -627,13 +627,42 @@ class TestThirdPartyGate(unittest.TestCase):
         text = read(".github/workflows/verify.yml")
         self.assertNotRegex(text, r"(?m)^[^#\n]*python[^\n]*\sscripts/verify_ci\.py")
         for must in ('boot="$RUNNER_TEMP/bootstrap/verify_ci.py"',
-                     'git show origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"',
-                     'python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"'):
+                     'git show refs/remotes/origin/main:scripts/verify_ci.py > "$boot" 2>/dev/null || cp scripts/verify_ci.py "$boot"',
+                     'python -I "$boot" extract-verifier --repo "$GITHUB_WORKSPACE" --main-ref refs/remotes/origin/main --dest "$RUNNER_TEMP/verifier" | tee -a "$GITHUB_OUTPUT"'):
             self.assertEqual(text.count(must), 3, must)
         for job in ("verify", "mutations", "collect"):
             body = text[text.index("\n  %s:" % job):]
             self.assertLess(body.index('python -I "$boot" extract-verifier'), body.index("steps.verifier.outputs.dir"), job)   # 先取、後面每一步才用取出來的那一份
+            self.assertLess(body.index("          set -o pipefail\n"), body.index('python -I "$boot" extract-verifier'), job)  # Python 失敗那一步自己要紅（後面接了 tee）
+        self.assertEqual(text.count("          set -o pipefail\n"), 3)
         self.assertRegex(read("docs/AUTOPILOT.md"), r"啟動用的那一份[^\n]*-I")
+
+    def test_the_main_branch_on_the_remote_is_always_named_in_full(self):
+        """git 解析短名 origin/main 的順序是標籤 → 本機分支 → 遠端的記號；驗收機會把標籤全部抓下來，所以推一個同名的標籤就能換掉「main 上的驗收程式」
+        （2026-10-06 審查代理指出，Cowork 裁決在 P2 修）。流程檔裡指 main 的每一處都寫全名，跟檢查程式、驗收程式用的是同一個字串；
+        檢查程式裡不再自己用「遠端/分支」組短名。對照組：流程檔有一處改回短名、檢查程式有一處改回短名 → 紅。"""
+        sys.path.insert(0, HERE)
+        import verify_ci as V
+        full = C.remote_main_ref(CFG)
+        self.assertEqual(full, "refs/remotes/origin/main")
+        self.assertEqual((V.MAIN_REF, C.REMOTE_REF_FORMAT % ("origin", "main")), (full, full))
+        text = read(".github/workflows/verify.yml")
+        code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))      # 說明文字裡提到短名不算
+        self.assertEqual(code.count(full), 9)                                                 # 取啟動檔 3 處＋--main-ref 6 處
+        self.assertEqual(code.count("origin/main"), 9)                                        # 沒有任何一處是不帶 refs/remotes/ 的短名
+        self.assertEqual(code.count("--main-ref " + full), 6)
+        for ref, want in (("origin/main", full), ("refs/remotes/origin/main", full), ("", full), (None, full), ("  origin/main ", full),
+                          ("refs/heads/main", "refs/heads/main"), ("upstream/dev", "refs/remotes/upstream/dev")):
+            self.assertEqual(V.full_main_ref(ref), want, ref)
+        for name in ("iw_notify.py", "iw_review.py", "iw_events.py", "iw_prepush.py", "iw_guard.py"):
+            src = read(".claude/hooks/" + name)
+            self.assertNotRegex(src, r'"%s/%s(\.\.\.HEAD)?" % \((env\.)?cfg\["remote"\], (env\.)?cfg\["mainBranch"\]\)', name)   # 不自己組短名
+            self.assertNotIn('"origin/" + MAIN + "...HEAD"', src, name)
+            self.assertNotIn('"refs/remotes/%s/%s" % (', src, name)                           # 全名也只從 iw_common 那一個地方來
+        guide = read("docs/AUTOPILOT.md")
+        for must in ("`refs/remotes/origin/main`", "`set -o pipefail`", "名字以 `origin/`、`refs/`、`remotes/` 開頭的分支與標籤",
+                     "既有的測試與突變有沒有被刪改", "4195162361、4195162374", "後路拿掉"):
+            self.assertIn(must, guide, must)
 
 
 if __name__ == "__main__":

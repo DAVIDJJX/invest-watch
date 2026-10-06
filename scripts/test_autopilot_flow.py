@@ -1437,6 +1437,65 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
         self.errs = []
         self.assertEqual(self.send("ready", pr_body_in_sync=False), 0, self.errs)        # 程式列的那一段在最後、一字不差：可以寄
 
+    def test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it(self):
+        """git 解析短名 origin/main 的順序是標籤 → 本機分支 → 遠端的記號。有人建一個同名的標籤或本機分支、指到這個階段的頂端，
+        「跟正式版比」如果寫的是短名，就會算成什麼都沒改：動到的保護範圍檔不見了、驗收機本身有沒有改看不出來、要掃具名字串的檔變成零個。
+        2026-10-06 審查代理看 P2 最後一個 commit 時指出的。檢查程式一律用全名（refs/remotes/…）；這裡真的建同名的標籤與分支，
+        每一關的結果都不可以變。對照組：任何一處改回短名 → 紅。"""
+        sb = self.sb
+        cfg = self.env().cfg
+        base = C.remote_main_ref(cfg)
+        self.assertEqual(base, "refs/remotes/origin/main")
+        self.protected_commit()
+        sb.write("scripts/verify_ci.py", "# changed on the branch\n", sb.wt)             # 驗收機的檔也動一下
+        head = sb.commit("verifier", sb.wt)
+        self.push_branch()
+        self.review("acceptance", head)
+
+        def shadow(kind, target):
+            run_git([kind, "origin/main", target], sb.main)
+            self.addCleanup(lambda k=kind: run_git([k, "-d" if k == "tag" else "-D", "origin/main"], sb.main, check=False))
+            self.assertEqual(run_git(["rev-parse", "origin/main"], sb.main, check=False)[1].strip().split("\n")[-1], target, kind)   # 短名真的被蓋過了
+            self.assertNotEqual(run_git(["rev-parse", base], sb.main)[1].strip(), target, kind)                                    # 全名沒有
+            N._GATE_CACHE.clear()
+
+        def unshadow(kind):
+            run_git([kind, "-d" if kind == "tag" else "-D", "origin/main"], sb.main)
+            N._GATE_CACHE.clear()
+        # 一、寄信那一關：PR 內文沒有保護範圍清單 → 不寄，而且說得出漏了哪些檔。建了同名的標籤／分支之後，一個字都不可以變
+        self.errs = []
+        self.assertEqual(self.send("ready", pr_body_in_sync=False), 3)
+        refused = "".join(self.errs)
+        self.assertIn("跟現在的 diff 對不上", refused)
+        self.assertIn(".gitignore", refused)
+        for kind in ("tag", "branch"):                                                    # 同名的標籤、同名的本機分支，各試一次
+            shadow(kind, head)
+            self.errs = []
+            self.assertEqual(self.send("ready", pr_body_in_sync=False), 3, kind)
+            self.assertEqual("".join(self.errs), refused, kind)                           # 保護範圍檔照樣看得到
+            self.assertEqual(self.sent, [], kind)
+            unshadow(kind)
+        # 二、各個「跟正式版比」的地方直接看：再加一筆改到的檔裡有清單上的名稱的 commit
+        sb.write("docs/note.md", "說明\n\n這一段提到" + SANDBOX_NAMED_TERM + "的事。\n", sb.wt)
+        noted = sb.commit("a note", sb.wt)
+
+        def snapshot():
+            t1, sf, t2, every = N.tier_files(sb.wt, cfg, base)
+            return {"t1": t1, "sf": sf, "all": every, "pre": sorted(N.preexisting_protected(sb.main, cfg, "X1")),
+                    "verifier": R.verifier_changed(sb.main, cfg, noted), "named": N.stage_named_term_problem(sb.main, sb.wt, cfg, noted),
+                    "section": N.protected_section(sb.main, cfg, "X1")}
+        before = snapshot()
+        self.assertIn(".gitignore", before["t1"])
+        self.assertIn(".claude/autopilot/config.json", before["sf"])
+        self.assertIn(".gitignore", before["pre"])
+        self.assertIn("scripts/verify_ci.py", before["verifier"][0])
+        self.assertIn("docs/note.md", before["named"])
+        self.assertIn("`.gitignore`", before["section"])
+        for kind in ("tag", "branch"):
+            shadow(kind, noted)
+            self.assertEqual(snapshot(), before, kind)
+            unshadow(kind)
+
     def test_protected_changes_need_a_pr_even_when_the_external_review_is_waived(self):
         """「免外部審查」只免審查，不免保護範圍的揭露：動到保護檔而找不到 PR 時，就算 David 免了外部審查也不寄
         （2026-10-06 Codex 的審查意見：原本只在有 PR 時才核對清單，沒有 PR 反而直接放行）。對照組：沒有 PR 就不查 → 紅。"""
@@ -2844,6 +2903,35 @@ class TestGate(FlowBase):
         with io.open(os.path.join(runs, "tests.txt"), "w", encoding="utf-8") as fh:
             fh.write("Ran 830 tests in 100.0s\n\nOK\n")
         self.assertEqual(self.send("ready"), 0, self.errs)
+
+    def test_the_ready_mail_lists_removed_and_modified_existing_tests_and_mutations(self):
+        """2026-10-07 Cowork 的裁決（Codex 留言 4195162361、4195162374 延後）：驗收機的判定只比測試與突變的總數；被刪掉、被改過的既有測試與突變
+        先由程式列在「可以合併」的信裡，名稱逐條，David 看過才放行。清單照抄驗收機的結果檔；不判紅、不擋信。
+        讀不到清單要照實寫讀不到，不可以寫成沒有。只有要放行的那一封列，停止信不列。對照組：不列、讀不到寫成沒有 → 紅。"""
+        self.ready_setup()
+        cmp_ = {"tests_removed": ["scripts/test_a.py::TestX.test_gone"],
+                "tests_modified": ["scripts/test_a.py::TestX.test_weakened", "scripts/test_b.py::TestY.test_other"],
+                "mutations_removed": ["M01"], "mutations_modified": []}
+        self.fake_gh(compare=cmp_)
+        cfg = self.env().cfg
+        stop = N.gate_lines(self.sb.main, self.sb.sd, cfg, "X1", self.sb.cand, "stop")
+        self.assertNotIn("既有的測試與突變", stop)                                         # 停止信不列
+        self.assertEqual(self.send("ready"), 0, self.errs)
+        body = body_of(self.sent[-1])
+        for name in cmp_["tests_removed"] + cmp_["tests_modified"] + cmp_["mutations_removed"]:
+            self.assertIn("  - " + name, body, name)                                      # 名稱逐條列
+        for must in ("被刪掉的既有測試（1 個）", "被改過的既有測試（2 個）", "被刪掉的既有突變（1 個）", "放行之前請看過"):
+            self.assertIn(must, body, must)
+        self.assertNotIn("被改過的既有突變", body)                                         # 空的那一份不列
+        none = dict((k, []) for k in cmp_)
+        self.assertEqual(R.gate_lines_changed({"result": {"compare": none}}), ["既有的測試與突變有沒有被刪改（驗收機跟正式版比的）：沒有被刪、沒有被改。"])
+        for vs in (None, {}, {"result": {}}, {"result": {"compare": None}}, {"result": {"compare": {"tests_removed": []}}},
+                   {"result": {"compare": dict(none, mutations_modified=None)}}):
+            lines = R.gate_lines_changed(vs)
+            self.assertEqual(len(lines), 1, vs)
+            self.assertIn("讀不到", lines[0], vs)                                          # 讀不到就說讀不到
+            self.assertNotIn("沒有被刪、沒有被改", lines[0], vs)
+        self.assertEqual([k for k, _label in R.CHANGED_LISTS], ["tests_removed", "tests_modified", "mutations_removed", "mutations_modified"])
 
     def test_no_findings_is_signalled_by_codex_own_summary_comment(self):
         """Codex 沒有意見時不發 review（2026-10-05 在這個倉庫 1 號 PR 上看到的）：程式改認它自己那則進度留言（訊號 B，2026-10-06 的裁決）。

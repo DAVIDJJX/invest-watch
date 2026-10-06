@@ -186,6 +186,17 @@ def file_content_problem(repo, main_root, cfg, lsha, rsha):
     return None
 
 
+def ref_name_problem(rref, cfg):
+    """這次要推的分支或標籤，名字會不會跟 git 內部的記號撞名（以「<遠端的名字>/」「refs/」「remotes/」開頭）。可以推回 None；不行回一句原因。
+    2026-10-06 審查代理指出、Cowork 裁決在 P2 修：git 解析短名時標籤排在本機分支前面、本機分支排在遠端的記號前面；
+    推一個叫 origin/main 的標籤上去，驗收機（會把標籤全部抓下來）眼中的「main 上的驗收程式」就換成它指的版本。
+    檢查程式自己指正式版時已經一律用全名，這一道是多擋一層：這種名字根本不讓它出現。只在 Claude Code 裡的推送做（呼叫的人判斷）。"""
+    if rref.startswith(("refs/heads/", "refs/tags/")) and C.reserved_ref_name(rref, cfg["remote"]):
+        return ("分支或標籤的名字不可以以「%s/」「refs/」「remotes/」開頭（%s）：git 會把它跟「遠端的正式版在哪裡」那一類記號搞混。請換一個名字。"
+                % (cfg["remote"], rref.split("/", 2)[-1]))
+    return None
+
+
 def verify_gate(main_root, sd, cfg, stage, sha, now):
     """P2 第 3 節：合併前再查一次驗收機（放行時已查過一次）。設定裡沒有驗收機（舊版）就不查；查不到＝不綠＝擋。"""
     if not (cfg.get("verify") and cfg.get("externalReview")):
@@ -204,7 +215,7 @@ def protected_push_problem(repo, lsha, st, cfg):
     pats = (cfg.get("verify") or {}).get("protected") or []
     if not pats or not st.get("active"):
         return None
-    base = "refs/remotes/%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    base = C.remote_main_ref(cfg)
     rc, out = C.git(["-c", "core.quotepath=false", "diff", "--name-only", "%s...%s" % (base, lsha)], repo, timeout=60)
     if rc != 0:
         return "查不出這次推送相對於正式版動了哪些檔；自動駕駛期間先不推。"
@@ -349,6 +360,8 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
             msg_problem = commit_message_problem(repo, main_root, cfg, lsha, rsha)
             if not msg_problem:                                             # 訊息乾淨，再看檔案內容裡的具名字串（檢查程式自己帶鹽掃）
                 msg_problem = file_content_problem(repo, main_root, cfg, lsha, rsha)
+            if not msg_problem:                                             # 名字會不會跟遠端的記號撞名（推上去之後，驗收機眼中的「正式版」可能被它換掉）
+                msg_problem = ref_name_problem(rref, cfg)
         if msg_problem:
             ok, why = False, msg_problem
         elif rref.startswith("refs/tags/"):

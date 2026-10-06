@@ -175,6 +175,20 @@ def git(repo, args, timeout=60):
     return p.returncode, p.stdout.decode("utf-8", "replace")
 
 
+# 「main 在哪裡」一律用全名。git 解析短名（origin/main）的順序是標籤 → 本機分支 → 遠端的記號；執行機會把標籤全部抓下來，
+# 所以只要有人推一個名字就叫 origin/main 的標籤，短名拿到的就是它——「main 上的驗收程式、白名單、已知例外、突變清單」都會被換掉。
+# 2026-10-06 審查代理指出、Cowork 裁決在 P2 修。流程檔傳進來的已經是全名；這裡再保一層：傳短名也一律當成遠端的記號。
+MAIN_REF = "refs/remotes/origin/main"
+
+
+def full_main_ref(ref):
+    """--main-ref 的值換成全名：已經是 refs/ 開頭的照用；其他的（例如 origin/main）一律當成 refs/remotes/ 底下的。空的用預設值。"""
+    ref = (ref or "").strip()
+    if not ref:
+        return MAIN_REF
+    return ref if ref.startswith("refs/") else "refs/remotes/" + ref
+
+
 def git_show(repo, ref, path):
     """ref 那個版本的檔案內容；沒有這個檔回 None。"""
     rc, out = git(repo, ["show", "%s:%s" % (ref, path)])
@@ -1499,7 +1513,7 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("extract-verifier")
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
-    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--main-ref", default=MAIN_REF, dest="main_ref")
     p.add_argument("--dest", default="/tmp/verifier")
     p = sub.add_parser("lockdown")
     p.add_argument("--out", required=True)
@@ -1520,22 +1534,24 @@ def main(argv=None):
     p = sub.add_parser("compare")
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
-    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--main-ref", default=MAIN_REF, dest="main_ref")
     p.add_argument("--inner", action="store_true", help="（內部用）已經在封鎖裡了，直接做")
     p = sub.add_parser("mutations")
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
     p.add_argument("--shard", default="1/1")
-    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--main-ref", default=MAIN_REF, dest="main_ref")
     p.add_argument("--copy-dir", default="/tmp", dest="copy_dir")
     p.add_argument("--timeout", type=int, default=1800)
     p = sub.add_parser("collect")
     p.add_argument("--inputs", required=True)
     p.add_argument("--out", required=True)
     p.add_argument("--repo", default=os.environ.get("GITHUB_WORKSPACE") or os.getcwd())
-    p.add_argument("--main-ref", default="origin/main", dest="main_ref")
+    p.add_argument("--main-ref", default=MAIN_REF, dest="main_ref")
     p.add_argument("--summary", default=None)
     a = ap.parse_args(argv)
+    if hasattr(a, "main_ref"):
+        a.main_ref = full_main_ref(a.main_ref)                      # 不管流程檔傳什麼，進到每一步的都是全名
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
     except Exception:                                              # noqa: B902

@@ -17,6 +17,10 @@ FLOW = ["scripts/test_autopilot_flow.py"]
 VERIFY = ["scripts/test_verify_ci.py"]
 
 H = ".claude/hooks/"
+# 流程檔第一個 job「取 main 上的驗收程式」那一步、到最後一行之前的原文（前面帶著只在第一個 job 出現的那句註解，所以錨點剛好一次）
+_BOOT_STEP = ("三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          set -o pipefail\n"
+              "          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n"
+              "          git show refs/remotes/origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n")
 
 M = [
     # ---- P1 覆述 7.3 列的 20 種
@@ -957,18 +961,11 @@ M += [
      "    if guards is None:\n        return \"（讀不到 main 上的隱私掃描器，這一段輸出沒有印出來", "    if False:\n        return \"（讀不到 main 上的隱私掃描器，這一段輸出沒有印出來",
      VERIFY + ["-k", "test_output_is_scanned_before_it_is_printed_to_the_public_log"]),
     ("R161", "流程檔：取驗收程式那一步直接執行 checkout 裡的那一份（分支放同名的檔就能先執行）", ".github/workflows/verify.yml",
-     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
-     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
-     "          python -I \"$boot\" extract-verifier",
+     _BOOT_STEP + "          python -I \"$boot\" extract-verifier",
      "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          python scripts/verify_ci.py extract-verifier",
      CONFIG + ["-k", "test_the_verifier_bootstrap_comes_from_main_and_runs_isolated"]),
     ("R162", "流程檔：取驗收程式那一步不用 -I 執行", ".github/workflows/verify.yml",
-     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
-     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
-     "          python -I \"$boot\" extract-verifier",
-     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          boot=\"$RUNNER_TEMP/bootstrap/verify_ci.py\"\n"
-     "          mkdir -p \"$RUNNER_TEMP/bootstrap\"\n          git show origin/main:scripts/verify_ci.py > \"$boot\" 2>/dev/null || cp scripts/verify_ci.py \"$boot\"\n"
-     "          python \"$boot\" extract-verifier",
+     _BOOT_STEP + "          python -I \"$boot\" extract-verifier", _BOOT_STEP + "          python \"$boot\" extract-verifier",
      CONFIG + ["-k", "test_the_verifier_bootstrap_comes_from_main_and_runs_isolated"]),
     ("R163", "關卡：寄信前不核對 PR 內文的最後一段是不是程式列的那一段", H + "iw_notify.py",
      "                if touched:                                            # 有動到保護檔：那一段要在內文最後", "                if False:                                              # 有動到保護檔：那一段要在內文最後",
@@ -976,6 +973,55 @@ M += [
     ("R164", "關卡：PR 內文只要有包含程式列的那一段就算（不必在最後）", H + "iw_notify.py",
      "    if not e or not (b == e or b.endswith(\"\\n\\n\" + e)):", "    if not e or e not in b:",
      FLOW + ["-k", "test_the_protected_list_must_be_the_last_block_of_the_pr_body_and_match_exactly"]),
+    # ---- 2026-10-07 Cowork 的裁決（P2 最後收尾）：指正式版一律用全名、不准建立或推送撞名的分支與標籤、流程檔加 pipefail、ready 信列出被刪改的既有測試與突變
+    ("R165", "流程檔：跟 main 比的那一步指 main 用短名（會被同名的標籤蓋過）", ".github/workflows/verify.yml",
+     "verify_ci.py\" compare --out \"$RUNNER_TEMP/verify-out\" --main-ref refs/remotes/origin/main", "verify_ci.py\" compare --out \"$RUNNER_TEMP/verify-out\" --main-ref origin/main",
+     CONFIG + ["-k", "test_the_main_branch_on_the_remote_is_always_named_in_full"]),
+    ("R166", "流程檔：取驗收程式那一步不設 pipefail（Python 失敗那一步自己不會紅）", ".github/workflows/verify.yml",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n          set -o pipefail\n",
+     "三個 job 的這一步都一樣。\n      - name: 取 main 上的驗收程式\n        id: verifier\n        run: |\n",
+     CONFIG + ["-k", "test_the_verifier_bootstrap_comes_from_main_and_runs_isolated"]),
+    ("R167", "檢查程式：指遠端的正式版用短名（全部的地方一起改回去）", H + "iw_common.py",
+     "REMOTE_REF_FORMAT = \"refs/remotes/%s/%s\"", "REMOTE_REF_FORMAT = \"%s/%s\"",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R168", "關卡：寄信前「這個階段改了哪些檔」跟短名比（同名的標籤或分支蓋得過）", H + "iw_notify.py",
+     "    base = C.remote_main_ref(cfg)                                   # 全名：同名的標籤或本機分支蓋不過它（「這個分支改了哪些檔」都跟它比）",
+     "    base = \"%s/%s\" % (cfg[\"remote\"], cfg[\"mainBranch\"])",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R169", "關卡：「驗收機本身有沒有改」跟短名比", H + "iw_review.py",
+     "    base = C.remote_main_ref(cfg)                                   # 全名：同名的標籤或本機分支蓋不過它", "    base = \"%s/%s\" % (cfg[\"remote\"], cfg[\"mainBranch\"])",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R170", "關卡：寄 ready 之前掃具名字串，「改到哪些檔」跟短名比", H + "iw_notify.py",
+     "    base = C.remote_main_ref(cfg)\n    blobs = changed_blobs(repo, [\"%s...%s\" % (base, head)])",
+     "    base = \"%s/%s\" % (cfg[\"remote\"], cfg[\"mainBranch\"])\n    blobs = changed_blobs(repo, [\"%s...%s\" % (base, head)])",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R171", "啟動時記「已經動過的保護檔」跟短名比", H + "iw_notify.py",
+     "\"%s...HEAD\" % C.remote_main_ref(cfg)], wt)", "\"%s/%s...HEAD\" % (cfg[\"remote\"], cfg[\"mainBranch\"])], wt)",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R172", "PR 內文的保護範圍清單跟短名比", H + "iw_notify.py",
+     "        t1, sf, t2, _all = tier_files(wt, cfg, C.remote_main_ref(cfg))", "        t1, sf, t2, _all = tier_files(wt, cfg, \"%s/%s\" % (cfg[\"remote\"], cfg[\"mainBranch\"]))",
+     FLOW + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_cannot_shadow_it"]),
+    ("R173", "驗收機：--main-ref 傳短名就照短名用（不換成全名）", "scripts/verify_ci.py",
+     "    return ref if ref.startswith(\"refs/\") else \"refs/remotes/\" + ref", "    return ref",
+     VERIFY + ["-k", "test_a_tag_or_branch_named_like_the_remote_main_does_not_replace_the_main_copy"]),
+    ("R174", "第一道：可以建立名字跟遠端的記號撞名的分支與標籤", H + "iw_guard.py",
+     "        if C.reserved_ref_name(name, REMOTE, literal=(sub != \"fetch\")):", "        if False:",
+     GUARD + ["-k", "test_names_that_shadow_the_remote_refs_cannot_be_created_or_pushed"]),
+    ("R175", "第一道：可以把東西推成名字跟遠端的記號撞名的分支或標籤", H + "iw_guard.py",
+     "        if src != \"\" and not deleting and C.reserved_ref_name(dst, REMOTE):", "        if False:",
+     GUARD + ["-k", "test_names_that_shadow_the_remote_refs_cannot_be_created_or_pushed"]),
+    ("R176", "第二道：從 Claude Code 可以推名字跟遠端的記號撞名的分支與標籤", H + "iw_prepush.py",
+     "            if not msg_problem:                                             # 名字會不會跟遠端的記號撞名", "            if False:                                                       # 名字會不會跟遠端的記號撞名",
+     PREPUSH + ["-k", "test_claude_cannot_push_a_branch_or_tag_whose_name_shadows_the_remote_refs"]),
+    ("R177", "撞名的規則只認「遠端的名字/」開頭（refs/、remotes/ 開頭的不算）", H + "iw_common.py",
+     "RESERVED_REF_PREFIXES = (\"refs/\", \"remotes/\")", "RESERVED_REF_PREFIXES = ()",
+     GUARD + ["-k", "test_names_that_shadow_the_remote_refs_cannot_be_created_or_pushed"]),
+    ("R178", "關卡：寄「可以合併」的信不列被刪改的既有測試與突變", H + "iw_notify.py",
+     "    if kind == \"ready\":                                             # 要放行的那一封", "    if False:                                                       # 要放行的那一封",
+     FLOW + ["-k", "test_the_ready_mail_lists_removed_and_modified_existing_tests_and_mutations"]),
+    ("R179", "關卡：讀不到被刪改的清單時寫成「沒有被刪、沒有被改」", H + "iw_review.py",
+     "    cmp_ = ((vs or {}).get(\"result\") or {}).get(\"compare\")", "    cmp_ = ((vs or {}).get(\"result\") or {}).get(\"compare\") or dict((k, []) for k, _l in CHANGED_LISTS)",
+     FLOW + ["-k", "test_the_ready_mail_lists_removed_and_modified_existing_tests_and_mutations"]),
     ("R155", "關卡：寄 ready 之前不掃這個階段改到的檔", H + "iw_notify.py",
      "            if named_problem:\n                return fail(", "            if False:\n                return fail(",
      FLOW + ["-k", "test_the_hook_itself_scans_the_changed_files_for_named_terms_before_ready"]),

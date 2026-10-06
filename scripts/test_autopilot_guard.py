@@ -351,6 +351,31 @@ class TestBypassesAreBlocked(Base):
                    "git merge feat/stopX1",
                    "git pull origin feat/stopX1"], cwd=MERGE_WT)
 
+    def test_names_that_shadow_the_remote_refs_cannot_be_created_or_pushed(self):
+        """git 解析短名的順序是標籤 → 本機分支 → 遠端的記號。有人建一個名字就叫 origin/main 的標籤或分支，寫 origin/main 的地方拿到的就是它
+        （2026-10-06 審查代理指出；檢查程式自己已經一律用全名，這一道是多擋一層）。分支與標籤的名字不准以 origin/、refs/、remotes/ 開頭：
+        建立、改名、fetch 進來、推上去都算；大小寫不分。對照組：拿掉這一道、推送的目的地不看 → 紅。"""
+        cmds = ["git tag origin/main", "git tag origin/main " + CAND, "git tag -a origin/main -m x", "git tag -m x -a origin/main",
+                "git tag Origin/Main", "git tag refs/tags/x", "git tag remotes/origin/main",
+                "git branch origin/main", "git branch origin/main " + CAND, "git branch --track origin/feat origin/main",
+                "git branch -m origin/main", "git branch -c feat/stopX1 refs/heads/x", "git branch --copy feat/stopX1 remotes/x",
+                "git checkout -b origin/main", "git checkout -qb origin/main", "git checkout -B remotes/origin/main " + CAND,
+                "git checkout --orphan origin/x", "git checkout --orphan=origin/x",
+                "git switch -c origin/main", "git switch --create refs/heads/main2", "git switch -C Origin/Main",
+                "git worktree add -b origin/main .claude/worktrees/tmpx",
+                "git stash branch origin/main",
+                "git fetch . HEAD:origin/x", "git fetch origin feat/stopX1:refs/tags/origin/x", "git fetch . HEAD:refs/heads/remotes/x",
+                "git push origin HEAD:refs/tags/origin/main", "git push origin HEAD:origin/x", "git push . HEAD:refs/heads/origin/x",
+                "git push origin HEAD:refs/heads/refs/x", "git push origin stopX2:refs/tags/Origin/main"]
+        for cmd in cmds:
+            self.blocked(self.bash(cmd), code=4, has="名字不可以以", msg=cmd)
+        self.assertTrue(C.reserved_ref_name("origin/main") and C.reserved_ref_name("refs/heads/origin/main") and C.reserved_ref_name("REFS/x"))
+        self.assertTrue(C.reserved_ref_name("refs/heads/feat/x", literal=True) and not C.reserved_ref_name("refs/heads/feat/x"))   # 要建立的名字照字面看
+        self.assertTrue(C.reserved_ref_name("upstream/main", "upstream") and not C.reserved_ref_name("upstream/main"))
+        for fine in ("feat/stopX1", "stopX2", "refs/heads/feat/stopX1", "refs/tags/stopX2", "main", "feat/origin-notes", "originals", "remote-notes", "refsheet", ""):
+            self.assertFalse(C.reserved_ref_name(fine), fine)
+        self.assertEqual(C.remote_main_ref({"remote": "origin", "mainBranch": "main"}), "refs/remotes/origin/main")
+
     def test_moving_main_directly(self):
         self.each(["git branch -f main " + CAND,
                    "git branch -D main",
@@ -527,6 +552,33 @@ class TestRoutineWorkIsNotBlocked(Base):
                    "git cherry-pick " + CAND,
                    "git worktree list",
                    "git status --short && git log --oneline -3 && git diff --stat"])
+
+    def test_ordinary_names_and_start_points_are_not_mistaken_for_shadowing_names(self):
+        """「名字不准跟遠端的記號撞名」只看新建立的名字與推送的目的地：把 origin/main 當起點、當比較的對象、列出來看，都照常。"""
+        self.each(["git branch feat/tmp origin/main",
+                   "git branch --track feat/tmp origin/main",
+                   "git branch -u origin/feat/stopX1",
+                   "git branch --set-upstream-to=origin/feat/stopX1",
+                   "git branch --contains origin/main",
+                   "git branch -r",
+                   "git branch --list 'origin/*'",
+                   "git branch -m feat/renamed",
+                   "git tag stopX2 origin/main",
+                   "git tag -a stopX2 -m 'origin/main 的位置'",
+                   "git tag -l 'origin/*'",
+                   "git tag --contains origin/main",
+                   "git checkout -b feat/tmp origin/main",
+                   "git checkout --detach origin/main",
+                   "git switch -c feat/tmp origin/main",
+                   "git switch --detach origin/main",
+                   "git worktree add -b feat/stopX2 .claude/worktrees/stopX2 origin/main",
+                   "git worktree add --detach .claude/worktrees/stopX1-merge origin/main",
+                   "git stash branch feat/tmp",
+                   "git fetch origin feat/stopX1:feat/copy",
+                   "git diff --stat origin/main...HEAD",
+                   "git log --oneline origin/main..HEAD",
+                   "git push origin HEAD:refs/heads/feat/stopX1",
+                   "git push origin HEAD:feat/origin-notes"])
 
     def test_main_checkout_can_be_read_and_fast_forwarded(self):
         self.each(["git status -sb",
