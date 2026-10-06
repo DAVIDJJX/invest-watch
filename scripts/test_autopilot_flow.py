@@ -1483,8 +1483,10 @@ class TestChangesMadeBeforeAutopilotStarted(FlowBase):
             t1, sf, t2, every = N.tier_files(sb.wt, cfg, base)
             return {"t1": t1, "sf": sf, "all": every, "pre": sorted(N.preexisting_protected(sb.main, cfg, "X1")),
                     "verifier": R.verifier_changed(sb.main, cfg, noted), "named": N.stage_named_term_problem(sb.main, sb.wt, cfg, noted),
-                    "section": N.protected_section(sb.main, cfg, "X1")}
+                    "section": N.protected_section(sb.main, cfg, "X1"),
+                    "tripwire": N.tripwire(sb.main, sb.sd, cfg, {"tripwire_baseline": sb.base}, fetch=False)}   # 信裡「安全檢查」那一行：正式版多了什麼
         before = snapshot()
+        self.assertEqual(before["tripwire"][1], [])                                       # 正式版沒有動過：沒有發現
         self.assertIn(".gitignore", before["t1"])
         self.assertIn(".claude/autopilot/config.json", before["sf"])
         self.assertIn(".gitignore", before["pre"])

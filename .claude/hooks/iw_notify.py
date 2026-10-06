@@ -281,7 +281,7 @@ def model_line(st, cfg):
 def tripwire(main_root, sd, cfg, st, fetch=True):
     """回傳 (給信用的一行或幾行, 發現清單)。"""
     remote, branch = cfg["remote"], cfg["mainBranch"]
-    ref = "%s/%s" % (remote, branch)
+    ref = C.remote_main_ref(cfg)                                    # 全名：同名的標籤或本機分支蓋不過它（短名會讓「正式版多了什麼」算成空的）
     if fetch:
         rc, _ = C.git(["fetch", "-q", remote, branch], main_root, timeout=45)
         if rc != 0:

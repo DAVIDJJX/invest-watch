@@ -357,6 +357,10 @@ class TestBypassesAreBlocked(Base):
         建立、改名、fetch 進來、推上去都算；大小寫不分。對照組：拿掉這一道、推送的目的地不看 → 紅。"""
         cmds = ["git tag origin/main", "git tag origin/main " + CAND, "git tag -a origin/main -m x", "git tag -m x -a origin/main",
                 "git tag Origin/Main", "git tag refs/tags/x", "git tag remotes/origin/main",
+                "git tag -am x origin/main", "git tag -am 'x y' origin/main " + CAND, "git tag -aF msg.txt origin/main",     # 短選項黏成一串、最後一個要接值
+                "git tag -sm x origin/main", "git tag -asu KEYID origin/main", "git tag -a -m x -- origin/main", "git tag --message x origin/main",
+                "git tag -a --trailer 'k: v' -m x origin/main", "git branch -- origin/main", "git branch -qf origin/x", "git branch -t origin/x",
+                "git pull origin feat/stopX1:origin/x", "git pull . HEAD:refs/heads/remotes/x",
                 "git branch origin/main", "git branch origin/main " + CAND, "git branch --track origin/feat origin/main",
                 "git branch -m origin/main", "git branch -c feat/stopX1 refs/heads/x", "git branch --copy feat/stopX1 remotes/x",
                 "git checkout -b origin/main", "git checkout -qb origin/main", "git checkout -B remotes/origin/main " + CAND,
@@ -565,6 +569,9 @@ class TestRoutineWorkIsNotBlocked(Base):
                    "git branch -m feat/renamed",
                    "git tag stopX2 origin/main",
                    "git tag -a stopX2 -m 'origin/main 的位置'",
+                   "git tag -am origin/main stopX2",                                  # origin/main 是訊息（-m 的值），名字是 stopX2
+                   "git tag -aF origin/notes.txt stopX2",
+                   "git tag -amorigin/main stopX2",                                   # 值直接黏在 -m 後面
                    "git tag -l 'origin/*'",
                    "git tag --contains origin/main",
                    "git checkout -b feat/tmp origin/main",

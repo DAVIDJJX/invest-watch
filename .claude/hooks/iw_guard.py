@@ -1515,7 +1515,7 @@ def _git(words, cwd, ctx, auto):
     opts = [a for a in args if a.startswith("-")]
     pos = [a for a in args if not a.startswith("-")]
     for name in _new_ref_names(sub, args):
-        if C.reserved_ref_name(name, REMOTE, literal=(sub != "fetch")):          # fetch 的目的地可能寫全名；其他的是要建立的名字本身，照字面看
+        if C.reserved_ref_name(name, REMOTE, literal=(sub not in ("fetch", "pull"))):   # fetch／pull 的目的地可能寫全名；其他的是要建立的名字本身，照字面看
             raise Block(RESERVED_NAME_MSG % name, 4)
 
     if sub == "merge":
@@ -1634,9 +1634,10 @@ def _git(words, cwd, ctx, auto):
 RESERVED_NAME_MSG = ("分支或標籤的名字不可以以「origin/」「refs/」「remotes/」開頭（%s）：git 會把它跟「遠端的正式版在哪裡」那一類記號搞混——"
                      "同名的標籤或本機分支排在前面，之後寫 origin/main 的地方拿到的就是它。請換一個名字。")
 # 各個會建立分支／標籤的子指令裡，「後面要接一個值」的選項（收名字的時候要跳過它們的值）
-_REF_VALUE_OPTS = {"tag": ("-m", "-F", "-u", "--message", "--file", "--local-user", "--cleanup", "--sort", "--format", "--contains",
+_REF_VALUE_OPTS = {"tag": ("--message", "--file", "--local-user", "--trailer", "--cleanup", "--sort", "--format", "--contains",
                            "--no-contains", "--points-at", "--merged", "--no-merged"),
-                   "branch": ("-u", "--set-upstream-to", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format")}
+                   "branch": ("--set-upstream-to", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format")}
+_REF_VALUE_LETTERS = {"tag": "mFu", "branch": "u"}                  # 同樣要接值的短選項字母（可以黏在一串短選項的最後）
 _REF_QUERY_OPTS = {"tag": ("-l", "--list", "-d", "--delete", "-v", "--verify", "--contains", "--no-contains", "--points-at", "--merged", "--no-merged"),
                    "branch": ("-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--delete", "-u", "--set-upstream-to", "--unset-upstream",
                               "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--show-current", "--edit-description")}
@@ -1667,15 +1668,30 @@ def _option_values(args, shorts, longs):
     return out
 
 
-def _plain_positionals(args, value_opts):
-    """不是選項、也不是某個選項的值的那些參數（照順序）。"""
-    out, skip = [], False
+def _plain_positionals(args, value_opts, value_letters=""):
+    """不是選項、也不是某個選項的值的那些參數（照順序）。value_opts：後面要接值的長選項；value_letters：後面要接值的短選項字母。
+    短選項可以黏成一串（-am "訊息"、-aF 檔名、-sm "訊息"）：串裡只要出現要接值的字母、而且值沒有黏在它後面，下一個參數就是它的值，不是名字。
+    2026-10-07 審查代理指出：原本只認整個參數剛好是 -m、-F 的寫法，git tag -am "x" origin/main 就把 x 當成名字、真正的名字沒看到。
+    「--」之後的全部算位置參數。"""
+    out, skip, rest = [], False, False
     for a in args:
+        if rest:
+            out.append(a)
+            continue
         if skip:
             skip = False
             continue
-        if a.startswith("-"):
+        if a == "--":
+            rest = True
+            continue
+        if a.startswith("--"):
             skip = a in value_opts
+            continue
+        if a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:], 1):
+                if ch in value_letters:
+                    skip = (j == len(a) - 1)                        # 值沒有黏在後面：下一個參數是它的值
+                    break
             continue
         out.append(a)
     return out
@@ -1688,7 +1704,7 @@ def _new_ref_names(sub, args):
         if any(a in _REF_QUERY_OPTS[sub] or a.split("=", 1)[0] in _REF_QUERY_OPTS[sub] for a in args) or \
                 (sub == "branch" and _short_flag(args, "dDlar", "u")) or (sub == "tag" and _short_flag(args, "ldvn", "mFu")):
             return []
-        pos = _plain_positionals(args, _REF_VALUE_OPTS[sub])
+        pos = _plain_positionals(args, _REF_VALUE_OPTS[sub], _REF_VALUE_LETTERS[sub])
         if not pos:
             return []
         if sub == "branch" and (_short_flag(args, "mMcC", "u") or any(a in ("--move", "--copy") for a in args)):
@@ -1701,7 +1717,7 @@ def _new_ref_names(sub, args):
     if sub == "stash":
         pos = [a for a in args if not a.startswith("-")]
         return pos[1:2] if pos[:1] == ["branch"] else []
-    if sub == "fetch":                                               # git fetch <遠端> 來源:目的地——目的地是本機的分支或標籤時才算（refs/remotes/ 那一類另有規則）
+    if sub in ("fetch", "pull"):                                     # git fetch／pull <遠端> 來源:目的地——目的地是本機的分支或標籤時才算（refs/remotes/ 那一類另有規則）
         pos = [a for a in args if not a.startswith("-")]
         out = []
         for a in pos[1:]:

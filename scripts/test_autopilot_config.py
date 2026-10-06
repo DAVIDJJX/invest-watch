@@ -658,6 +658,7 @@ class TestThirdPartyGate(unittest.TestCase):
             src = read(".claude/hooks/" + name)
             self.assertNotRegex(src, r'"%s/%s(\.\.\.HEAD)?" % \((env\.)?cfg\["remote"\], (env\.)?cfg\["mainBranch"\]\)', name)   # 不自己組短名
             self.assertNotIn('"origin/" + MAIN + "...HEAD"', src, name)
+            self.assertNotIn('"%s/%s"', src, name)                                            # 用區域變數組「遠端/分支」的寫法也沒有（審查代理抓到漏了一處）
             self.assertNotIn('"refs/remotes/%s/%s" % (', src, name)                           # 全名也只從 iw_common 那一個地方來
         guide = read("docs/AUTOPILOT.md")
         for must in ("`refs/remotes/origin/main`", "`set -o pipefail`", "名字以 `origin/`、`refs/`、`remotes/` 開頭的分支與標籤",
