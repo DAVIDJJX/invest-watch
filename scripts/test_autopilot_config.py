@@ -551,15 +551,17 @@ class TestThirdPartyGate(unittest.TestCase):
         self.assertIn("驗收機升到 Ubuntu 26.04", read("docs/AUTOPILOT.md"))
 
     def test_config_has_the_rerun_limit_and_the_round_caps(self):
-        """2026-10-06 裁決：同一個 commit 的驗收最多重跑 2 次；Codex 的審查一般的階段最多 4 輪、P2 自己 6 輪。數字只寫在設定檔。"""
+        """2026-10-06 裁決：同一個 commit 的驗收最多重跑 2 次；Codex 的審查一般的階段最多 4 輪、P2 自己 6 輪（之後加開 2 輪、再加開 1 輪，共 9）。
+        數字只寫在設定檔。"""
         self.assertEqual(CFG["verify"]["maxReruns"], 2)
-        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 8})
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 9})
         self.assertIn(["run", "rerun"], ALLOW["programs"]["ghAllowed"])
         guide = read("docs/AUTOPILOT.md")
         for must in ("gh run rerun", "最多重跑 2 次", "封鎖沒設成", "IPv4 與 IPv6", "ubuntu-24.04", "P2 是 6 輪", "一般的階段 4 輪", "上限不是自動放行",
                      "Cowork 裁決：<檔名>", "延後到 <階段>，Cowork 裁決：<檔名>", "不分是哪個 commit", "Cowork裁決", "2027-04-06",
                      "到了輪數上限怎麼收", "加過一次就不再加", "6＋2", "公開文字掃描統一", "4191058953", "測試在自己的程序裡說謊",
-                     "誰觸發審查不影響完成訊號；程式只認機器人對最新 commit 的 review 或進度留言", "驗收機不做具名字串掃描", "未跑（無鹽）"):
+                     "誰觸發審查不影響完成訊號；程式只認機器人對最新 commit 的 review 或進度留言", "驗收機不做具名字串掃描", "未跑（無鹽）",
+                     "6＋2＋1", "由檢查程式自己帶鹽掃", "每一筆要推的 commit 改到的檔", "Cowork 裁決：裁決-<時間>.md", "P0 不能不採納，有裁決也一樣"):
             self.assertIn(must, guide, must)
         steps = read(".claude/skills/iw-autopilot/pr-steps.md")
         for must in ("gh run rerun", "輪", "Cowork 裁決："):

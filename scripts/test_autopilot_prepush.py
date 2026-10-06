@@ -811,6 +811,9 @@ class TestPrePush(unittest.TestCase):
             ok, msgs = sb.check([clean])                                                                      # 讀不到掃描器：寧可擋
             self.assertFalse(ok)
             self.assertIn("隱私掃描器讀不到", " ".join(msgs))
+            self.assertIn("commit 訊息", " ".join(msgs))                                                       # 是 commit 訊息這一道擋的（後面掃檔案內容的那一道也會擋，不能靠它）
+            import iw_notify as N
+            self.assertIn("隱私掃描器讀不到", " ".join(N.text_privacy_problems(sb.main, "一段乾淨的說明")))
         finally:
             os.rename(guards + ".off", guards)
         ok, msgs = sb.check([clean])                                                                          # 訊息乾淨、掃描器在：照常
@@ -919,6 +922,106 @@ class TestPrePush(unittest.TestCase):
             sb.write(sb.digest_rel, saved)
         ok, msgs = sb.check(clean)
         self.assertTrue(ok, msgs)
+
+    def test_the_hook_itself_scans_file_contents_for_named_terms_before_claude_pushes(self):
+        """Codex 對 P2 的第八次審查（P0）：檔案內容裡的具名字串原本只有全套測試會掃；驗收機上沒有鹽，有沒有帶鹽跑過，
+        程式只看得到施工的一方自己存的文字檔（沒有綁 commit，舊檔或改寫過的都會過）。現在由檢查程式自己掃：從 Claude Code 推送之前，
+        每一筆要推的 commit 改到的檔（整個檔在那一筆裡的內容，連同檔名）都用倉庫外的鹽比一次。中間的 commit 加了又刪掉的也算；
+        缺鹽、讀不到內容、查不出改了哪些檔、推的不是 commit，一律擋。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道、只看最頂端那一筆、不看檔名、不看內容、缺鹽也放行、讀不到就跳過、查不出來當成沒改 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        main, term, zero = sb.main, SANDBOX_NAMED_TERM, "0" * 40
+        cfg = C.config(os.path.join(main, ".claude", "autopilot", "config.json"))
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: run_git(["tag", "-d", "stopX1-blob"], sb.wt, check=False))
+
+        def line(sha, ref="refs/heads/feat/stopX1", remote=None):
+            return ["%s %s %s %s" % (ref, sha, ref, remote or sb.cand)]
+        sb.write("docs/note.md", "說明\n\n這一段提到" + term + "的事。\n", sb.wt)                 # 內容裡有清單上的名稱；commit 訊息是乾淨的
+        bad = sb.commit("docs: note", sb.wt)
+        for push in (line(bad), line(bad, "refs/heads/feat/stopX9", zero), line(bad, "refs/tags/stopX1-c", zero)):   # 接在後面、新的分支、標籤
+            ok, msgs = sb.check(push)
+            said = " ".join(msgs)
+            self.assertFalse(ok, push)
+            self.assertIn("檔案裡有具名字串", said)
+            self.assertIn("docs/note.md", said)
+            self.assertNotIn(term, said)                                                     # 回報只說是哪個檔，不帶那個名稱本身
+            ok, msgs = sb.check(push, claude=False)
+            self.assertTrue(ok, msgs)                                                        # 不是從 Claude Code 推的：這一道不管
+        sb.write("docs/note.md", "說明\n\n這一段改掉了。\n", sb.wt)                              # 下一筆把它刪掉：頂端是乾淨的，歷史裡照樣公開
+        tip = sb.commit("docs: note v2", sb.wt)
+        ok, msgs = sb.check(line(tip))
+        self.assertFalse(ok)
+        self.assertIn("docs/note.md", " ".join(msgs))
+        ok, msgs = sb.check(line(tip, "refs/heads/feat/stopX9", zero))
+        self.assertFalse(ok)
+        ok, msgs = sb.check(line(tip, "refs/heads/feat/stopX9", bad))                        # 只推後面那一筆（前一筆已經在遠端）：這一筆自己是乾淨的
+        self.assertTrue(ok, msgs)
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("docs/" + term + ".md", "內容是乾淨的\n", sb.wt)                              # 檔名本身就是清單上的名稱
+        named_file = sb.commit("docs: add", sb.wt)
+        ok, msgs = sb.check(line(named_file))
+        self.assertFalse(ok)
+        self.assertIn("檔名本身命中的 1 個（不列檔名）", " ".join(msgs))
+        self.assertNotIn(term, " ".join(msgs))
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("data/extra.json", json.dumps({"items": [{"name": term, "value": 10}]}) + "\n", sb.wt)   # 資料檔：字串值裡的也掃得到（\u 跳脫的寫法也一樣）
+        data_sha = sb.commit("data: extra", sb.wt)
+        ok, msgs = sb.check(line(data_sha))
+        self.assertFalse(ok)
+        self.assertIn("data/extra.json", " ".join(msgs))
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("docs/note.md", "乾淨的說明\n", sb.wt)
+        os.remove(os.path.join(sb.wt, "README.md"))                                          # 刪掉的檔沒有內容要公開：不算
+        clean = sb.commit("docs: clean", sb.wt)
+        shutil.rmtree(sb.sd, ignore_errors=True)                                             # 上面放行過的那幾次會被記成「推過的頭」；清掉，免得下面被當成別人動了分支
+        for push in (line(clean), line(clean, "refs/heads/feat/stopX9", zero), line(clean, "refs/tags/stopX1-c", zero)):
+            ok, msgs = sb.check(push)
+            self.assertTrue(ok, msgs)                                                        # 乾淨的：照常
+        # 掃描本體（直接呼叫：推送時缺鹽、讀不到掃描器，commit 訊息那一道會先擋，分不出是哪一道擋的）
+        blobs = N.changed_blobs(sb.wt, [sb.cand, clean])
+        self.assertEqual([p for _b, p in blobs], ["docs/note.md"])
+        self.assertIn("README.md", [p for _b, p in N.changed_blobs(sb.wt, [N.EMPTY_TREE, sb.base])])   # 第一筆 commit 沒有 parent：跟空樹比
+        self.assertIsNone(N.changed_blobs(sb.wt, ["f" * 40, clean]))                         # 查不出改了哪些檔：None，呼叫的人要擋
+        self.assertIsNone(N.named_term_blob_problem(main, sb.wt, blobs))
+        self.assertIn("docs/note.md", N.named_term_blob_problem(main, sb.wt, N.changed_blobs(sb.wt, [sb.cand, bad])))
+        self.assertIn("讀不到 docs/ghost.md 在 commit 裡的內容", N.named_term_blob_problem(main, sb.wt, [("f" * 40, "docs/ghost.md")]))
+        os.rename(sb.salt_file, sb.salt_file + ".off")                                       # 鹽不在：掃不了（沒有檔要掃也一樣）
+        try:
+            self.assertEqual(N.named_term_blob_problem(main, sb.wt, blobs), N.NO_SALT)
+            self.assertEqual(N.named_term_blob_problem(main, sb.wt, []), N.NO_SALT)
+            self.assertEqual(P.file_content_problem(sb.wt, main, cfg, clean, sb.cand), N.NO_SALT)
+        finally:
+            os.rename(sb.salt_file + ".off", sb.salt_file)
+        digest = os.path.join(main, *sb.digest_rel.split("/"))
+        saved = io.open(digest, encoding="utf-8").read()
+        try:
+            sb.write(sb.digest_rel, '{"entries": []}\n')
+            self.assertIn("雜湊清單讀不到或是空的", N.named_term_blob_problem(main, sb.wt, blobs))
+        finally:
+            sb.write(sb.digest_rel, saved)
+        guards = os.path.join(main, "scripts", "test_analysis_guards.py")
+        os.rename(guards, guards + ".off")
+        try:
+            self.assertIn("隱私掃描器讀不到", N.named_term_blob_problem(main, sb.wt, blobs))
+        finally:
+            os.rename(guards + ".off", guards)
+        self.assertIsNone(P.file_content_problem(sb.wt, main, cfg, clean, sb.cand))
+        self.assertIn("檔案裡有具名字串", P.file_content_problem(sb.wt, main, cfg, bad, sb.cand))
+        real = N.changed_blobs
+        N.changed_blobs = lambda repo, revs: None                                            # 查不出某一筆改了哪些檔：擋，不可以當成沒改
+        try:
+            self.assertIn("查不出 commit", P.file_content_problem(sb.wt, main, cfg, clean, sb.cand))
+        finally:
+            N.changed_blobs = real
+        blob_id = run_git(["rev-parse", "%s:docs/note.md" % bad], sb.wt)[1].strip()          # 推的東西不是 commit（標籤直接指到一個檔的內容）
+        self.assertIn("不是 commit", P.file_content_problem(sb.wt, main, cfg, blob_id, zero))
+        run_git(["tag", "-a", "stopX1-blob", "-m", "乾淨的訊息", blob_id], sb.wt)
+        tag_sha = run_git(["rev-parse", "refs/tags/stopX1-blob"], sb.wt)[1].strip()
+        self.assertIn("不是 commit", P.file_content_problem(sb.wt, main, cfg, tag_sha, zero))
+        ok, msgs = sb.check(["refs/tags/stopX1-blob %s refs/tags/stopX1-blob %s" % (tag_sha, zero)])
+        self.assertFalse(ok)
 
     def test_the_message_of_an_annotated_tag_is_scanned_before_it_is_pushed(self):
         """Codex 對 P2 的第六次審查（P0）：推送前只掃 commit 的訊息。帶訊息的標籤（annotated tag），訊息存在標籤物件裡，原本完全沒看——

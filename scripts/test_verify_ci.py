@@ -992,7 +992,7 @@ class TestPrivacyScan(unittest.TestCase):
 
     def test_the_result_says_plainly_whether_named_terms_were_scanned(self):
         """Cowork 2026-10-06 的裁決：驗收機不放鹽、不放任何密鑰，具名字串那幾條在驗收機上是 skipped。結果檔要明白寫「未跑（無鹽）」，
-        不可以讓人以為驗收機掃過；這一種的證據是本機帶鹽跑的全套測試。對照組：沒有鹽也說掃過了 → 紅。"""
+        不可以讓人以為驗收機掃過；這一種由施工那台電腦上的檢查程式自己帶鹽掃。對照組：沒有鹽也說掃過了 → 紅。"""
         class Guards(object):
             def __init__(self, salt, boom=False):
                 self.salt, self.boom = salt, boom
@@ -1009,8 +1009,8 @@ class TestPrivacyScan(unittest.TestCase):
         res = {"red": False, "commit": "a" * 40, "ref": "feat/stopX", "tests": GREEN_TESTS, "egress": egress([]), "compare": GREEN_CMP, "mutations": GREEN_MUT, "reasons": []}
         md = V.summary_md(dict(res, named_term_scan=V.NAMED_SCAN_NOT_RUN))
         self.assertIn("具名字串掃描：未跑（無鹽）", md)
-        self.assertIn("以本機帶鹽跑的全套測試為證據", md)
-        self.assertNotIn("以本機帶鹽", V.summary_md(dict(res, named_term_scan=V.NAMED_SCAN_RAN)))
+        self.assertIn("由施工那台電腦上的檢查程式自己帶鹽掃", md)
+        self.assertNotIn("檢查程式自己帶鹽掃", V.summary_md(dict(res, named_term_scan=V.NAMED_SCAN_RAN)))
 
     def test_uses_the_guards_module_when_given(self):
         planted = "持有 " + "10 股"                                                      # 拼接：這個檔自己也在隱私掃描範圍裡

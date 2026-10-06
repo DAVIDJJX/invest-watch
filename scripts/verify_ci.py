@@ -1272,7 +1272,8 @@ NAMED_SCAN_RAN = "有跑（有鹽）"
 
 def named_term_scan_status(guards):
     """具名字串的掃描（私人清單上的名稱；要倉庫外的鹽）在這台機器上跑不跑得了。驗收機上沒有鹽、也不放任何密鑰（公開倉庫的 CI 不放密鑰），
-    所以那幾條測試在這裡是 skipped——結果檔要明白寫出「未跑（無鹽）」，不可以讓人以為驗收機掃過。這一種的證據是本機帶鹽跑的全套測試。"""
+    所以那幾條測試在這裡是 skipped——結果檔要明白寫出「未跑（無鹽）」，不可以讓人以為驗收機掃過。
+    這一種由施工那台電腦上的檢查程式自己帶鹽掃（推送之前、寄「可以合併」之前各一次；.claude/hooks/iw_notify.py 的 named_term_blob_problem）。"""
     try:
         salt = guards.load_salt() if guards is not None else None
     except Exception:                                              # noqa: B902
@@ -1342,8 +1343,8 @@ def summary_md(res):
                  len(e.get("browser_hosts") or []), len(e.get("blocked_ips") or [])),
              "- 動到的保護範圍檔：第一層 %d、自己的檔 %d、第二層 %d" % tuple(len((c.get("protected_touched") or {}).get(k) or []) for k in ("tier1", "self", "tier2"))]
     if res.get("named_term_scan"):
-        lines.append("- 具名字串掃描：%s%s" % (res["named_term_scan"], "。驗收機不放鹽也不放任何密鑰；這一種以本機帶鹽跑的全套測試為證據"
-                                           "（寄「可以合併」之前，程式會核對本機那一份全綠、沒有 skipped）" if res["named_term_scan"] == NAMED_SCAN_NOT_RUN else ""))
+        lines.append("- 具名字串掃描：%s%s" % (res["named_term_scan"], "。驗收機不放鹽也不放任何密鑰；這一種由施工那台電腦上的檢查程式自己帶鹽掃"
+                                           "（推送之前掃每一筆要推的 commit 改到的檔，寄「可以合併」之前再掃這個階段改到的每一個檔）" if res["named_term_scan"] == NAMED_SCAN_NOT_RUN else ""))
     lk = res.get("lockdown") or {}
     jobs = [lk] + list(lk.get("mutation_shards") or [])
     lines.append("- 每一段的封鎖層級（每一段都要 3／3，IPv4 與 IPv6 的防火牆規則都要有）：%s" % "；".join(

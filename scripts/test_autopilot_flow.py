@@ -2732,9 +2732,47 @@ class TestGate(FlowBase):
         self.assertIsNone(pr)
         self.assertIn("沒有一個", err)
 
+    def test_the_hook_itself_scans_the_changed_files_for_named_terms_before_ready(self):
+        """Codex 對 P2 的第八次審查（P0）：寄信前核對的「本機測試紀錄全綠、沒有 skipped」讀的是施工的一方自己存的文字檔，
+        沒有綁住是哪一個 commit 跑的；它不能當成具名字串掃過的證據。現在寄「可以合併」的信之前，檢查程式自己拿這個 commit 跟正式版比、
+        改到的每一個檔，用倉庫外的鹽比一次具名字串。缺鹽、查不出改了哪些檔、命中，都不寄；本機的測試紀錄寫得再漂亮也一樣。
+        對照組：拿掉這一道 → 紅。"""
+        sb = self.sb
+        self.ready_setup()
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.assertIsNone(N.stage_named_term_problem(sb.main, sb.wt, CFG, sb.cand))
+        self.assertIn("查不出這個階段", N.stage_named_term_problem(sb.main, sb.wt, CFG, "f" * 40))
+        os.rename(sb.salt_file, sb.salt_file + ".off")                                   # 鹽不在：這一種掃不了＝不寄
+        try:
+            self.assertEqual(self.send("ready"), 3)
+            self.assertIn("具名字串的鹽讀不到", "".join(self.errs))
+            self.assertEqual(self.sent, [])
+        finally:
+            os.rename(sb.salt_file + ".off", sb.salt_file)
+        sb.write("docs/note.md", "說明\n\n這一段提到" + SANDBOX_NAMED_TERM + "的事。\n", sb.wt)    # 這個階段改到的檔裡有清單上的名稱
+        bad = sb.commit("docs: note", sb.wt)
+        run_git(["push", "-q", "origin", "feat/stopX1"], sb.wt)                          # 不是從 Claude Code 推的（例如 David 的終端機）：推送前那一道不經過，這裡才是最後一關
+        self.review("acceptance", bad)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 3)                                           # tests.txt 是全綠的、驗收機是綠的、審查也批准了：還是不寄
+        msg = "".join(self.errs)
+        self.assertIn("檔案裡有具名字串", msg)
+        self.assertIn("docs/note.md", msg)
+        self.assertNotIn(SANDBOX_NAMED_TERM, msg)
+        self.assertEqual(self.sent, [])
+        self.assertIn("docs/note.md", N.stage_named_term_problem(sb.main, sb.wt, CFG, bad))
+        sb.write("docs/note.md", "說明\n\n這一段改掉了。\n", sb.wt)
+        good = sb.commit("docs: note v2", sb.wt)
+        run_git(["push", "-q", "origin", "feat/stopX1"], sb.wt)
+        self.review("acceptance", good)
+        self.errs = []
+        self.assertEqual(self.send("ready"), 0, self.errs)                               # 最新的內容是乾淨的：照常
+        self.assertEqual(len(self.sent), 1)
+
     def test_the_local_test_record_must_be_all_green_with_nothing_skipped(self):
-        """驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；它們掃過沒有，唯一的證據是本機帶鹽跑的那一份（Cowork 2026-10-06 的裁決）。
-        所以本機的 tests.txt 要是全綠、而且沒有 skipped，才能寄「可以合併」的信。對照組：有 skipped 也照樣寄 → 紅。"""
+        """輔助的檢查：驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；本機那一份有 skipped，多半就是沒有帶鹽跑。
+        所以本機的 tests.txt 要是全綠、而且沒有 skipped，才能寄「可以合併」的信。（它不是具名字串掃過的證據——那個檔是施工的一方自己存的；
+        具名字串由檢查程式自己掃，見上一條。）對照組：有 skipped 也照樣寄 → 紅。"""
         self.ready_setup()
         runs = os.path.join(self.sb.main, ".autopilot", "runs", "X1")
         os.makedirs(runs, exist_ok=True)
@@ -3343,8 +3381,8 @@ class TestPrCommands(FlowBase):
         到了上限就不再留言——停下來寄「要你決定」；上限不是自動放行（寄「可以合併」那一關照樣要完成條件）。查不到留言也不留。
         對照組：不看輪數 → 紅。"""
         sb = self.sb
-        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 8})
-        self.assertEqual((R.round_cap(CFG, "X1"), R.round_cap(CFG, "P2")), (4, 8))
+        self.assertEqual(CFG["externalReview"]["maxRounds"], {"default": 4, "P2": 9})     # P2 自己：6 輪，加開過 2 輪，再加開 1 輪（Cowork 的裁決，只有 P2）
+        self.assertEqual((R.round_cap(CFG, "X1"), R.round_cap(CFG, "P2")), (4, 9))
         calls, orig = [], R.gh
 
         def spy(args, *a, **kw):

@@ -571,8 +571,14 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                 return fail("找不到本機的測試紀錄，或讀不出條數：.autopilot/runs/%s/tests.txt 要有全套測試的輸出（「Ran N tests」那一行）。"
                             "本機的條數要跟驗收機的（%s）對得上才能寄「可以合併」的信。" % (stage, vs.get("ran")))
             local_problem = local_test_problem(os.path.join(runs_dir, "tests.txt"))
-            if local_problem:                                          # 具名字串的掃描只有本機這一份是證據：要全綠、沒有 skipped
+            if local_problem:                                          # 輔助的檢查：本機那一份要全綠、沒有 skipped（它不是具名字串掃描的證據，見下一段）
                 return fail("%s。.autopilot/runs/%s/tests.txt 要是帶鹽跑完、最後一行是「OK」的全套測試輸出，才能寄「可以合併」的信。" % (local_problem, stage))
+            # 具名字串：檢查程式自己掃這個階段改到的每一個檔，不靠上面那個文字檔（2026-10-06 Codex 的審查意見，P0）。
+            # 驗收機上沒有鹽，這一種只有施工的這台電腦掃得了；免了外部審查也照掃。缺鹽、讀不到、命中，都不寄。
+            named_problem = stage_named_term_problem(main_root, wt, cfg, head)
+            if named_problem:
+                return fail("%s。寄「可以合併」的信之前，程式會自己拿這個 commit（%s）跟正式版比、改到的每一個檔，用倉庫外的鹽比一次具名字串；沒過就不寄。"
+                            % (named_problem, head[:7]))
             if local_ran != vs.get("ran"):
                 return fail("本機的測試條數（%s，tests.txt）跟驗收機的（%s）對不上。數字以驗收機為準，對不上是「要你決定」：請改寄 --kind stop。" % (local_ran, vs.get("ran")))
             # PR 內文最後那一段「動到的保護範圍檔」是開 PR、改內文的那個當下列的；之後為了回應審查又加的 commit 可能動到別的保護檔
@@ -732,8 +738,9 @@ def local_test_count(path):
 
 def local_test_problem(path):
     """本機 tests.txt 的最後結論是不是「全綠、沒有 skipped」。是回 None；不是回一句原因。
-    驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；它們有沒有掃過，唯一的證據就是本機帶鹽跑的這一份（Cowork 2026-10-06 的裁決）。
-    所以本機這一份不可以有 skipped——有 skipped 多半就是沒有帶鹽跑。"""
+    驗收機上沒有鹽，具名字串那幾條在那一邊是 skipped；本機這一份有 skipped，多半就是沒有帶鹽跑。
+    這是輔助的檢查：這個檔是施工的一方自己存的，沒有綁住是哪一個 commit 跑的，不能當成具名字串掃過的證據（2026-10-06 Codex 的審查意見）。
+    具名字串由檢查程式自己掃：推送之前 iw_prepush.file_content_problem，寄 ready 之前 stage_named_term_problem。"""
     try:
         text = io.open(path, encoding="utf-8", errors="replace").read()
     except Exception:                                              # noqa: B902
@@ -867,21 +874,13 @@ def text_privacy_problems(main_root, text):
     if "<pasted_content" in text or "pasted_content>" in text:
         problems.append("內文含貼上的區塊標籤（規格原文不放進 PR）")
     try:
-        p = os.path.join(main_root, "scripts", "test_analysis_guards.py")
-        key = (p, os.path.getmtime(p))                              # 檔不在＝這裡就出錯＝讀不到（擋）
-        mod = _GUARDS_CACHE.get(key)
-        if mod is None:                                             # 一次推送可能要掃幾十筆 commit 訊息：同一份掃描器只載入一次
-            import importlib.util
-            spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            _GUARDS_CACHE[key] = mod
+        mod = guards_module(main_root)
         hits = list(mod.privacy_hits(text)) + list(mod.profile_key_hits(text)) + list(mod.fxplan_key_hits(text))
         if hits:
             problems.append("隱私掃描命中（個人資料的字樣或設定鍵名，%d 處）" % len(hits))      # 只說有幾處：這句話會進紀錄檔
         # 具名字串（私人清單上的名稱；倉庫裡只有加鹽的雜湊，鹽放在倉庫外）。2026-10-06 Codex 的審查意見（P0）：公開文字原本完全沒比這一種——
         # 清單上的名稱只要不帶通用的隱私字樣就過了。鹽或雜湊清單讀不到＝這一種掃不了＝不能送出（Cowork 的裁決：缺鹽就擋；
-        # 施工一律在有鹽的那台電腦上做。驗收機不放鹽，那一邊的具名字串掃描由本機帶鹽的全套測試當證據）。
+        # 施工一律在有鹽的那台電腦上做。驗收機不放鹽；檔案內容裡的具名字串由檢查程式自己帶鹽掃，見下面 named_term_blob_problem）。
         salt, entries = mod.load_salt(), mod.load_digests()
         if not salt:
             problems.append(NO_SALT)
@@ -892,6 +891,95 @@ def text_privacy_problems(main_root, text):
     except Exception as e:                                         # noqa: B902
         problems.append("隱私掃描器讀不到（%r）" % (e,))
     return problems
+
+
+def guards_module(main_root):
+    """主目錄上的隱私掃描器（scripts/test_analysis_guards.py＝main 的版本）。讀不到就丟例外：呼叫的人要當成「掃不了」（寧可擋）。"""
+    p = os.path.join(main_root, "scripts", "test_analysis_guards.py")
+    key = (p, os.path.getmtime(p))                                  # 檔不在＝這裡就出錯＝讀不到（擋）
+    mod = _GUARDS_CACHE.get(key)
+    if mod is None:                                                 # 一次推送可能要掃幾十筆 commit 訊息、幾十個檔：同一份掃描器只載入一次
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _GUARDS_CACHE[key] = mod
+    return mod
+
+
+# ---------------------------------------------------------------- 具名字串：檢查程式自己掃檔案內容
+# 2026-10-06 Codex 的審查意見（P0）：檔案內容裡的具名字串只有全套測試會掃，而驗收機上沒有鹽、那幾條永遠是 skipped；
+# 寄信前核對的「本機測試紀錄全綠、沒有 skipped」讀的是施工的一方自己存的文字檔，沒有綁住是哪一個 commit 跑的，舊檔或改寫過的檔都會過。
+# Cowork 的裁決：不靠那個文字檔。由檢查程式自己拿 commit 裡的內容，用主目錄上的掃描器與倉庫外的鹽當場比——
+# 推送之前比「每一筆要推的 commit 改到的檔」（iw_prepush.file_content_problem），寄 ready 之前再比「這個階段跟正式版比、改到的每一個檔」。
+# 證據是當場從 commit 算出來的，沒有可以留舊的、可以改寫的檔。鹽、雜湊清單、掃描器、任何一個檔讀不到，一律當成掃不了（擋）。
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"              # git 的空樹：第一筆 commit 沒有 parent，拿它當比較的對象
+
+
+def changed_blobs(repo, revs):
+    """git diff <revs> 新增或改過的檔：[(內容編號, 路徑)]。查不出來、讀不懂回 None（呼叫的人要擋）。
+    刪掉的檔不算（沒有內容要公開）；子模組的指標（160000）不是檔案內容，也不算。"""
+    rc, out = C.git(["diff", "--raw", "-z", "--no-renames", "--no-abbrev", "--diff-filter=ACMRT"] + list(revs) + ["--"], repo, timeout=60)
+    if rc != 0:
+        return None
+    toks = [t for t in out.split("\0") if t]
+    if len(toks) % 2:
+        return None
+    res = []
+    for i in range(0, len(toks), 2):
+        meta, path = toks[i].split(), toks[i + 1]
+        if len(meta) != 5 or not meta[0].startswith(":") or not re.match(r"^[0-9a-f]{40,64}$", meta[3]):
+            return None
+        if meta[1] != "160000":
+            res.append((meta[3], path))
+    return res
+
+
+def named_term_blob_problem(main_root, repo, blobs):
+    """blobs＝[(內容編號, 路徑)]。把每一個檔在 commit 裡的內容讀出來，連同檔名，比一次具名字串。都沒有回 None；不能放行回一句原因。
+    回報只說是哪幾個檔，不帶命中的字本身；檔名自己命中的不列檔名。資料檔（data/ 底下的 JSON）跟全套測試一樣只掃鍵名與字串值。"""
+    try:
+        mod = guards_module(main_root)
+        salt, entries = mod.load_salt(), mod.load_digests()
+    except Exception as e:                                         # noqa: B902
+        return "隱私掃描器讀不到（%r），檔案內容裡的具名字串掃不了，先擋下。" % (e,)
+    if not salt:
+        return NO_SALT
+    if not entries:
+        return "具名字串的雜湊清單讀不到或是空的：這一種掃不了，不能送出"
+    strings_only = getattr(mod, "strings_only", None)
+    seen, in_text, in_name = set(), [], 0
+    for blob, path in blobs or []:
+        if (blob, path) in seen:
+            continue
+        seen.add((blob, path))
+        rc, text = C.git(["cat-file", "blob", blob], repo, timeout=60)
+        if rc != 0:
+            return "讀不到 %s 在 commit 裡的內容（%s），具名字串掃不了，先擋下。" % (path, blob[:7])
+        if strings_only and path.startswith("data/") and path.endswith(".json"):
+            text = strings_only(text)
+        if mod.named_term_hits(path, salt, entries):
+            in_name += 1                                            # 檔名本身命中：不列檔名（列了就等於把那個名稱寫出來）
+            continue
+        if mod.named_term_hits(text, salt, entries):
+            in_text.append(path)
+    if not (in_text or in_name):
+        return None
+    parts = []
+    if in_text:
+        parts.append("內容命中的檔 %d 個：%s" % (len(in_text), "、".join(sorted(set(in_text))[:8]) + ("……" if len(set(in_text)) > 8 else "")))
+    if in_name:
+        parts.append("檔名本身命中的 %d 個（不列檔名）" % in_name)
+    return "檔案裡有具名字串（私人清單上的名稱）——%s" % "；".join(parts)
+
+
+def stage_named_term_problem(main_root, repo, cfg, head):
+    """寄 ready 之前：這個階段跟正式版比、改到的每一個檔（head 那個 commit 裡的內容），比一次具名字串。沒有回 None；不能寄回一句原因。"""
+    base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+    blobs = changed_blobs(repo, ["%s...%s" % (base, head)])
+    if blobs is None:
+        return "查不出這個階段（%s）跟 %s 比改了哪些檔，檔案內容裡的具名字串掃不了" % (str(head)[:7], base)
+    return named_term_blob_problem(main_root, repo, blobs)
 
 
 def cmd_pr(a, main_root, sd, cfg):

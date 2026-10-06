@@ -155,6 +155,37 @@ def commit_message_problem(repo, main_root, cfg, lsha, rsha):
     return None
 
 
+def file_content_problem(repo, main_root, cfg, lsha, rsha):
+    """這次推送會公開的新 commit，改到的檔案內容（與檔名）裡有沒有具名字串。可以推回 None；不行回一句原因。
+    2026-10-06 Codex 的審查意見（P0）：檔案內容裡的具名字串原本只有全套測試會掃，驗收機上沒有鹽、掃不了；有沒有帶鹽跑過，
+    程式只看得到施工的一方自己存的文字檔。Cowork 的裁決：由檢查程式自己掃，而且在推送之前——分支一推上公開倉庫就收不回來。
+    每一筆要推的 commit 都看（跟它的第一個 parent 比、改到的每一個檔，整個檔在那一筆裡的內容）：中間那幾筆加了又刪掉的，歷史裡照樣公開。
+    範圍跟 commit_message_problem 一樣。推的東西不是 commit（或指到 commit 的標籤）、列不出 commit、查不出改了哪些檔、缺鹽——一律擋。
+    只在 Claude Code 裡的推送做（呼叫的人判斷）；筆電排程與 David 自己終端機的推送不經過這裡。"""
+    import iw_notify as N      # noqa: E402
+    if not has(repo, lsha):
+        return "這次要推的東西（%s）不是 commit、也不是指到 commit 的標籤，沒辦法檢查檔案內容，先擋下。" % str(lsha)[:7]
+    new_ref = not (rsha != ZERO and has(repo, rsha))                # 新的分支或標籤：看還不在遠端任何分支上的那些 commit
+    scope = [lsha, "--not", "--remotes=%s" % cfg["remote"]] if new_ref else ["%s..%s" % (rsha, lsha)]
+    rc, out = C.git(["rev-list", "--parents", "--max-count=%d" % (MAX_SCAN_COMMITS + 1)] + scope, repo, timeout=60)
+    if rc != 0:
+        return "列不出這次要推的 commit，沒辦法檢查檔案內容，先擋下（%s）。" % (out or "")[:80]
+    rows = [line.split() for line in out.split("\n") if line.strip()]
+    if len(rows) > MAX_SCAN_COMMITS:
+        return "這次要推的 commit 超過 %d 筆，沒辦法逐筆檢查檔案內容，先擋下。" % MAX_SCAN_COMMITS
+    blobs = []
+    for row in rows:
+        got = N.changed_blobs(repo, [row[1] if len(row) > 1 else N.EMPTY_TREE, row[0]])
+        if got is None:
+            return "查不出 commit %s 改了哪些檔，沒辦法檢查檔案內容，先擋下。" % row[0][:7]
+        blobs += got
+    problem = N.named_term_blob_problem(main_root, repo, blobs)
+    if problem:
+        return ("%s。一推上公開倉庫就收不回來：請把那幾個檔改掉；中間的 commit 裡有的話，要連那幾筆 commit 一起重做，再推。" % problem
+                if problem.startswith("檔案裡有具名字串") else problem)
+    return None
+
+
 def verify_gate(main_root, sd, cfg, stage, sha, now):
     """P2 第 3 節：合併前再查一次驗收機（放行時已查過一次）。設定裡沒有驗收機（舊版）就不查；查不到＝不綠＝擋。"""
     if not (cfg.get("verify") and cfg.get("externalReview")):
@@ -316,6 +347,8 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
         if lsha != ZERO and C.in_claude_session(environ) and not rref.startswith("refs/remotes/"):
             # 先看 commit 訊息（分支、標籤、main 都看）：排在通行證的檢查之前，訊息有問題就不會白白用掉一張通行證
             msg_problem = commit_message_problem(repo, main_root, cfg, lsha, rsha)
+            if not msg_problem:                                             # 訊息乾淨，再看檔案內容裡的具名字串（檢查程式自己帶鹽掃）
+                msg_problem = file_content_problem(repo, main_root, cfg, lsha, rsha)
         if msg_problem:
             ok, why = False, msg_problem
         elif rref.startswith("refs/tags/"):
