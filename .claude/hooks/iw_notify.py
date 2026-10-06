@@ -902,7 +902,13 @@ def guards_module(main_root):
         import importlib.util
         spec = importlib.util.spec_from_file_location("iw_pr_guards", p)
         mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        # 載入的時候不可以在主目錄留下 scripts/__pycache__/：主目錄要保持乾淨（寄信前會查），而且檢查程式本來就不該寫主目錄。
+        # 2026-10-06 驗收機抓到的：寄 ready 之前多載入一次掃描器之後，下一次寄信就被「主目錄多出來的檔」擋下（本機的環境關掉了寫快取，測不出來）。
+        saved, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+        try:
+            spec.loader.exec_module(mod)
+        finally:
+            sys.dont_write_bytecode = saved
         _GUARDS_CACHE[key] = mod
     return mod
 

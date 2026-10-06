@@ -1023,6 +1023,27 @@ class TestPrePush(unittest.TestCase):
         ok, msgs = sb.check(["refs/tags/stopX1-blob %s refs/tags/stopX1-blob %s" % (tag_sha, zero)])
         self.assertFalse(ok)
 
+    def test_loading_the_scanner_leaves_no_cache_files_in_the_main_checkout(self):
+        """檢查程式載入主目錄上的隱私掃描器時，不可以在主目錄留下 scripts/__pycache__/：寄信前會查主目錄乾不乾淨，多出來的檔會把下一次寄信擋下。
+        2026-10-06 驗收機抓到的（寄 ready 之前多掃一次檔案內容之後才露出來）；本機的環境關掉了寫快取，所以這裡把它打開再測。
+        對照組：載入時不關寫快取 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        cache = os.path.join(sb.main, "scripts", "__pycache__")
+        shutil.rmtree(cache, ignore_errors=True)
+        saved = (sys.dont_write_bytecode, sys.pycache_prefix)
+        sys.dont_write_bytecode, sys.pycache_prefix = False, None                         # GitHub 的執行機上就是這樣：會寫快取，而且寫在原始檔旁邊
+        N._GUARDS_CACHE.clear()
+        try:
+            self.assertEqual(N.text_privacy_problems(sb.main, "一段乾淨的說明"), [])
+            self.assertIsNone(N.named_term_blob_problem(sb.main, sb.wt, []))
+            self.assertFalse(sys.dont_write_bytecode)                                     # 載入完要還原，不影響別的程式
+        finally:
+            sys.dont_write_bytecode, sys.pycache_prefix = saved
+            N._GUARDS_CACHE.clear()
+        self.assertFalse(os.path.exists(cache))
+        self.assertEqual(run_git(["status", "--porcelain", "--", "scripts"], sb.main)[1].strip(), "")
+
     def test_the_message_of_an_annotated_tag_is_scanned_before_it_is_pushed(self):
         """Codex 對 P2 的第六次審查（P0）：推送前只掃 commit 的訊息。帶訊息的標籤（annotated tag），訊息存在標籤物件裡，原本完全沒看——
         守門允許建立與推送新標籤，所以標籤訊息裡的個人資料、權杖、信箱、本機路徑會直接公開。現在標籤的訊息照 commit 訊息的規矩掃；讀不到就擋。

@@ -1244,6 +1244,35 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         real = RM.run_one(("Z2", "真的測試也紅", "a.py", "Y = 1", "Y = 2", ["t.py"]), repo, copy, [sys.executable], None, 120)
         self.assertEqual((real["ok"], real["red"]), (True, ["test_real"]))
 
+    def test_a_leftover_bytecode_cache_cannot_hide_a_mutation(self):
+        """2026-10-06 驗收機上的 R144：改壞前後一樣長的突變，又剛好跟上一次寫檔落在同一秒，Python 會把上一次留下的快取檔（__pycache__）
+        當成還能用——跑的其實是沒改壞的程式，測試照樣綠，突變看起來「沒有紅」。執行器跑測試時一律從原始碼重新編譯，不讀也不寫原始檔旁邊的快取。
+        這裡直接做出那個情況：先替「沒改壞的」留一份快取，再把檔換成一樣長的改壞版、修改時間設成一樣。
+        對照組：照一般的方式跑會被騙（綠）；拿掉執行器的那兩個設定 → 這一條會紅。"""
+        import py_compile
+        tmp = tempfile.mkdtemp(prefix="iw-mut-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        copy = os.path.join(tmp, "copy")
+        os.makedirs(copy)
+        src, when = os.path.join(copy, "a.py"), 1700000000
+        with io.open(src, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("X = 1\n")
+        with io.open(os.path.join(copy, "t.py"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("import unittest\nimport a\n\n\nclass T(unittest.TestCase):\n    def test_real(self):\n        self.assertEqual(a.X, 1)\n")
+        os.utime(src, (when, when))
+        py_compile.compile(src, doraise=True)                                    # 沒改壞的那一版留下快取檔
+        with io.open(src, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write("X = 2\n")                                                  # 改壞：一樣長
+        os.utime(src, (when, when))                                              # 修改時間也一樣（在執行機上是「同一秒」）
+        plain = dict(os.environ)
+        plain.pop("PYTHONPYCACHEPREFIX", None)
+        fooled = subprocess.run([sys.executable, "-m", "unittest", "t.py"], cwd=copy, env=plain, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertEqual(fooled.returncode, 0, fooled.stdout.decode("utf-8", "replace")[-400:])   # 一般的跑法：讀到舊快取，以為沒改壞
+        rc, ran, fails, _tail, _out = RM.run_tests(copy, [sys.executable], ["t.py"])
+        self.assertEqual((ran, fails), (1, ["test_real"]))                       # 執行器：從原始碼重新編譯，改壞的那一版真的被跑到
+        self.assertNotEqual(rc, 0)
+        self.assertFalse(os.path.exists(os.path.join(copy, ".no-pycache")))      # 也不留新的快取
+
     def test_known_survivors_file_ignores_the_about_key(self):
         tmp = tempfile.mkdtemp(prefix="iw-known-")
         try:

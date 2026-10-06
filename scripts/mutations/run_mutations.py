@@ -127,6 +127,11 @@ def fresh_copy(src, dst):
 def run_tests(copy, python, args, browser=None, timeout=1800):
     """unittest 的命令列：測試檔要排在 -k 選項前面（幾組清單串起來時路徑會夾在 -k 中間，argparse 會說 unrecognized arguments）；同一個檔只列一次。"""
     env = dict(os.environ, IW_TEST_NO_SIDE_EFFECTS="1", PYTHONIOENCODING="utf-8")
+    # 每一次都從原始碼重新編譯，不讀也不寫 __pycache__。Python 判斷快取檔還能不能用，只看原始檔的修改時間（秒）與大小；
+    # 改壞前後一樣長、又在同一秒內寫檔的突變，會被上一次留下的快取檔蓋住——跑的其實是沒改壞的程式，突變看起來「沒有紅」
+    # （2026-10-06 驗收機上的 R144 就是這樣：GitHub 的執行機一次只要零點幾秒）。反過來也會把上一個突變的效果算到下一個頭上。
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env["PYTHONPYCACHEPREFIX"] = os.path.join(copy, ".no-pycache")     # 快取改到一個不存在、也不會被寫的地方找：原始檔旁邊的 __pycache__ 不看
     if browser:
         env["IW_BROWSER"] = browser
     env.pop("IW_SCAN_SALT_FILE", None)
