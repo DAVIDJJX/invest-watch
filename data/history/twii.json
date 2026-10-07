@@ -3,8 +3,8 @@
   "name": "台股加權指數",
   "currency": "TWD",
   "unit": "點",
-  "count": 268,
-  "updatedAt": "2026-10-07T08:40:24+08:00",
+  "count": 269,
+  "updatedAt": "2026-10-07T09:10:25+08:00",
   "points": [
     {"d":"2025-09-01","c":24071.730469},
     {"d":"2025-09-02","c":24016.779297},
@@ -273,6 +273,7 @@
     {"d":"2026-10-02","c":48475.74,"dateSource":"official"},
     {"d":"2026-10-04","c":48402.87,"dateSource":"close-realtime"},
     {"d":"2026-10-05","c":49712.04,"dateSource":"official"},
-    {"d":"2026-10-06","c":49822.55,"dateSource":"official"}
+    {"d":"2026-10-06","c":49822.55,"dateSource":"official"},
+    {"d":"2026-10-07","c":49806.67,"dateSource":"intraday","provisional":true}
   ]
 }
