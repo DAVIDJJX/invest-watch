@@ -3,8 +3,8 @@
   "name": "WTI 原油",
   "currency": "USD",
   "unit": "美元 / 桶",
-  "count": 281,
-  "updatedAt": "2026-10-07T11:40:34+08:00",
+  "count": 282,
+  "updatedAt": "2026-10-07T12:10:30+08:00",
   "points": [
     {"d":"2025-09-02","c":65.589996},
     {"d":"2025-09-03","c":63.970001},
@@ -286,6 +286,7 @@
     {"d":"2026-10-02","c":91.110001,"dateSource":"yahoo"},
     {"d":"2026-10-04","c":90.06,"dateSource":"intraday","provisional":true},
     {"d":"2026-10-05","c":89.43,"dateSource":"yahoo"},
-    {"d":"2026-10-06","c":89.440002,"dateSource":"yahoo"}
+    {"d":"2026-10-06","c":89.440002,"dateSource":"yahoo"},
+    {"d":"2026-10-07","c":90.22,"dateSource":"intraday","provisional":true}
   ]
 }
