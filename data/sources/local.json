@@ -1,7 +1,7 @@
 {
  "source": "local",
- "runAt": "2026-10-07T15:30:11+08:00",
- "runAtText": "2026-10-07 15:30",
+ "runAt": "2026-10-07T16:00:23+08:00",
+ "runAtText": "2026-10-07 16:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4250.0,
+   "price": 4255.0,
    "prevClose": 4257.0,
-   "change": -7.0,
-   "changePct": -0.1644,
+   "change": -2.0,
+   "changePct": -0.047,
    "date": "2026-10-07",
    "points": 269,
    "spark": [
@@ -66,18 +66,18 @@
     4314.0,
     4268.0,
     4257.0,
-    4250.0
+    4255.0
    ],
-   "fetchedAt": "2026-10-07T15:30:08+08:00",
+   "fetchedAt": "2026-10-07T16:00:21+08:00",
    "error": null,
-   "buy": 4203.0,
-   "sell": 4250.0,
-   "quoteTime": "2026/10/07 15:24",
+   "buy": 4204.0,
+   "sell": 4255.0,
+   "quoteTime": "2026/10/07 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-07T15:30:08+08:00",
-   "lastSuccessAt": "2026-10-07T15:30:08+08:00"
+   "lastAttemptAt": "2026-10-07T16:00:21+08:00",
+   "lastSuccessAt": "2026-10-07T16:00:21+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,16 +138,16 @@
     896.25,
     895.25
    ],
-   "fetchedAt": "2026-10-07T15:30:11+08:00",
+   "fetchedAt": "2026-10-07T16:00:23+08:00",
    "error": null,
    "buy": 885.7,
    "sell": 895.25,
-   "quoteTime": "2026/10/07 15:24",
+   "quoteTime": "2026/10/07 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-07T15:30:11+08:00",
-   "lastSuccessAt": "2026-10-07T15:30:11+08:00"
+   "lastAttemptAt": "2026-10-07T16:00:23+08:00",
+   "lastSuccessAt": "2026-10-07T16:00:23+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
