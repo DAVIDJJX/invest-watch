@@ -1,9 +1,9 @@
 {
- "updatedAt": "2026-10-09T09:30:53+08:00",
- "updatedAtText": "2026-10-09 09:30",
+ "updatedAt": "2026-10-09T11:30:53+08:00",
+ "updatedAtText": "2026-10-09 11:30",
  "timezone": "Asia/Taipei (UTC+8)",
- "slot": "morning",
- "slotLabel": "晨報（了解今天狀況）",
+ "slot": "midmorning",
+ "slotLabel": "午前（盤中整理）",
  "mode": "full",
  "summary": {
   "total": 14,
@@ -83,8 +83,8 @@
    "lastAttemptAt": "2026-10-09T00:51:54+08:00",
    "lastSuccessAt": "2026-10-09T00:51:54+08:00",
    "freshness": "stale",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T10:00:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T12:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -156,8 +156,8 @@
    "lastAttemptAt": "2026-10-09T00:51:56+08:00",
    "lastSuccessAt": "2026-10-09T00:51:56+08:00",
    "freshness": "stale",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T10:00:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T12:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -251,8 +251,8 @@
    "carriedOver": true,
    "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "stale",
-   "lastDueAt": "2026-10-08T15:05:00+08:00",
-   "nextDueAt": "2026-10-09T10:05:00+08:00"
+   "lastDueAt": "2026-10-09T10:05:00+08:00",
+   "nextDueAt": "2026-10-09T13:05:00+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -265,10 +265,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 4181.6,
+   "price": 4198.6,
    "prevClose": 4140.700195,
-   "change": 40.899805,
-   "changePct": 0.9878,
+   "change": 57.899805,
+   "changePct": 1.3983,
    "date": "2026-10-08",
    "points": 265,
    "spark": [
@@ -311,16 +311,16 @@
     4156.799805,
     4187.100098,
     4140.700195,
-    4181.6
+    4157.0
    ],
-   "fetchedAt": "2026-10-09T09:30:36+08:00",
+   "fetchedAt": "2026-10-09T11:30:36+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:36+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:36+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:36+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:36+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T11:30:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T13:35:00+08:00"
   },
   "twii": {
    "id": "twii",
@@ -381,7 +381,7 @@
     49806.37,
     49313.44
    ],
-   "fetchedAt": "2026-10-09T09:30:37+08:00",
+   "fetchedAt": "2026-10-09T11:30:37+08:00",
    "error": null,
    "open": 49783.06,
    "high": 49783.06,
@@ -389,11 +389,11 @@
    "quoteTime": "13:31:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:37+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:37+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:37+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:37+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -454,7 +454,7 @@
     2585.0,
     2550.0
    ],
-   "fetchedAt": "2026-10-09T09:30:40+08:00",
+   "fetchedAt": "2026-10-09T11:30:40+08:00",
    "error": null,
    "open": 2550.0,
    "high": 2575.0,
@@ -462,11 +462,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:40+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:40+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:40+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:40+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -527,7 +527,7 @@
     78.15,
     78.35
    ],
-   "fetchedAt": "2026-10-09T09:30:43+08:00",
+   "fetchedAt": "2026-10-09T11:30:43+08:00",
    "error": null,
    "open": 78.15,
    "high": 78.35,
@@ -535,11 +535,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:43+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:43+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:43+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:43+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -600,7 +600,7 @@
     24.299999,
     24.35
    ],
-   "fetchedAt": "2026-10-09T09:30:43+08:00",
+   "fetchedAt": "2026-10-09T11:30:43+08:00",
    "error": null,
    "open": 24.31,
    "high": 24.36,
@@ -608,11 +608,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:43+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:43+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:43+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:43+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -673,14 +673,14 @@
     237.470001,
     230.48
    ],
-   "fetchedAt": "2026-10-09T09:30:45+08:00",
+   "fetchedAt": "2026-10-09T11:30:45+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:45+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:45+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:45+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:45+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -741,14 +741,14 @@
     7801.77002,
     7765.36
    ],
-   "fetchedAt": "2026-10-09T09:30:47+08:00",
+   "fetchedAt": "2026-10-09T11:30:47+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:47+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:47+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:47+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:47+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "btc": {
    "id": "btc",
@@ -761,10 +761,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 81734.52,
+   "price": 82120.48,
    "prevClose": 81437.68,
-   "change": 296.84,
-   "changePct": 0.3645,
+   "change": 682.8,
+   "changePct": 0.8384,
    "date": "2026-10-09",
    "points": 400,
    "spark": [
@@ -807,16 +807,16 @@
     85557.5625,
     83275.929688,
     81437.68,
-    81734.52
+    82120.48
    ],
-   "fetchedAt": "2026-10-09T09:30:49+08:00",
+   "fetchedAt": "2026-10-09T11:30:49+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:49+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:49+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:49+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:49+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "wti": {
    "id": "wti",
@@ -829,10 +829,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 90.91,
+   "price": 90.7,
    "prevClose": 88.279999,
-   "change": 2.630001,
-   "changePct": 2.9792,
+   "change": 2.420001,
+   "changePct": 2.7413,
    "date": "2026-10-08",
    "points": 283,
    "spark": [
@@ -875,16 +875,16 @@
     89.43,
     89.440002,
     88.279999,
-    90.91
+    91.489998
    ],
-   "fetchedAt": "2026-10-09T09:30:51+08:00",
+   "fetchedAt": "2026-10-09T11:30:51+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:51+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:51+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:51+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:51+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T09:40:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -945,20 +945,20 @@
     31.855,
     31.95
    ],
-   "fetchedAt": "2026-10-09T09:30:52+08:00",
+   "fetchedAt": "2026-10-09T11:30:52+08:00",
    "error": null,
    "spotBuy": 31.85,
    "spotSell": 31.95,
    "cashBuy": 31.5,
    "cashSell": 32.17,
-   "historyNote": null,
+   "historyNote": "FinMind 還沒有比 2026-10-08 更新的資料（當天那一筆要等它發布），這一輪沒有新增歷史點",
    "sourceLabel": "台銀每日匯率（經 FinMind）",
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:52+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:52+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:52+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:52+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T11:30:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T13:35:00+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -1019,32 +1019,32 @@
     4.768,
     4.783
    ],
-   "fetchedAt": "2026-10-09T09:30:53+08:00",
+   "fetchedAt": "2026-10-09T11:30:53+08:00",
    "error": null,
    "spotBuy": 4.733,
    "spotSell": 4.783,
    "cashBuy": 4.661,
    "cashSell": 4.823,
-   "historyNote": null,
+   "historyNote": "FinMind 還沒有比 2026-10-08 更新的資料（當天那一筆要等它發布），這一輪沒有新增歷史點",
    "sourceLabel": "台銀每日匯率（經 FinMind）",
    "source": "cloud",
-   "lastAttemptAt": "2026-10-09T09:30:53+08:00",
-   "lastSuccessAt": "2026-10-09T09:30:53+08:00",
+   "lastAttemptAt": "2026-10-09T11:30:53+08:00",
+   "lastSuccessAt": "2026-10-09T11:30:53+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-09T09:30:00+08:00",
-   "nextDueAt": "2026-10-09T11:30:00+08:00"
+   "lastDueAt": "2026-10-09T11:30:00+08:00",
+   "nextDueAt": "2026-10-09T13:35:00+08:00"
   }
  },
  "sources": {
   "cloud": {
-   "runAt": "2026-10-09T09:30:53+08:00",
-   "slot": "morning",
+   "runAt": "2026-10-09T11:30:53+08:00",
+   "slot": "midmorning",
    "mode": "full",
    "ok": 11,
    "error": 0,
    "requests": 12,
    "ageMinutes": 0,
-   "nextDueAt": "2026-10-09T09:40:00+08:00",
+   "nextDueAt": "2026-10-09T11:40:00+08:00",
    "status": "ok"
   },
   "local": {
@@ -1054,8 +1054,8 @@
    "ok": 3,
    "error": 0,
    "requests": 3,
-   "ageMinutes": 518,
-   "nextDueAt": "2026-10-09T10:00:00+08:00",
+   "ageMinutes": 638,
+   "nextDueAt": "2026-10-09T12:00:00+08:00",
    "status": "ok"
   }
  }
