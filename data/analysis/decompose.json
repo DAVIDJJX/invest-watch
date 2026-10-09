@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-08T15:30:55+08:00",
+ "generatedAt": "2026-10-09T15:30:47+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -3783,66 +3783,81 @@
    },
    {
     "d": "2026-10-07",
-    "goldSell": 4240.0,
-    "goldBuy": 4189.0,
+    "goldSell": 4250.0,
+    "goldBuy": 4203.0,
     "fxDate": "2026-10-07",
     "fxMid": 31.805,
     "gcDate": "2026-10-07",
     "gc": 4140.700195,
     "impliedSameDay": 4234.09,
-    "residualSameDayPct": 0.14,
+    "residualSameDayPct": 0.376,
     "gcPrevDate": "2026-10-06",
     "gcPrev": 4187.100098,
     "impliedPrevDay": 4281.53,
-    "residualPrevDayPct": -0.97
+    "residualPrevDayPct": -0.737
+   },
+   {
+    "d": "2026-10-08",
+    "goldSell": 4255.0,
+    "goldBuy": 4204.0,
+    "fxDate": "2026-10-08",
+    "fxMid": 31.9,
+    "gcDate": "2026-10-08",
+    "gc": 4157.0,
+    "impliedSameDay": 4263.45,
+    "residualSameDayPct": -0.198,
+    "gcPrevDate": "2026-10-07",
+    "gcPrev": 4140.700195,
+    "impliedPrevDay": 4246.74,
+    "residualPrevDayPct": 0.195
    }
   ],
   "summarySameDay": {
    "n": 60,
-   "medianPct": -0.185,
-   "meanPct": -0.223,
+   "medianPct": -0.205,
+   "meanPct": -0.257,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-07-13",
-   "through": "2026-10-07"
+   "from": "2026-07-14",
+   "through": "2026-10-08"
   },
   "summaryPrevDay": {
    "n": 60,
    "medianPct": -0.397,
-   "meanPct": -0.172,
+   "meanPct": -0.185,
    "minPct": -1.477,
    "maxPct": 2.207,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-07-14",
-   "through": "2026-10-07"
+   "from": "2026-07-15",
+   "through": "2026-10-08"
   },
   "live": {
-   "goldSell": 4240.0,
-   "goldDate": "2026-10-07",
-   "goldQuoteTime": "2026/10/07 17:12",
-   "gcPrice": 4150.0,
-   "gcDate": "2026-10-08",
-   "gcFetchedAt": "2026-10-08T15:30:38+08:00",
+   "goldSell": 4255.0,
+   "goldDate": "2026-10-08",
+   "goldQuoteTime": "2026/10/08 19:56",
+   "gcPrice": 4219.0,
+   "gcDate": "2026-10-09",
+   "gcFetchedAt": "2026-10-09T15:30:30+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
-   "fxMid": 31.805,
-   "fxDate": "2026-10-07",
-   "implied": 4243.6,
-   "residualPct": -0.085,
+   "fxMid": 31.9,
+   "fxDate": "2026-10-08",
+   "implied": 4327.04,
+   "residualPct": -1.665,
    "label": "估算"
   },
   "inputs": {
    "gold_twd": {
-    "points": 269,
-    "lastDate": "2026-10-07"
+    "points": 270,
+    "lastDate": "2026-10-08"
    },
    "gold_intl": {
-    "points": 265,
-    "lastDate": "2026-10-08"
+    "points": 266,
+    "lastDate": "2026-10-09"
    },
    "fx_usd": {
     "points": 400,
-    "lastDate": "2026-10-07",
+    "lastDate": "2026-10-08",
     "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）"
    }
   }

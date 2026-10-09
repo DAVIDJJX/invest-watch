@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-08T15:30:55+08:00",
+ "generatedAt": "2026-10-09T15:30:47+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -100,9 +100,9 @@
    "status": "接了（每個交易日存一筆）",
    "today": {
     "d": "2026-10-08",
-    "time": "15:30:15",
+    "time": "17:00:00",
     "price": 78.35,
-    "estNav": 78.35,
+    "estNav": 78.24,
     "prevOfficialNav": 78.21
    },
    "rows": 11,
@@ -110,8 +110,8 @@
     {
      "d": "2026-10-08",
      "price": 78.35,
-     "nav": 78.35,
-     "premiumPct": 0.0,
+     "nav": 78.24,
+     "premiumPct": 0.141,
      "tag": "預估"
     },
     {
@@ -144,9 +144,9 @@
    "status": "接了（每個交易日存一筆）",
    "today": {
     "d": "2026-10-08",
-    "time": "15:30:15",
+    "time": "17:00:00",
     "price": 24.35,
-    "estNav": 24.3035,
+    "estNav": 24.2712,
     "prevOfficialNav": 24.4284
    },
    "rows": 11,
@@ -154,8 +154,8 @@
     {
      "d": "2026-10-08",
      "price": 24.35,
-     "nav": 24.3035,
-     "premiumPct": 0.191,
+     "nav": 24.2712,
+     "premiumPct": 0.325,
      "tag": "預估"
     },
     {
@@ -182,10 +182,10 @@
  "goldSpread": {
   "label": "單一來源",
   "latest": {
-   "d": "2026-10-07",
-   "buy": 4189.0,
-   "sell": 4240.0,
-   "spreadPct": 1.21
+   "d": "2026-10-08",
+   "buy": 4204.0,
+   "sell": 4255.0,
+   "spreadPct": 1.206
   },
   "daily": [
    {
@@ -1798,19 +1798,25 @@
    },
    {
     "d": "2026-10-07",
-    "buy": 4189.0,
-    "sell": 4240.0,
-    "spreadPct": 1.21
+    "buy": 4203.0,
+    "sell": 4250.0,
+    "spreadPct": 1.112
+   },
+   {
+    "d": "2026-10-08",
+    "buy": 4204.0,
+    "sell": 4255.0,
+    "spreadPct": 1.206
    }
   ],
   "summary": {
-   "n": 269,
+   "n": 270,
    "from": "2025-09-01",
-   "through": "2026-10-07",
+   "through": "2026-10-08",
    "medianPct": 1.095,
    "meanPct": 1.096,
    "minPct": 1.054,
-   "maxPct": 1.21
+   "maxPct": 1.206
   },
   "notes": [
    "台銀黃金存摺沒有手續費，成本就是這個價差；資料來自家用電腦抓的台銀牌價（data/history/gold_twd.json）。"
@@ -1818,47 +1824,47 @@
  },
  "barPremium": {
   "label": "單一來源",
-  "n": 19,
+  "n": 20,
   "from": "2026-08-31",
-  "through": "2026-10-07",
+  "through": "2026-10-08",
   "latest": {
-   "d": "2026-10-07",
-   "goldSell": 4240.0,
+   "d": "2026-10-08",
+   "goldSell": 4255.0,
    "rows": [
     {
      "spec": "1 公斤",
      "grams": 1000.0,
-     "price": 4285574.0,
-     "perGram": 4285.57,
-     "premiumPct": 1.075
+     "price": 4295887.0,
+     "perGram": 4295.89,
+     "premiumPct": 0.961
     },
     {
      "spec": "500 公克",
      "grams": 500.0,
-     "price": 2146462.0,
-     "perGram": 4292.92,
-     "premiumPct": 1.248
+     "price": 2151629.0,
+     "perGram": 4303.26,
+     "premiumPct": 1.134
     },
     {
      "spec": "250 公克",
      "grams": 250.0,
-     "price": 1075328.0,
-     "perGram": 4301.31,
-     "premiumPct": 1.446
+     "price": 1077918.0,
+     "perGram": 4311.67,
+     "premiumPct": 1.332
     },
     {
      "spec": "100 公克",
      "grams": 100.0,
-     "price": 431411.0,
-     "perGram": 4314.11,
-     "premiumPct": 1.748
+     "price": 432451.0,
+     "perGram": 4324.51,
+     "premiumPct": 1.634
     },
     {
      "spec": "金鑽 1 台兩",
      "grams": 37.5,
-     "price": 161968.0,
-     "perGram": 4319.15,
-     "premiumPct": 1.867
+     "price": 162359.0,
+     "perGram": 4329.57,
+     "premiumPct": 1.753
     }
    ]
   },
@@ -2027,12 +2033,21 @@
    },
    {
     "d": "2026-10-07",
-    "goldSell": 4240.0,
-    "g1000Pct": 1.075,
-    "g500Pct": 1.248,
-    "g250Pct": 1.446,
-    "g100Pct": 1.748,
-    "taelPct": 1.867
+    "goldSell": 4250.0,
+    "g1000Pct": 0.837,
+    "g500Pct": 1.01,
+    "g250Pct": 1.207,
+    "g100Pct": 1.508,
+    "taelPct": 1.627
+   },
+   {
+    "d": "2026-10-08",
+    "goldSell": 4255.0,
+    "g1000Pct": 0.961,
+    "g500Pct": 1.134,
+    "g250Pct": 1.332,
+    "g100Pct": 1.634,
+    "taelPct": 1.753
    }
   ],
   "notes": [
@@ -2049,10 +2064,10 @@
  "goldSpreadCny": {
   "label": "單一來源",
   "latest": {
-   "d": "2026-10-07",
-   "buy": 885.7,
-   "sell": 895.25,
-   "spreadPct": 1.072
+   "d": "2026-10-08",
+   "buy": 884.1,
+   "sell": 893.6,
+   "spreadPct": 1.069
   },
   "daily": [
    {
@@ -3668,12 +3683,18 @@
     "buy": 885.7,
     "sell": 895.25,
     "spreadPct": 1.072
+   },
+   {
+    "d": "2026-10-08",
+    "buy": 884.1,
+    "sell": 893.6,
+    "spreadPct": 1.069
    }
   ],
   "summary": {
-   "n": 269,
+   "n": 270,
    "from": "2025-09-01",
-   "through": "2026-10-07",
+   "through": "2026-10-08",
    "medianPct": 1.065,
    "meanPct": 1.065,
    "minPct": 1.03,
