@@ -22,6 +22,8 @@ import iw_state as ST
 from iw_common import Block
 
 MAIN = "main"
+REMOTE = "origin"
+REMOTE_MAIN = C.REMOTE_REF_FORMAT % (REMOTE, MAIN)                  # 遠端正式版的記號一律用全名（同名的標籤或本機分支蓋不過它）
 
 READONLY_GIT = set("""status diff log show rev-parse rev-list ls-files ls-tree cat-file describe merge-base merge-tree name-rev
 shortlog blame grep for-each-ref show-ref ls-remote count-objects check-ignore check-attr diff-tree diff-index diff-files var version
@@ -44,7 +46,18 @@ GIT_NEVER = set("""send-pack http-push receive-pack upload-pack upload-archive h
 remote-ftp remote-ftps remote-ext remote-fd daemon shell subtree svn p4 cvsserver imap-send send-email instaweb http-backend
 credential credential-manager credential-store credential-cache submodule bisect difftool mergetool maintenance""".split())
 
-READONLY_PROGRAMS = set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
+# gh 對 PR／issue（P2）：PR 的寫入只准經過主目錄那支 iw_notify.py pr（開、改標題內文、留言剛好是 @codex review）；其他一律擋，兩種模式都是。
+# 2026-10-05 Codex 的審查意見：原本列的是「會寫的子指令」，漏了 revert（它會直接開一個 PR，不經過隱私掃描）。
+# 會寫的列不完、gh 以後還會加新的，所以反過來只列「確定只讀的」；不在這裡的一律擋。
+GH_PR_READS = set("view list diff checks status".split())
+GH_ISSUE_READS = set("view list status".split())
+# gh run／gh workflow：驗收機的執行紀錄是證據。確定不會改到紀錄的才放行；rerun（重跑驗收）與 workflow run（觸發通知）各有自己的規則。
+# 2026-10-06 Codex 的審查意見：一般模式原本放行 gh run delete——同一個 commit 可以有兩次執行（推分支、推標籤），關卡認最新的那一次；
+# 把最新的紅的刪掉，比較舊的綠的就重新算數。
+GH_RUN_READS = set("list view watch download".split())
+GH_WORKFLOW_READS = set("list view".split())
+
+READONLY_PROGRAMS =set("""cat head tail less more ls dir stat file wc grep egrep fgrep rg diff cmp md5sum sha256sum sha1sum od xxd strings
 test [ [[ echo printf true false : pwd basename dirname realpath which type date sort uniq cut tr awk sed find du df sleep wait cd pushd popd
 export set exit return jq yq nl base64 column tac rev fold expand unexpand paste join comm cksum sha512sum b2sum hexdump zcat bzcat xzcat
 tree printenv id whoami uname hostname nproc seq expr""".split())
@@ -117,7 +130,7 @@ GIT_DASH_C_OK = set(["core.quotepath", "color.ui", "advice.detachedhead", "core.
 # 會替我送訊息、排程、或開別的工作階段的工具：內容裡出現放行詞就擋（永遠有效）
 MESSAGING_TOOLS = re.compile(r"^(CronCreate|ScheduleWakeup|SendMessage|RemoteTrigger|PushNotification|"
                              r"mcp__scheduled-tasks__.*|mcp__ccd_session_mgmt__send_message|mcp__ccd_session__spawn_task)$")
-APPROVAL_WORDS = ("放行", "自動駕駛", "裁決")
+APPROVAL_WORDS = ("放行", "自動駕駛", "裁決", "免外部審查", "驗收機變更")
 
 # 暫停（或停在合併前）期間，除了讀檔與搜尋之外還准用的工具：都不會動到任何檔。清單寫死、越窄越好（test_pause_allowed_list_is_narrow）。
 PAUSE_TOOLS = ("Skill", "ToolSearch", "TodoWrite", "SubagentHandback")
@@ -186,7 +199,7 @@ class GitInfo(object):
         return res
 
     def main_tips(self):
-        rc, out = C.git(["for-each-ref", "--format=%(objectname)", "refs/heads/" + MAIN, "refs/remotes/origin/" + MAIN], self.main_root)
+        rc, out = C.git(["for-each-ref", "--format=%(objectname)", "refs/heads/" + MAIN, REMOTE_MAIN], self.main_root)
         return set(out.split()) if rc == 0 else set()
 
     def upstream(self, cdir):
@@ -229,7 +242,7 @@ class GitInfo(object):
         return sorted(f for f in files if f)
 
     def changed_vs_main(self, cdir):
-        rc, out = C.git(["diff", "--name-only", "origin/" + MAIN + "...HEAD"], cdir)
+        rc, out = C.git(["diff", "--name-only", REMOTE_MAIN + "...HEAD"], cdir)
         return sorted(f for f in out.split("\n") if f) if rc == 0 else None
 
     def head_blobs(self, cdir):
@@ -239,6 +252,18 @@ class GitInfo(object):
         """這個資料夾正在合併的那個 commit（沒有進行中的合併回 None）。"""
         rc, out = C.git(["rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}"], cdir)
         return out if rc == 0 and out else None
+
+    def gh_verify_runs(self, cfg, sha):
+        """GitHub 上驗收機對這個 commit 的執行紀錄（唯讀；只有「重跑驗收」那條規則會問）。查不到回 None。"""
+        import iw_review as RV                                      # 用到才載入：守門平常不連 GitHub
+        v = cfg.get("verify") or {}
+        s = RV.slug(self.main_root, cfg)
+        if not v or not s:
+            return None
+        obj, _err = RV.gh_json(["api", "repos/%s/actions/workflows/%s/runs?head_sha=%s&per_page=100" % (s, v["workflow"], sha)], hints={"sha": sha})
+        if not isinstance(obj, dict) or not isinstance(obj.get("workflow_runs"), list):
+            return None
+        return obj["workflow_runs"]
 
 
 # ---------------------------------------------------------------- 情境
@@ -436,8 +461,10 @@ def _autopilot_gate(tool, ti, ctx):
     effort = ((ctx.inp.get("effort") or {}).get("level")) if isinstance(ctx.inp.get("effort"), dict) else None
     model = ST.norm_model(ctx.inp.get("_observed_model") or "") or None
     approved_models = set([need_model] + list(st.get("model_approved") or []))
+    approved_efforts = set([need_effort] + list(st.get("effort_approved") or []))      # 中途由 David 手打「放行模型」臨時放行的強度（只有 Max 可以）
+    approvable = list(cfg.get("approvableEfforts") or [])
 
-    first_start = st.get("status") == "pending" and not st.get("activated_at")
+    first_start =st.get("status") == "pending" and not st.get("activated_at")
     if first_start:                                                 # 啟動後的第一個動作：這時才看得到強度
         if effort is not None and effort != need_effort:
             ctx.effects.append(("deactivate", "思考強度是 %s，不是 %s" % (effort, need_effort)))
@@ -457,10 +484,12 @@ def _autopilot_gate(tool, ti, ctx):
             ctx.effects.append(("model_violation", model))
             raise Block("模型被換成「%s」，自動駕駛已暫停（已寄信）。要用它繼續，請 David 輸入「放行模型」；"
                         "或等額度恢復後輸入「繼續 %s」。" % (model, st.get("stage")), 9)
-        if effort is not None and effort != need_effort:
-            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）" % (effort, need_effort), 9, True))
-            raise Block("思考強度被改成「%s」（規定是 %s），自動駕駛已暫停（已寄信）。請 David 用思考強度選單（Ctrl+Shift+E）改回 %s，再輸入「繼續 %s」。"
-                        % (effort, need_effort, effort_label, st.get("stage")), 9)
+        if effort is not None and effort not in approved_efforts:
+            can = effort in approvable
+            ctx.effects.append(("pause", "effort", "思考強度被改成 %s（規定 %s）%s" % (effort, need_effort, "；這個強度可以臨時放行：輸入「放行模型」" if can else ""), 9, True))
+            ctx.effects.append(("effort_violation", effort))
+            raise Block("思考強度被改成「%s」（規定是 %s），自動駕駛已暫停（已寄信）。%s請 David 用思考強度選單（Ctrl+Shift+E）改回 %s，再輸入「繼續 %s」。"
+                        % (effort, need_effort, "要用它跑這一輪（卡住的難題才用），請 David 輸入「放行模型」；不然" if can else "", effort_label, st.get("stage")), 9)
         if st.get("status") == "pending":                           # 「繼續／修改」之後的第一個動作：模型與強度都對，接著做
             ctx.effects.append(("activate", {"effort": effort, "model": model}))
 
@@ -557,6 +586,8 @@ def _is_wrapup(tool, ti, ctx):
                     if k is None or not C.is_under(k, runs):
                         return False
             if _notify_command(argv, cwd, ctx):
+                if "pr" in argv[1:]:                                # 暫停中不開 PR、不改 PR、不留言（那不是「寫報告、寄信、唯讀查看」）
+                    return False
                 continue
             if p == "git" and _git_sub(argv)[3]:                   # git -c：臨時改設定，暫停中不准
                 return False
@@ -1483,6 +1514,9 @@ def _git(words, cwd, ctx, auto):
         raise Block("主目錄（main 所在的資料夾）只能看、只能快轉跟上 origin/main；git %s 會動到它。請在 worktree 裡做。" % sub, 1)
     opts = [a for a in args if a.startswith("-")]
     pos = [a for a in args if not a.startswith("-")]
+    for name in _new_ref_names(sub, args):
+        if C.reserved_ref_name(name, REMOTE, literal=(sub not in ("fetch", "pull"))):   # fetch／pull 的目的地可能寫全名；其他的是要建立的名字本身，照字面看
+            raise Block(RESERVED_NAME_MSG % name, 4)
 
     if sub == "merge":
         if any(o in ("--abort", "--quit", "--continue") for o in opts):
@@ -1597,6 +1631,103 @@ def _git(words, cwd, ctx, auto):
     return
 
 
+RESERVED_NAME_MSG = ("分支或標籤的名字不可以以「origin/」「refs/」「remotes/」開頭（%s）：git 會把它跟「遠端的正式版在哪裡」那一類記號搞混——"
+                     "同名的標籤或本機分支排在前面，之後寫 origin/main 的地方拿到的就是它。請換一個名字。")
+# 各個會建立分支／標籤的子指令裡，「後面要接一個值」的選項（收名字的時候要跳過它們的值）
+_REF_VALUE_OPTS = {"tag": ("--message", "--file", "--local-user", "--trailer", "--cleanup", "--sort", "--format", "--contains",
+                           "--no-contains", "--points-at", "--merged", "--no-merged"),
+                   "branch": ("--set-upstream-to", "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format")}
+_REF_VALUE_LETTERS = {"tag": "mFu", "branch": "u"}                  # 同樣要接值的短選項字母（可以黏在一串短選項的最後）
+_REF_QUERY_OPTS = {"tag": ("-l", "--list", "-d", "--delete", "-v", "--verify", "--contains", "--no-contains", "--points-at", "--merged", "--no-merged"),
+                   "branch": ("-l", "--list", "-a", "--all", "-r", "--remotes", "-d", "-D", "--delete", "-u", "--set-upstream-to", "--unset-upstream",
+                              "--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--show-current", "--edit-description")}
+
+
+def _option_values(args, shorts, longs):
+    """選項後面接的值：短選項可以黏在一串裡（-qb 名字、-b名字），長選項可以用空白或等號（--orphan 名字、--orphan=名字）。"""
+    out = []
+    for i, a in enumerate(args):
+        if a == "--":
+            break
+        nxt = args[i + 1] if i + 1 < len(args) else None
+        if a.startswith("--"):
+            for f in longs:
+                if a == f and nxt is not None:
+                    out.append(nxt)
+                elif a.startswith(f + "="):
+                    out.append(a[len(f) + 1:])
+        elif a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:], 1):
+                if ch in shorts:
+                    rest = a[j + 1:]
+                    if rest:
+                        out.append(rest)
+                    elif nxt is not None:
+                        out.append(nxt)
+                    break
+    return out
+
+
+def _plain_positionals(args, value_opts, value_letters=""):
+    """不是選項、也不是某個選項的值的那些參數（照順序）。value_opts：後面要接值的長選項；value_letters：後面要接值的短選項字母。
+    短選項可以黏成一串（-am "訊息"、-aF 檔名、-sm "訊息"）：串裡只要出現要接值的字母、而且值沒有黏在它後面，下一個參數就是它的值，不是名字。
+    2026-10-07 審查代理指出：原本只認整個參數剛好是 -m、-F 的寫法，git tag -am "x" origin/main 就把 x 當成名字、真正的名字沒看到。
+    「--」之後的全部算位置參數。"""
+    out, skip, rest = [], False, False
+    for a in args:
+        if rest:
+            out.append(a)
+            continue
+        if skip:
+            skip = False
+            continue
+        if a == "--":
+            rest = True
+            continue
+        if a.startswith("--"):
+            skip = a in value_opts
+            continue
+        if a.startswith("-") and len(a) > 1:
+            for j, ch in enumerate(a[1:], 1):
+                if ch in value_letters:
+                    skip = (j == len(a) - 1)                        # 值沒有黏在後面：下一個參數是它的值
+                    break
+            continue
+        out.append(a)
+    return out
+
+
+def _new_ref_names(sub, args):
+    """這個 git 指令會建立（或改名成）哪些分支、標籤的名字。只用來擋「會跟遠端的記號撞名」的名字，所以寧可多認、不漏認；
+    起點（例如 git branch 新名字 origin/main 的第二個參數）不算名字。推送的目的地在 _git_push 另外看。"""
+    if sub in ("tag", "branch"):
+        if any(a in _REF_QUERY_OPTS[sub] or a.split("=", 1)[0] in _REF_QUERY_OPTS[sub] for a in args) or \
+                (sub == "branch" and _short_flag(args, "dDlar", "u")) or (sub == "tag" and _short_flag(args, "ldvn", "mFu")):
+            return []
+        pos = _plain_positionals(args, _REF_VALUE_OPTS[sub], _REF_VALUE_LETTERS[sub])
+        if not pos:
+            return []
+        if sub == "branch" and (_short_flag(args, "mMcC", "u") or any(a in ("--move", "--copy") for a in args)):
+            return [pos[-1]]                                         # 改名、複製：最後一個是新名字
+        return [pos[0]]
+    if sub in ("checkout", "switch"):
+        return _option_values(args, "bBcC" if sub == "switch" else "bB", ("--orphan", "--create", "--force-create"))
+    if sub == "worktree":
+        return _option_values(args, "bB", ())
+    if sub == "stash":
+        pos = [a for a in args if not a.startswith("-")]
+        return pos[1:2] if pos[:1] == ["branch"] else []
+    if sub in ("fetch", "pull"):                                     # git fetch／pull <遠端> 來源:目的地——目的地是本機的分支或標籤時才算（refs/remotes/ 那一類另有規則）
+        pos = [a for a in args if not a.startswith("-")]
+        out = []
+        for a in pos[1:]:
+            dst = a.split(":", 1)[1] if ":" in a else ""
+            if dst and not (dst.startswith("refs/") and not dst.startswith(("refs/heads/", "refs/tags/"))):
+                out.append(dst)
+        return out
+    return []
+
+
 def _short_flag(args, letters, takes_value):
     """短選項（可以黏在一起，例如 -am）裡有沒有 letters 中的任何一個。takes_value：後面要接值的選項字母，遇到就停。"""
     skip = False
@@ -1684,6 +1815,8 @@ def _git_push(args, words, cdir, ctx, auto):
             dst = src
         if re.match(r"^(refs/)?remotes/", dst):
             raise Block("把東西推進 refs/remotes/（本機用來記遠端位置的記號）不是正常的推送，不允許。", 4)
+        if src != "" and not deleting and C.reserved_ref_name(dst, REMOTE):      # 推上去會變成一個跟遠端的記號撞名的分支或標籤
+            raise Block(RESERVED_NAME_MSG % dst, 4)
         short = re.sub(r"^refs/heads/", "", dst)
         if src == "":                                               # 刪除遠端的東西
             if dst.startswith("refs/tags/") or ctx.git.tag_exists(short) or short == MAIN:
@@ -1731,6 +1864,9 @@ def _git_push(args, words, cdir, ctx, auto):
 _GH_VALUE_OPTS = set("""-R --repo -f --field -F --raw-field -X --method -H --header -q --jq -t --template --json -L --limit -b --body
 --ref -r -w --workflow -e --event -s --status -u --user --created -c --commit --input -p --preview --cache --hostname --job -j --attempt
 -a -i --interval --branch -B --title --label -l --assignee -m --milestone --body-file""".split())
+# gh api：只有這些選項算「看得懂、而且不會寫」。其他的不是方法、不是欄位、就是認不得——認不得的一律擋。
+_GH_API_SAFE_FLAGS = set(["--paginate", "--slurp", "-i", "--include", "--silent", "--verbose"])
+_GH_API_SAFE_VALUE_OPTS = set(["-H", "--header", "-q", "--jq", "-t", "--template", "--cache", "--hostname", "-p", "--preview"])
 
 
 def _gh_positional(argv):
@@ -1746,6 +1882,47 @@ def _gh_positional(argv):
     return pos
 
 
+def _gh_rerun(argv, pos, ctx, auto, cwd):
+    """重跑驗收（2026-10-06 裁決）。兩種模式都可以用，但有範圍：只准重跑「驗收機的流程檔、head_sha 是現在分支最頂端的 commit、
+    由 push 觸發」的那一次執行；同一個 commit 最多重跑 maxReruns 次。對別的流程、別的 commit、超過次數，一律擋；查不到也擋。
+    重跑不是放寬：算數的是最後那一次嘗試的結果，關卡認的還是同一次執行。每一次放行都記下來（報告要寫哪一次、為什麼）。"""
+    v = ctx.cfg.get("verify") or {}
+    code = 3 if auto else 1
+    if not v:
+        raise Block("設定裡沒有驗收機（verify），不能重跑。", code)
+    limit = int(v.get("maxReruns", 2))
+    ids = pos[2:]
+    flags = [a for a in argv[1:] if a.startswith("-")]
+    if len(ids) != 1 or not ids[0].isdigit() or any(f != "--failed" for f in flags):
+        raise Block("重跑驗收只准這一種寫法：gh run rerun <執行編號>（可以加 --failed）。不能省略編號、不能指定別的倉庫或單一工作、不能帶別的選項。", code)
+    info = ctx.git.info(cwd) if cwd else None
+    if not info or not info.get("ours") or not info.get("head"):
+        raise Block("看不出現在在這個倉庫的哪個分支、哪個 commit，不能重跑驗收。請在這個階段的 worktree 裡下指令。", code)
+    head = str(info["head"]).lower()
+    runs = ctx.git.gh_verify_runs(ctx.cfg, head)
+    if runs is None:
+        raise Block("查不到驗收機對現在這個 commit（%s）的執行紀錄；查不到就不重跑。" % head[:7], code)
+    want = ".github/workflows/" + v["workflow"]
+    run = next((r for r in runs if str(r.get("id")) == ids[0]), None)
+    if run is None:
+        raise Block("執行 %s 不在驗收機（%s）對現在這個 commit（%s）的紀錄裡。只能重跑現在分支最頂端那個 commit 的驗收。" % (ids[0], v["workflow"], head[:7]), code)
+    if run.get("path") != want:
+        raise Block("執行 %s 不是驗收機（%s）的執行，是別的流程（%s）。只能重跑驗收機。" % (ids[0], v["workflow"], run.get("path") or "?"), code)
+    if str(run.get("head_sha") or "").lower() != head:
+        raise Block("執行 %s 是別的 commit（%s）的驗收，不是現在分支最頂端的 %s。只能重跑現在這個 commit 的。"
+                    % (ids[0], str(run.get("head_sha") or "?")[:7], head[:7]), code)
+    if run.get("event") != "push":
+        raise Block("執行 %s 不是由推送觸發的那一次（是 %s）。關卡只認推送觸發的那一次，重跑別的沒有用。" % (ids[0], run.get("event") or "?"), code)
+    mine = [r for r in runs if r.get("path") == want and str(r.get("head_sha") or "").lower() == head and r.get("event") == "push"]
+    used = sum(max(0, int(r.get("run_attempt") or 1) - 1) for r in mine)
+    if used >= limit:
+        why = "這個 commit（%s）的驗收已經重跑 %d 次，上限是 %d 次" % (head[:7], used, limit)
+        if auto:
+            ctx.effects.append(("stop_required", 5, why))
+        raise Block(why + "。還不是每一段都綠、封鎖層級 3／3，就停下來寄【%s】的信，由 David 決定；不要再重跑。" % ctx.cfg["stopLevels"]["decide"], 5 if auto else 1)
+    ctx.effects.append(("verify_rerun", {"sha": head, "run": ids[0], "nth": used + 1, "limit": limit}))
+
+
 def _gh(argv, ctx, auto, cwd=None):
     pos = _gh_positional(argv)
     sub = pos[0] if pos else ""
@@ -1754,23 +1931,61 @@ def _gh(argv, ctx, auto, cwd=None):
         if sub2 in ("token", "refresh", "login", "logout", "setup-git", "switch") or "-t" in argv or "--show-token" in argv:
             raise Block("讀或改 GitHub 的登入憑證，不允許。", 3)
     if sub == "pr" and sub2 == "merge":
-        raise Block("停止條件 1：用 gh 合併 PR＝合併進 main，要 David 放行（而且這個專案不走 PR）。", 1)
+        raise Block("停止條件 1：用 gh 合併 PR＝合併進 main，要 David 放行（而且合併一律在本機做，不用 GitHub 的合併按鈕）。", 1)
+    if sub == "pr" and sub2 and sub2 not in GH_PR_READS:
+        raise Block("gh pr %s 不是確定只讀的子指令（只讀的只有 %s）。會寫 PR 的事（開、改、留言、審查、關閉、revert、更新分支…）"
+                    "只准經過主目錄那支 iw_notify.py pr（開 PR、改標題與內文、留言剛好是 @codex review），不准直接下；"
+                    "Codex 的審查與留言也不准 resolve、刪除、隱藏或駁回（P2）。" % (sub2, "、".join(sorted(GH_PR_READS))), 1)
+    if sub == "issue" and sub2 and sub2 not in GH_ISSUE_READS:
+        raise Block("gh issue %s 不是確定只讀的子指令（只讀的只有 %s）；公開倉庫的 issue 不由 Claude 寫（通知信走 iw_notify.py）。"
+                    % (sub2, "、".join(sorted(GH_ISSUE_READS))), 1)
+    if sub == "run" and sub2 and sub2 not in GH_RUN_READS and sub2 != "rerun":
+        raise Block("gh run %s 會動到 GitHub 上的執行紀錄（刪掉或取消一次驗收，比較舊的結果就可能重新算數），兩種模式都不允許。"
+                    "能用的只有 %s，以及有範圍的 rerun（只准重跑現在這個 commit 的驗收）。" % (sub2, "、".join(sorted(GH_RUN_READS))), 1)
+    if sub == "workflow" and sub2 and sub2 not in GH_WORKFLOW_READS and sub2 not in ("run", "enable", "disable"):
+        raise Block("gh workflow %s 不是確定只讀的子指令（只讀的只有 %s；run 與 enable／disable 另有規則）。" % (sub2, "、".join(sorted(GH_WORKFLOW_READS))), 1)
     if sub == "api":
-        method = None
-        for i, a in enumerate(argv):
-            if a in ("-X", "--method") and i + 1 < len(argv):
-                method = argv[i + 1].upper()
-            elif a.startswith("--method="):
+        # gh 接受把短旗標黏在一起寫（-fbody=x、-XPOST、-iXPOST），帶了欄位又沒寫方法就自動變成 POST。逐種寫法去認是認不完的
+        # （2026-10-05 Codex 的審查意見：-fbody=x 就這樣漏掉了），所以反過來：每一個選項都要是認得的寫法；認不得的一律擋。
+        method, has_fields, unknown, i = None, False, None, 1
+        while i < len(argv):
+            a = argv[i]
+            i += 1
+            if not a.startswith("-") or a == "-":
+                continue
+            if a in _GH_API_SAFE_FLAGS:
+                continue
+            if a in _GH_API_SAFE_VALUE_OPTS:
+                i += 1
+                continue
+            if any(a.startswith(o + "=") for o in _GH_API_SAFE_VALUE_OPTS if o.startswith("--")):
+                continue
+            if a in ("-X", "--method"):
+                method = argv[i].upper() if i < len(argv) else "?"
+                i += 1
+                continue
+            if a.startswith("--method="):
                 method = a.split("=", 1)[1].upper()
-            elif a.startswith("-X") and len(a) > 2:
+                continue
+            if a.startswith("-X") and not a.startswith("--") and a[2:].isalpha():
                 method = a[2:].upper()
-        has_fields = any(a in ("-f", "-F", "--field", "--raw-field", "--input") or a.startswith("--field=") or a.startswith("--raw-field=")
-                         or a.startswith("--input=") for a in argv)
+                continue
+            if a in ("-f", "-F", "--field", "--raw-field", "--input"):
+                has_fields = True
+                i += 1
+                continue
+            if a.startswith(("--field=", "--raw-field=", "--input=")) or (a[:2] in ("-f", "-F") and len(a) > 2):
+                has_fields = True
+                continue
+            unknown = unknown or a
         writing = (method not in (None, "GET")) or (has_fields and method != "GET")
         path = " ".join(pos[1:])
         if writing:                                                 # 第一版只擋幾種路徑，建立發行版、觸發流程就漏掉了：寫入一律擋
             raise Block("用 GitHub API 做寫入（改分支、合併、改檔、建立發行版、觸發流程…：%s），不允許。要改東西請用對應的 gh 指令；合併要經過放行。"
                         % (path[:60] or "?"), 1)
+        if unknown:
+            raise Block("gh api 帶了看不出是不是唯讀的選項（%s）。gh 接受把短旗標黏在一起的寫法，逐種去認是認不完的，所以認不得的一律擋。"
+                        "唯讀請只用這幾種：--jq／-q、-t、--paginate、--slurp、-H、-i、-X GET。" % unknown[:30], 1)
     if sub == "repo" and sub2 in ("delete", "rename", "edit", "archive", "unarchive", "sync", "create", "fork", "deploy-key"):
         raise Block("gh repo %s 會改倉庫本身，不允許。" % sub2, 3)
     if sub in ("secret", "variable") and sub2 in ("set", "delete", "remove"):
@@ -1796,13 +2011,19 @@ def _gh(argv, ctx, auto, cwd=None):
         for d in dirs or ["."]:
             if cwd is None or covers_protected(d, cwd, ctx) or classify_path(d, cwd, ctx)[0] not in (None, "copy"):
                 raise Block("gh run download 會把下載的檔案放到「%s」，那個位置包住了保護檔（或看不出在哪裡）。請用 -D 指定別的資料夾。" % d, 3)
+    if pos[:2] == ["run", "rerun"]:
+        _gh_rerun(argv, pos, ctx, auto, cwd)
     if not auto:
         return
     allowed = ctx.allow["programs"]["ghAllowed"]
     ok = any(pos[:len(pat)] == pat for pat in allowed) or pos[:2] == ["workflow", "run"]      # workflow run 下面另外看是不是通知那一個
     if not ok:
-        raise Block("自動駕駛期間 gh 只能：觸發通知（workflow run notify.yml）、唯讀地看執行紀錄、看登入狀態。「gh %s」不在清單裡（停止條件 8）。"
+        raise Block("自動駕駛期間 gh 只能：觸發通知（workflow run notify.yml）、唯讀地看執行紀錄與 PR、看登入狀態。「gh %s」不在清單裡（停止條件 8）。"
                     % " ".join(pos[:3]), 8)
+    if pos[:2] == ["run", "download"]:
+        dirs = [argv[i + 1] for i, a in enumerate(argv[:-1]) if a in ("-D", "--dir")] + [a.split("=", 1)[1] for a in argv if a.startswith("--dir=")]
+        if not dirs or any(not C.is_under(C.key(d, cwd), _runs_key(ctx)) for d in dirs):
+            raise Block("自動駕駛期間 gh run download 只能下載到這個階段的報告資料夾（%s/%s/），要用 -D 指定。" % (ctx.cfg["runsDir"], ctx.stage), 8)
     repo = None
     for i, a in enumerate(argv):
         if a in ("-R", "--repo") and i + 1 < len(argv):

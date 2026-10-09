@@ -15,6 +15,7 @@ iw_events.py — 各個 hook 事件要做的事（讀狀態 → 判斷或紀錄 
   sessionstart   開工作階段：檢查保護檔有沒有被動過；壓縮對話後提醒目前的狀態
   sessionend     工作階段結束：自動駕駛進行中就寄信
 """
+import datetime
 import io
 import json
 import os
@@ -76,8 +77,8 @@ def pretool(inp, env):
     st = ST.load(env.sd)
     is_mine = mine(st, inp)
     tool = inp.get("tool_name") or ""
-    if is_mine and tool == "SubagentHandback" and inp.get("agent_type") == env.cfg["reviewer"]["agentType"]:
-        record_review_text(env, str((inp.get("tool_input") or {}).get("message") or ""), "handback")
+    if tool == "SubagentHandback" and inp.get("agent_type") == env.cfg["reviewer"]["agentType"] and (is_mine or st.get("review_pending")):
+        record_review_text(env, str((inp.get("tool_input") or {}).get("message") or ""), "handback")      # 一般模式的審查也記（P2）
         st = ST.load(env.sd)
     if st.get("cmd_checks"):
         verify_commands(env)
@@ -101,11 +102,19 @@ def pretool(inp, env):
         effects = list(effects) + [("pause", "blocked", block.reason[:200], block.code, False)]
     if effects:
         apply_effects(env, effects, inp)
+    ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+    if block is None and tool == "Agent" and not is_mine and ti.get("subagent_type") == env.cfg["reviewer"]["agentType"]:
+        # P2：一般模式（David 在場、沒有自動駕駛）也記審查代理的結論——「可以合併」的信沒有跳過審查的選項了，一般模式也要有 hook 記的批准
+        head = G._review_header(str(ti.get("prompt") or ""))
+        p = st.get("review_pending")
+        if (p is None or p.get("attended")) and not mine(st, inp) and head is not None:
+            apply_effects(env, [("review_begin", dict(head, attended=True))], inp)
     if block is not None or is_mine:
-        ti = inp.get("tool_input") if isinstance(inp.get("tool_input"), dict) else {}
+        st_after = ST.load(env.sd)
+        retries_now = (st_after.get("pause") or {}).get("retries") if st_after.get("pause") else None    # P2 第 7 節：每一筆擋下寫出當時的 retries
         ST.log(env.sd, {"event": "pretool", "tool": tool, "what": str(ti.get("command") or ti.get("file_path") or ti.get("subagent_type") or "")[:300],
                         "blocked": bool(block), "code": block.code if block else None, "reason": block.reason[:200] if block else None,
-                        "agent": inp.get("agent_type")})
+                        "agent": inp.get("agent_type"), "retries": retries_now})
     if block is not None:
         C.err(block.reason)
         return 2
@@ -132,6 +141,10 @@ def verify_commands(env):
             if c.get("kind") == "approve":
                 ST.append_approval(env.sd, {"stage": c.get("stage"), "candidate": c.get("candidate"), "tag_sha": c.get("tag_sha"),
                                             "prompt_id": c.get("prompt_id")})
+            elif c.get("kind") == "waive":
+                ST.append_approval(env.sd, {"stage": c.get("stage"), "waiver": c.get("sha"), "prompt_id": c.get("prompt_id")})
+            elif c.get("kind") == "verifier_change":
+                ST.append_approval(env.sd, {"stage": c.get("stage"), "verifier_change": c.get("sha"), "prompt_id": c.get("prompt_id")})
             continue
         forged.append(dict(c, why="對話紀錄顯示這一則訊息不是人打的" if not human else "對話紀錄裡那一則訊息的內容對不上"))
     now = C.iso(env.t())
@@ -151,8 +164,13 @@ def verify_commands(env):
                           "at": now, "retries": 0}
             s["stop_required"] = {"code": 1, "reason": "收到不是 David 親手輸入的指令詞", "at": now}
             s["model_approved"] = []
+            s["effort_approved"] = []
+            if s.get("verifier_change"):
+                s["verifier_change"]["revoked"] = "收到不是 David 親手輸入的指令詞"
             if s.get("credential"):
                 s["credential"]["revoked"] = "收到不是 David 親手輸入的指令詞"
+            if s.get("external_waiver"):
+                s["external_waiver"]["revoked"] = "收到不是 David 親手輸入的指令詞"
     st2 = ST.update(env.sd, fn)
     for r in (st2.get("rulings") or []):
         if r.get("forged") and not r.get("forged_marked"):
@@ -218,6 +236,8 @@ def apply_effects(env, effects, inp):
             elif k == "pause":                                      # (reason, detail, code, 要不要立刻寄短信)
                 if set_pause(st, e[1], e[2], e[3] if len(e) > 3 else None) and len(e) > 4 and e[4]:
                     mails.append(("%s，已暫停。處理好之後請輸入「繼續 %s」。" % (e[2], st.get("stage")), e[1]))
+            elif k == "effort_violation":                           # 中途被改掉的思考強度：記下來，「放行模型」看這一筆決定能不能放行
+                st["effort_violation"] = {"effort": e[1], "at": now}
             elif k == "pause_retry":
                 if st.get("pause"):
                     st["pause"]["retries"] = int(st["pause"].get("retries") or 0) + 1
@@ -232,14 +252,20 @@ def apply_effects(env, effects, inp):
                     t[e[1]] = {"at": now, "ack": False}
             elif k == "review_begin":
                 st["review_pending"] = dict(e[1], at=now, tool_use_id=inp.get("tool_use_id"), epoch=st.get("epoch"))
+            elif k == "verify_rerun":                               # 守門放行了一次「重跑驗收」：記下來（哪個 commit、哪一次執行、第幾次重跑）
+                st.setdefault("verify_reruns", []).append(dict(e[1], at=now))
+                st["verify_reruns"] = st["verify_reruns"][-20:]
     ST.update(env.sd, fn)
+    for e in effects:
+        if e[0] == "verify_rerun":
+            ST.log(env.sd, dict(e[1], event="verify_rerun"))
     for text, key in mails:
         send_fallback(env, text, key)
 
 
 def reconcile_pushes(env):
     """推送前的檢查記下「試著推了什麼」；這裡看它有沒有真的上去（本機的 origin/main 有沒有包含它）。"""
-    ref = "refs/remotes/%s/%s" % (env.cfg["remote"], env.cfg["mainBranch"])
+    ref = C.remote_main_ref(env.cfg)
 
     def landed(sha):
         rc, _ = C.git(["merge-base", "--is-ancestor", sha, ref], env.main_root)
@@ -297,9 +323,14 @@ def record_review_text(env, text, source):
     ST.update(env.sd, fn)
 
 
+def reviewer_model(cfg):
+    """審查代理該用的模型：固定寫在 config 的 reviewer.model（2026-10-05 的模型分工：不跟著施工模型換）。舊設定沒有這一欄就退回施工的模型。"""
+    return (cfg.get("reviewer") or {}).get("model") or cfg["requiredModel"]
+
+
 def finalize_review(env, models=None, resolved=None):
     """審查代理結束：把這一輪的結論寫進紀錄。回傳那一筆（沒有進行中的審查就回 None）。"""
-    need = env.cfg["requiredModel"]
+    need = reviewer_model(env.cfg)
     out = {}
 
     def fn(st):
@@ -327,7 +358,7 @@ def finalize_review(env, models=None, resolved=None):
                 st["stop_required"] = {"code": 9, "reason": "審查代理用的模型不是 %s（是 %s）" % (need, "、".join(ms)), "at": C.iso(env.t())}
         rec = {"kind": p.get("kind"), "stage": p.get("stage"), "commit": None if want in ("none", "尚無") else want, "verdict": verdict,
                "epoch": p.get("epoch"), "at": C.iso(env.t()), "models": ms, "model_ok": model_ok if model_ok is not None else True,
-               "report_source": p.get("report_source")}
+               "report_source": p.get("report_source"), "attended": bool(p.get("attended"))}
         rec["round"] = 1 + len([r for r in (st.get("reviews") or []) if r.get("kind") == rec["kind"] and r.get("epoch") == rec["epoch"]])
         st.setdefault("reviews", []).append(rec)
         st["review_pending"] = None
@@ -373,8 +404,8 @@ def posttool(inp, env):
         if tr.get("status") == "completed":
             finalize_review(env, models=list(used), resolved=resolved)
         return 0
-    need = env.cfg["requiredModel"]
-    bad = [ST.norm_model(m) for m in ([resolved] + list(used)) if m and ST.norm_model(m) != need]
+    need = reviewer_model(env.cfg)
+    bad =[ST.norm_model(m) for m in ([resolved] + list(used)) if m and ST.norm_model(m) != need]
     if bad:
         def fn(s):
             if s.get("reviews"):
@@ -476,6 +507,8 @@ NEAR_MISS_HOW = {
     "revise": ("沒有當成修改指令", "第一行請手打「修改 <階段>：要改什麼」"),
     "end": ("沒有結束", "請手打「結束自動駕駛」，整則訊息只有這一句"),
     "ruling": ("沒有當成裁決", "第一行請手打「裁決：<階段>」，Cowork 寫的內容貼在下面"),
+    "waive": ("沒有免外部審查", "請手打「免外部審查 <階段>」，整則訊息只有這一句"),
+    "verifier_change": ("沒有當成驗收機變更", "請手打「驗收機變更 <階段>」，整則訊息只有這一句"),
 }
 NEAR_MISS_WHERE = {"pasted": "指令詞在貼上的區塊裡", "line": "指令詞不在第一行，或前後還有別的字", "shape": "寫法跟指令詞差一點"}
 
@@ -561,14 +594,16 @@ def prompt(inp, env):
 
         def fn(s):
             keep = dict((k, s.get(k)) for k in ("reviews", "candidate", "tier2", "tripwire_baseline", "tripwire_findings", "models_seen",
-                                                "effort_seen", "fallbacks") if same and k in s)
-            keep_always = dict((k, s.get(k)) for k in ("closed_stages", "rulings") if s.get(k))     # 跨階段的紀錄：結案過的階段、裁決
+                                                "effort_seen", "fallbacks", "external_review", "external_waiver", "pull_requests") if same and k in s)
+            # 跨階段的紀錄：結案過的階段、裁決；P2 加：免過外部審查的階段（連續兩次要提醒）、流程檔的快照（下一封信跟它比）、自己推過的分支頭
+            keep_always = dict((k, s.get(k)) for k in ("closed_stages", "rulings", "waived_stages", "workflow_snapshot", "branch_pushes") if s.get(k))
             epoch = int(s.get("epoch") or 0) + 1 if same else 1
             base = s.get("tripwire_baseline")
             s.clear()
             s.update({"version": 1, "active": True, "stage": stage, "status": "pending", "session_id": inp.get("session_id"),
                       "started_at": now, "clock_started_at": now, "epoch": epoch, "reviews": [], "transcript_path": inp.get("transcript_path"),
                       "spec_path": spec_path, "stop_required": None, "pause": None, "model_violation": None, "model_approved": [],
+                      "effort_violation": None, "effort_approved": [],
                       "credential": None, "notified_epoch": None, "preexisting": pre})
             if base:
                 s["tripwire_baseline"] = base
@@ -615,9 +650,17 @@ def prompt(inp, env):
                     context="David 結束了自動駕駛。之後照一般的方式工作（他在場、照他說的做）；合併進 main 仍然需要他輸入「放行 <階段>」。")
 
     if kind == "approve_model":
+        # 「放行模型」管兩件事（2026-10-05 的模型分工）：模型被換掉；思考強度被改成可以臨時放行的那一種（只有 Max，寫在 config 的 approvableEfforts）。
         mv = st.get("model_violation")
-        if not (st.get("active") and mv):
-            return _out(system="（自動駕駛）現在沒有「模型被換掉」的暫停，這句話沒有作用。")
+        ev = st.get("effort_violation")
+        if not (st.get("active") and (mv or ev)):
+            return _out(system="（自動駕駛）現在沒有「模型被換掉」或「思考強度被改掉」的暫停，這句話沒有作用。")
+        e_ok = bool(ev) and ev.get("effort") in list(cfg.get("approvableEfforts") or [])
+        if ev and not e_ok and not mv:
+            return _out(system="（自動駕駛）思考強度「%s」不能放行（可以臨時放行的只有：%s）。請用思考強度選單改回 %s，再輸入「繼續 %s」。"
+                               % (ev.get("effort"), "、".join(cfg.get("approvableEfforts") or []) or "沒有", cfg.get("requiredEffortLabel") or cfg["requiredEffort"],
+                                  st.get("stage")),
+                        context="David 輸入了「放行模型」，但現在的暫停是思考強度被改成 %s，這個強度不能放行；狀態沒變。請告訴他改回規定的強度再輸入「繼續」。" % ev.get("effort"))
 
         def fn(s):
             m = (s.get("model_violation") or {}).get("model")
@@ -626,14 +669,23 @@ def prompt(inp, env):
             s["model_violation"] = None
             if (s.get("pause") or {}).get("reason") == "model":
                 s["pause"] = None
+            if e_ok:
+                e = (s.get("effort_violation") or {}).get("effort")
+                if e and e not in (s.get("effort_approved") or []):
+                    s.setdefault("effort_approved", []).append(e)
+                s["effort_violation"] = None
+                if (s.get("pause") or {}).get("reason") == "effort":
+                    s["pause"] = None
             s["clock_started_at"] = now
             s["epoch"] = int(s.get("epoch") or 0) + 1
             s["session_id"] = inp.get("session_id")
         ST.update(env.sd, fn)
         remember()
-        ST.log(env.sd, {"event": "approve_model", "model": mv.get("model")})
-        return _out(system="已放行模型：%s。自動駕駛（階段 %s）用這個模型繼續；報告會照實寫中途換過模型。" % (mv.get("model"), st.get("stage")),
-                    context="David 親手輸入了「放行模型」：同意用 %s 繼續階段 %s。請接著做；停止報告的「中途是否切換」會由程式照實寫。" % (mv.get("model"), st.get("stage")))
+        what = "、".join(x for x in ((mv or {}).get("model"), ("思考強度 %s" % ev.get("effort")) if e_ok else None) if x)
+        ST.log(env.sd, {"event": "approve_model", "model": (mv or {}).get("model"), "effort": ev.get("effort") if e_ok else None})
+        return _out(system="已放行模型：%s。自動駕駛（階段 %s）用它繼續；報告會照實寫中途換過。" % (what, st.get("stage")),
+                    context="David 親手輸入了「放行模型」：同意用 %s 繼續階段 %s。請接著做；停止報告的「中途是否切換」會由程式照實寫。"
+                            "臨時放行的思考強度只給卡住的難題用，那一輪做完請 David 切回規定的強度。" % (what, st.get("stage")))
 
     if kind == "ruling":
         # 裁決（P1-1 第 4 節）：第一行手打「裁決：<階段>」、下面貼 Cowork 寫的內容。hook 存檔，審查代理與後續步驟以它為準回答停下來問的事。
@@ -644,7 +696,12 @@ def prompt(inp, env):
         body = ST.strip_paste_wrapper(cmd.get("rest") or "")
         if not body.strip():
             return _out(system="（自動駕駛）裁決沒有內容：第一行手打「裁決：%s」之後，下面要貼 Cowork 寫的內容。" % stage)
-        stamp = env.t().astimezone().strftime("%Y%m%d-%H%M%S")
+        base_stamp = stamp = env.t().astimezone().strftime("%Y%m%d-%H%M%S")
+        n = 1
+        while (os.path.exists(os.path.join(env.sd, "rulings", "%s-%s.md" % (stage, stamp)))
+               or os.path.exists(os.path.join(env.main_root, *("%s/%s/裁決-%s.md" % (cfg["runsDir"], stage, stamp)).split("/")))):
+            n += 1                                                  # 同一秒的第二則（或那個檔名已經有人放了東西）：換一個名字，不蓋掉既有的原件與副本
+            stamp = "%s-%d" % (base_stamp, n)
         orig = ST.save_ruling(env.sd, stage, body, stamp)
         rel = "%s/%s/裁決-%s.md" % (cfg["runsDir"], stage, stamp)
         copy = os.path.join(env.main_root, *rel.split("/"))
@@ -656,9 +713,12 @@ def prompt(inp, env):
         except Exception:                                           # noqa: B902
             copy = orig
         count = [0]
+        # 原件與副本各記一個內容雜湊：之後拿這份裁決當「不採納」的依據時，程式會核對兩個檔都沒有被改過（iw_review.ruling_records）
+        rec = {"stage": stage, "at": now, "path": copy, "original": orig, "prompt_id": inp.get("prompt_id"),
+               "name": os.path.basename(copy), "sha256": ST.file_sha256(orig), "copy_sha256": ST.file_sha256(copy)}
 
         def fn(s):
-            s.setdefault("rulings", []).append({"stage": stage, "at": now, "path": copy, "original": orig, "prompt_id": inp.get("prompt_id")})
+            s.setdefault("rulings", []).append(rec)
             count[0] = len([r for r in s["rulings"] if r.get("stage") == stage])
         ST.update(env.sd, fn)
         remember()
@@ -667,6 +727,59 @@ def prompt(inp, env):
                     context=("David 親手輸入了「裁決：%s」，內容存在 %s（hook 存的原件：%s）。後續步驟與審查代理以它為準回答停下來問的事。"
                              "它不是「繼續」「放行」「修改」「結束自動駕駛」：狀態沒變、暫停沒有解除、沒有通行證；它也不能放寬鐵則、保護檔清單或允許清單。"
                              % (stage, rel, orig)))
+
+    if kind == "waive":
+        # 免外部審查（P2 裁決一）：只在程式已記「外部審查未完成」時有效；一次性、綁階段與 commit、24 小時失效；有新 commit 或「修改」就作廢。
+        # 只免外部審查：驗收機要綠、審查代理要批准、合併仍要另外手打「放行」。事後跟放行一樣核對是不是人打的（verify_commands）。
+        inc = st.get("external_review") or {}
+        ext_cfg = cfg.get("externalReview") or {}
+        if not inc or inc.get("stage") != stage:
+            return _out(system="（自動駕駛）免外部審查沒有生效：程式沒有記錄階段 %s 的「外部審查未完成」。只有 Codex 逾時或不能用、程式記下未完成之後，這句話才有作用。" % stage,
+                        context="David 輸入了「免外部審查 %s」，但 hook 沒有這個階段「外部審查未完成」的紀錄，所以沒有生效、什麼都沒變。請告訴他。" % stage)
+        if inc.get("status") != "incomplete":
+            return _out(system="（自動駕駛）免外部審查沒有生效：階段 %s 的外部審查狀態是「%s」，不是「未完成」。" % (stage, inc.get("status")),
+                        context="David 輸入了「免外部審查 %s」，但外部審查的狀態是 %s（不是未完成），沒有生效。請告訴他。" % (stage, inc.get("status")))
+        sha = inc.get("sha")
+        hours = float(ext_cfg.get("waiverHours", 24))
+
+        def fn(s):
+            s["external_waiver"] = {"stage": stage, "sha": sha, "issued_at": now, "expires_at": C.iso(env.t() + datetime.timedelta(hours=hours)),
+                                    "prompt_id": inp.get("prompt_id"), "transcript_path": inp.get("transcript_path"), "session_id": inp.get("session_id")}
+            s["external_review"] = dict(inc, status="waived", waived_at=now)
+        ST.update(env.sd, fn)
+        remember(sha=sha)
+        ST.log(env.sd, {"event": "waive", "stage": stage, "sha": (sha or "")[:12]})
+        return _out(system=("已免外部審查：%s（綁定 commit %s；%d 小時內有效、一次性；有新 commit 或輸入「修改」就作廢）。"
+                            "只免外部審查：驗收機要綠、審查代理要批准、合併仍要你手打「放行 %s」。信、CHANGELOG 與回滾表都會寫「本階段未經外部審查（David 親手免除）」。"
+                            % (stage, (sha or "?")[:7], int(hours), stage)),
+                    context=("David 親手輸入了「免外部審查 %s」：hook 記下了免除（綁 commit %s）。現在可以重新執行寄「可以合併」信的指令；"
+                             "驗收機與審查代理那兩關照樣要過。停止報告、CHANGELOG 與回滾表那一列都要寫明「本階段未經外部審查（David 親手免除）」。" % (stage, (sha or "?")[:7])))
+
+    if kind == "verifier_change":
+        # 驗收機變更（P2，2026-10-05 的裁決三）：要改驗收機本身（verify.yml、驗收程式、突變執行器、例外清單）的正規路。
+        # 只在一般模式有效（自動駕駛中打的不算）、而且程式已經判定這個階段的這個 commit「驗收機本身有改」；一次性、綁階段與 commit；
+        # 有新 commit、打了「修改」、或核對出不是人打的，就作廢。它只讓那個 commit 可以用驗收機的綠：外部審查、審查代理、放行都照舊。
+        rec = st.get("verifier_change") or {}
+        if st.get("active"):
+            return _out(system="（自動駕駛）「驗收機變更」只在一般模式（你在場、沒有自動駕駛）有效；自動駕駛期間不能改驗收機。這句話沒有生效。",
+                        context="David 在自動駕駛中輸入了「驗收機變更 %s」，這句話只在一般模式有效，所以沒有生效、什麼都沒變。請告訴他。" % stage)
+        if rec.get("stage") != stage or rec.get("status") != "detected" or rec.get("revoked"):
+            return _out(system="（自動駕駛）驗收機變更沒有生效：程式沒有判定階段 %s「驗收機本身有改」（或那一筆已經同意過、作廢了）。"
+                               "只有 Claude 查驗收機時程式記下「驗收機本身有改」之後，這句話才有作用。" % stage,
+                        context="David 輸入了「驗收機變更 %s」，但 hook 沒有這個階段「驗收機本身有改」的待同意紀錄，所以沒有生效。請告訴他。" % stage)
+        sha = rec.get("sha")
+
+        def fn(s):
+            s["verifier_change"] = dict(rec, status="approved", approved_at=now, prompt_id=inp.get("prompt_id"),
+                                        transcript_path=inp.get("transcript_path"), session_id=inp.get("session_id"))
+        ST.update(env.sd, fn)
+        remember(sha=sha)
+        ST.log(env.sd, {"event": "verifier-change", "stage": stage, "sha": (sha or "")[:12], "files": rec.get("files")})
+        return _out(system=("已同意驗收機變更：%s（綁定 commit %s；一次性；有新 commit 或輸入「修改」就作廢）。改到的檔：%s。"
+                            "這個 commit 可以用驗收機的綠了；外部審查、審查代理照樣要過，合併仍要你手打「放行 %s」。"
+                            % (stage, (sha or "?")[:7], "、".join(rec.get("files") or []) or "?", stage)),
+                    context=("David 親手輸入了「驗收機變更 %s」：hook 記下了同意（綁 commit %s）。停止報告要附上驗收機改動的完整 diff（程式會自己附），"
+                             "並寫明這一段改的是驗收機本身；外部審查與審查代理照樣要過。" % (stage, (sha or "?")[:7])))
 
     # 以下三種都要對得上現在的階段
     if st.get("stage") != stage:
@@ -682,7 +795,7 @@ def prompt(inp, env):
         if st.get("status") in ("done", None) and not st.get("active"):
             return _out(system="（自動駕駛）階段 %s 現在不在進行中。要重新開始請輸入「自動駕駛：%s」。" % (stage, stage))
         wt = N.stage_worktree(env.main_root, cfg, stage)
-        base = "%s/%s" % (cfg["remote"], cfg["mainBranch"])
+        base = C.remote_main_ref(cfg)
         hashes = {}
         for f in ((st.get("tier2") or {}).get("touched") or {}).keys():
             try:
@@ -702,6 +815,7 @@ def prompt(inp, env):
             s["transcript_path"] = inp.get("transcript_path")
             if s.get("model_violation"):
                 s["model_violation"] = None
+            s["effort_violation"] = None                            # 「繼續」＝強度已經改回來了；還沒改回來，下一個動作會再擋一次
             for f, v in ((s.get("tier2") or {}).get("touched") or {}).items():
                 if v.get("reported"):
                     v["ack"] = True
@@ -727,6 +841,10 @@ def prompt(inp, env):
             s["candidate"] = None
             if s.get("credential"):
                 s["credential"]["revoked"] = "David 輸入了修改"
+            if s.get("external_waiver"):
+                s["external_waiver"]["revoked"] = "David 輸入了修改"
+            if s.get("verifier_change"):
+                s["verifier_change"]["revoked"] = "David 輸入了修改"
             s["clock_started_at"] = now
             s["epoch"] = int(s.get("epoch") or 0) + 1
             s["session_id"] = inp.get("session_id")
@@ -759,6 +877,12 @@ def prompt(inp, env):
         if rc != 0 or rc2 != 0:
             return _out(system="（自動駕駛）還不能放行 %s：標籤 %s 不在，或不在要合併的那個 commit 的歷史裡。" % (stage, tag),
                         context="David 輸入了「放行 %s」，但標籤 %s 檢查沒過，通行證沒有開。請查清楚再回報他。" % (stage, tag))
+        if cfg.get("verify") and cfg.get("externalReview") and not reopen:
+            # P2 第 3 節：發通行證時再查一次驗收機（合併前第二道還會再查一次）。查不到（例如 GitHub 連不上）就擋，不能當成通過。
+            problem = N.verify_gate_problem(env.main_root, env.sd, cfg, stage, sha, env.t())
+            if problem:
+                return _out(system="（自動駕駛）還不能放行 %s：放行前再查一次驗收機，結果是「%s」。驗收機綠了再放行一次；查不到也算不綠。" % (stage, problem),
+                            context="David 輸入了「放行 %s」，但放行前再查一次驗收機沒過（%s），通行證沒有開。請告訴他；不要自己想辦法繞過。" % (stage, problem))
 
         def fn(s):
             ST.issue_credential(s, cfg, inp, env.t())

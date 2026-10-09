@@ -352,6 +352,35 @@ def state_dir(checkout_root=None):
     return os.path.join(common_dir(checkout_root), STATE_DIR_NAME)
 
 
+# ---------------------------------------------------------------- 「正式版在哪裡」只用全名
+# git 解析一個短名（例如 origin/main）的順序是：標籤（refs/tags/）→ 本機分支（refs/heads/）→ 遠端的記號（refs/remotes/）。
+# 所以只要有人建一個名字就叫 origin/main 的標籤或本機分支，寫 origin/main 的地方拿到的就是它，git 只印一行警告——
+# 「跟正式版比」的每一關（這個階段改了哪些檔、驗收機本身有沒有改、要掃哪些檔）都會被它帶著走；
+# 驗收機那一邊，推一個同名的標籤就能換掉「main 上的驗收程式」。2026-10-06 審查代理看 P2 最後一個 commit 時指出的，Cowork 裁決在 P2 修。
+# 做法：檢查程式裡指「遠端的正式版」一律用下面這個函式給的全名（全名不受同名的標籤與分支影響）；
+# 另外不准從 Claude Code 建立或推送會跟這些記號撞名的分支與標籤（reserved_ref_name）。
+REMOTE_REF_FORMAT = "refs/remotes/%s/%s"
+RESERVED_REF_PREFIXES = ("refs/", "remotes/")                       # 另外加上「<遠端的名字>/」，例如 origin/
+
+
+def remote_main_ref(cfg):
+    """遠端的正式版分支在本機的記號，全名（例如 refs/remotes/origin/main）。"""
+    return REMOTE_REF_FORMAT % (cfg["remote"], cfg["mainBranch"])
+
+
+def reserved_ref_name(name, remote="origin", literal=False):
+    """分支或標籤的名字會不會跟 git 內部的記號撞名：以「<遠端的名字>/」「refs/」「remotes/」開頭的都算（不分大小寫——Windows 的檔案系統不分）。
+    name 是推送或 fetch 的目的地時，可能帶 refs/heads/、refs/tags/ 這一層（先拿掉一層再看）；
+    literal=True＝這就是要建立的名字本身（git tag 名字、git branch 名字）：照字面看，連 refs/heads/… 開頭的也算撞名。"""
+    n = (name or "").strip().lower()
+    if not literal:
+        for lead in ("refs/heads/", "refs/tags/"):
+            if n.startswith(lead):
+                n = n[len(lead):]
+                break
+    return n.startswith(((remote or "origin").lower() + "/",) + RESERVED_REF_PREFIXES)
+
+
 def in_claude_session(environ=None):
     """是不是 Claude Code 開出來的程序（Bash／PowerShell 工具、hook）。筆電排程與你自己的終端機不是。"""
     e = os.environ if environ is None else environ

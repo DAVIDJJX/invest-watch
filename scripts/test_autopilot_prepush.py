@@ -25,6 +25,9 @@ import tempfile
 import unittest
 
 os.environ["IW_TEST_NO_SIDE_EFFECTS"] = "1"      # 測試不對外寄信、不在桌面跳通知；用子程序跑的 hook 也會繼承
+# 沙盒裡的 hook 是用子程序跑的（git push 會叫到 pre-push）：Python 預設會在沙盒主目錄的 .claude/hooks/ 留下 __pycache__/，
+# 「主目錄要乾淨」那一關就會擋。正式倉庫的 .gitignore 有 __pycache__/（test_autopilot_config 釘住），沙盒的沒有，所以這裡關掉。
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -56,6 +59,68 @@ def run_git(args, cwd, env=None, check=True):
     return p.returncode, out, err
 
 
+BOT_LOGIN = "chatgpt-codex-connector[bot]"
+FAKE_GH_ENV = "IW_TEST_FAKE_GH"
+
+
+def fake_gh_entries(green=True, runs=True, pending=False, result_commit="{sha}", red_reasons=None, pr=True, codex=True, review_commit="{sha}",
+                    comments=None, others=None, ran=830, event="push", path=".github/workflows/verify.yml", extra_runs=None, review_body=None, issue_comments=None,
+                    attempt=1, result_attempt=None, pr_base="main", pr_head_repo=None, extra_prs=None, compare=None):
+    """IW_TEST_FAKE_GH 的內容（P2）：gh 的回答，{sha} 會換成查詢的 commit。預設＝驗收機綠、Codex 已審、0 條意見。
+    沙盒裡的 pre-push 是另一個程序，所以用檔案＋環境變數，不用 monkeypatch。
+    event／path：那一次執行是怎麼觸發的、流程檔在哪（只認 push＋.github/workflows/verify.yml）。extra_runs：同一個 commit 的其他執行。
+    attempt：那一次執行現在是第幾次嘗試（重跑過就大於 1）；result_attempt：結果檔是第幾次嘗試寫的（預設跟 attempt 一樣）。
+    pr_base：那個 PR 要合併進哪一條分支；pr_head_repo：它的分支在哪個倉庫（預設＝這個倉庫）；extra_prs：同一條分支另外開著的 PR。
+    compare：結果檔裡「跟 main 比」那一塊（被刪改的既有測試與突變的清單）；預設沒有這一塊。"""
+    run = {"id": 1, "status": "in_progress" if pending else "completed", "conclusion": None if pending else ("success" if green else "failure"),
+           "head_sha": "{sha}", "html_url": "https://example.invalid/actions/runs/1", "run_attempt": attempt, "created_at": "2026-10-04T00:00:00Z",
+           "event": event, "path": path}
+    result = {"commit": result_commit, "red": bool(red_reasons), "reasons": red_reasons or [], "run_attempt": str(result_attempt or attempt),
+              "tests": {"ran": ran, "defined": ran, "passed": ran, "failed": [], "errors": [], "skipped": []}, "egress": {"bot_hits": 0}, "schema": 1}
+    if compare is not None:
+        result["compare"] = compare
+    reviews = []
+    if codex:
+        reviews.append({"id": 1, "user": {"login": BOT_LOGIN}, "state": "COMMENTED", "commit_id": review_commit,
+                        "body": review_body or "Codex Review: Didn't find any major issues.", "submitted_at": "2026-10-04T00:10:00Z"})
+    for login in (others or []):
+        reviews.append({"id": 90 + len(reviews), "user": {"login": login}, "state": "COMMENTED", "commit_id": "{sha}", "body": "drive-by",
+                        "submitted_at": "2026-10-04T00:11:00Z"})
+    here = {"full_name": "fake/invest-watch"}                         # 沙盒裡這個倉庫在 GitHub 的名字（iw_review.slug 的測試值）
+    prs = [{"number": 7, "html_url": "https://example.invalid/pull/7", "title": "x", "created_at": "2026-10-03T23:00:00Z",
+            "head": {"sha": "{sha}", "ref": "{branch}", "repo": dict(pr_head_repo or here)},
+            "base": {"ref": pr_base, "repo": here}}] if pr else []
+    prs += list(extra_prs or [])
+    return [{"match": "actions/workflows/verify.yml/runs", "rc": 0, "text": json.dumps({"workflow_runs": ([run] if runs else []) + list(extra_runs or [])})},
+            {"match": "run download", "rc": 0, "text": json.dumps(result)},
+            {"match": "pulls?head=", "rc": 0, "text": json.dumps(prs)},
+            {"match": "/pulls/7/reviews", "rc": 0, "text": json.dumps(reviews)},
+            {"match": "/pulls/7/comments", "rc": 0, "text": json.dumps(comments or [])},
+            {"match": "/issues/7/comments", "rc": 0, "text": json.dumps(issue_comments or [])},        # PR 的一般留言（Codex 的進度留言在這裡）
+            {"match": "pr comment", "rc": 0, "text": "https://example.invalid/pull/7#issuecomment-1"},
+            {"match": "pr create", "rc": 0, "text": "https://example.invalid/pull/7"},
+            {"match": "pr edit", "rc": 0, "text": ""}]
+
+
+def write_fake_gh(path, entries):
+    with io.open(path, "w", encoding="utf-8") as fh:
+        json.dump(entries, fh, ensure_ascii=False)
+    return path
+
+
+SALT_ENV = "IW_SCAN_SALT_FILE"
+SANDBOX_SALT = "sandbox-salt-not-a-secret"
+SANDBOX_NAMED_TERM = "沙盒" + "假名稱" + "甲乙"                     # 沙盒那份清單上唯一的「具名字串」：一看就知道是假的
+
+
+def sandbox_digests(terms=(SANDBOX_NAMED_TERM,)):
+    """沙盒用的雜湊清單（格式跟正式的 scripts/sensitive_terms_hmac.json 一樣）：只有加鹽的 HMAC，沒有原文。"""
+    import hashlib
+    import hmac
+    entries = [{"len": len(t), "hmac": hmac.new(SANDBOX_SALT.encode("utf-8"), t.encode("utf-8"), hashlib.sha256).hexdigest(), "cjk": True} for t in terms]
+    return json.dumps({"entries": entries}, ensure_ascii=False, indent=1) + "\n"
+
+
 class Sandbox(object):
     """暫存資料夾裡的一個假遠端＋假主目錄（main）＋功能分支的 worktree。"""
 
@@ -67,6 +132,8 @@ class Sandbox(object):
         self.remote = os.path.join(self.tmp, "remote.git")
         self.main = os.path.join(self.tmp, "main")
         self.wt = os.path.join(self.main, ".claude", "worktrees", "stopX1")
+        self.fake_gh = write_fake_gh(os.path.join(self.tmp, "fake-gh.json"), fake_gh_entries())      # P2：驗收機與 Codex 的假回答（預設全綠）
+        os.environ[FAKE_GH_ENV] = self.fake_gh
         run_git(["init", "-q", "--bare", "-b", "main", self.remote], self.tmp)
         run_git(["init", "-q", "-b", "main", self.main], self.tmp)
         for k, v in (("core.autocrlf", "false"), ("commit.gpgsign", "false"), ("core.quotepath", "false")):
@@ -75,6 +142,17 @@ class Sandbox(object):
         self.write("docs/CHANGELOG.md", "changelog\n")
         self.write("js/app.js", "// app\n")
         self.write(".gitignore", ".autopilot/\n.claude/worktrees/\n" if tracked else ".claude/\n.autopilot/\n")
+        os.makedirs(os.path.join(self.main, "scripts"), exist_ok=True)
+        shutil.copyfile(os.path.join(ROOT, "scripts", "test_analysis_guards.py"), os.path.join(self.main, "scripts", "test_analysis_guards.py"))   # PR 文字的隱私掃描要用
+        # 具名字串的掃描要「鹽」與「加鹽的雜湊清單」；公開文字缺鹽就擋。沙盒用自己的假鹽與假清單（清單上只有一個假的名稱），不碰真的那一份。
+        self.salt_file = os.path.join(self.tmp, "iw-private", "scan-salt.txt")
+        os.makedirs(os.path.dirname(self.salt_file))
+        with io.open(self.salt_file, "w", encoding="utf-8") as fh:
+            fh.write(SANDBOX_SALT + "\n")
+        self.saved_salt_env = os.environ.get(SALT_ENV)
+        os.environ[SALT_ENV] = self.salt_file
+        self.digest_rel = "scripts/sensitive_terms_hmac.json"
+        self.write(self.digest_rel, sandbox_digests())
         if tracked:
             self.copy_protection()
         for f in C.load_json(os.path.join(ROOT, ".claude", "autopilot", "config.json"))["goldJob"]["files"]:
@@ -95,6 +173,10 @@ class Sandbox(object):
         run_git(["tag", "stopX1"], self.wt)
 
     def close(self):
+        if self.saved_salt_env is None:
+            os.environ.pop(SALT_ENV, None)
+        else:
+            os.environ[SALT_ENV] = self.saved_salt_env
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def copy_protection(self):
@@ -637,6 +719,435 @@ class TestPrePush(unittest.TestCase):
         INST.ensure_local_ignore(repo, quiet=True)                                    # 再跑一次不會重複加
         self.assertEqual(io.open(p, encoding="utf-8").read(), before)
         self.assertEqual(before.count(INST.LOCAL_IGNORE + "\n"), 1)
+
+    # ---- P2：合併前再查一次驗收機；feat 分支上出現不是自己推的 commit
+    def test_the_merge_is_blocked_when_the_verifier_is_red_or_unreachable(self):
+        """P2 第 3 節：有通行證、形狀也對，但驗收機紅、還在跑、沒有紀錄、查不到——都擋。對照組：拿掉 verify_gate → 這一條會紅。"""
+        sb = self.sb
+        for entries, want in ((fake_gh_entries(green=False), "紅"), (fake_gh_entries(pending=True), "還在跑"), (fake_gh_entries(runs=False), "沒有這個 commit"),
+                              (fake_gh_entries(result_commit="0" * 40), "綁的 commit"), ([], "查不到")):
+            sb.reset()
+            sb.credential()
+            write_fake_gh(sb.fake_gh, entries)
+            mw = sb.merge_worktree()
+            rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+            self.assertNotEqual(rc, 0, want)
+            self.assertIn("合併前再查一次驗收機", err, want)
+            self.assertIn(want, err)
+            self.assertEqual(sb.rev("refs/heads/main", sb.remote), sb.base)
+        sb.reset()
+        sb.credential()
+        write_fake_gh(sb.fake_gh, fake_gh_entries())                                             # 綠：照常通過
+        mw = sb.merge_worktree()
+        rc, err = sb.push(mw, ["origin", "HEAD:main"], claude=True)
+        self.assertEqual(rc, 0, err)
+
+    def test_a_foreign_commit_on_the_branch_blocks_the_next_push_and_pauses_autopilot(self):
+        """P2 第 2 節：PR 分支上出現不是自己推的 commit（Codex 或別的帳號推的）→ 下一次推被擋、自動駕駛中立刻暫停（要你決定）。
+        對照組：拿掉 foreign_ok 那一道 → 這一條會紅。"""
+        sb = self.sb
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)                                       # 前面的測試可能動過 worktree 與遠端的這個分支
+        run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False)
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: ST.update(sb.sd, lambda s: s.update({"active": False, "pause": None})))
+        rc, err = sb.push(sb.wt, ["origin", "feat/stopX1"], claude=True)                        # 第一次推：記下來
+        self.assertEqual(rc, 0, err)
+        st = ST.load(sb.sd)
+        self.assertEqual(st["branch_pushes"]["refs/heads/feat/stopX1"], [sb.cand])
+        other = os.path.join(sb.tmp, "other-clone")
+        shutil.rmtree(other, ignore_errors=True)
+        run_git(["clone", "-q", sb.remote, other], sb.tmp)
+        run_git(["checkout", "-q", "feat/stopX1"], other)
+        sb.write("js/app.js", "// someone else\n", other)
+        foreign = sb.commit("drive-by", other)
+        run_git(["push", "-q", "--no-verify", "origin", "feat/stopX1"], other)                     # 別人繞過本機的 hook 推上去
+        run_git(["fetch", "-q", "origin"], sb.wt)
+        run_git(["merge", "-q", "--no-edit", "origin/feat/stopX1"], sb.wt)                           # 本機把它接進來（落後時 git 自己就先拒收，pre-push 看不到）
+        sb.write("js/app.js", "// app v3\n", sb.wt)
+        mine = sb.commit("feat: more", sb.wt)
+        ST.update(sb.sd, lambda s: s.update({"active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 1}))
+        rc, err = sb.push(sb.wt, ["origin", "feat/stopX1"], claude=True)
+        self.assertNotEqual(rc, 0)
+        self.assertIn("不是你推的 commit", err)
+        self.assertIn(foreign[:7], err)
+        st = ST.load(sb.sd)
+        self.assertEqual(st["pause"]["reason"], "foreign-commit")                                # 自動駕駛中：暫停（等級會是「要你決定」）
+        self.assertEqual(st["foreign_commit"]["sha"], foreign)
+        self.assertEqual(sb.rev("refs/heads/feat/stopX1", sb.remote), foreign)                   # 沒有覆蓋別人的 commit
+        ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (mine, sb.cand)])    # 遠端頭是自己推過的：放行
+        self.assertTrue(ok, msgs)
+
+    def test_commit_messages_are_scanned_before_claude_pushes_anything(self):
+        """commit 訊息一推上公開倉庫就收不回來，驗收機事後判紅也來不及（2026-10-06 Codex 的審查意見；原本推送前完全不看訊息）。
+        從 Claude Code 推的每一筆新 commit，訊息都先過主目錄上的隱私掃描器；接在已推過的後面、新的分支、標籤都看。
+        命中、讀不到掃描器 → 擋，而且擋下的訊息不重複那段不該公開的字。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道、新分支與標籤不掃、掃描器讀不到也放行 → 紅。"""
+        sb = self.sb
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        zero = "0" * 40
+        cases = (("gh" + "p_" + "A" * 30, "像權杖的字串"), ("C:" + "\\Users\\" + "someone" + "\\notes.txt", "本機的絕對路徑"),
+                 ("聯絡 someone" + "@" + "mail.example.org", "電子郵件"), ("持有 " + "1,000 股", "隱私掃描命中"))
+        for bad, word in cases:
+            run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+            sb.write("js/app.js", "// app v3\n", sb.wt)
+            run_git(["add", "--", "js/app.js"], sb.wt)
+            run_git(["commit", "-q", "-m", "feat: y\n\n說明：" + bad], sb.wt)
+            sha = sb.rev("HEAD", sb.wt)
+            for line in ("refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, sb.cand),              # 接在遠端現在的頭後面
+                         "refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sha, zero),                # 新的分支
+                         "refs/tags/stopX1-msg %s refs/tags/stopX1-msg %s" % (sha, zero)):                   # 標籤
+                ok, msgs = sb.check([line])
+                said = " ".join(msgs)
+                self.assertFalse(ok, (word, line))
+                self.assertIn("commit 訊息", said)
+                self.assertIn(word, said)
+                self.assertIn(sha[:7], said)
+                self.assertNotIn(bad, said)
+            ok, msgs = sb.check(["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sha, zero)], claude=False)
+            self.assertTrue(ok, msgs)                                                                         # 不是從 Claude Code 推的：這一道不管
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        clean = "refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sb.cand, zero)
+        guards = os.path.join(sb.main, "scripts", "test_analysis_guards.py")
+        os.rename(guards, guards + ".off")
+        try:
+            ok, msgs = sb.check([clean])                                                                      # 讀不到掃描器：寧可擋
+            self.assertFalse(ok)
+            self.assertIn("隱私掃描器讀不到", " ".join(msgs))
+            self.assertIn("commit 訊息", " ".join(msgs))                                                       # 是 commit 訊息這一道擋的（後面掃檔案內容的那一道也會擋，不能靠它）
+            import iw_notify as N
+            self.assertIn("隱私掃描器讀不到", " ".join(N.text_privacy_problems(sb.main, "一段乾淨的說明")))
+        finally:
+            os.rename(guards + ".off", guards)
+        ok, msgs = sb.check([clean])                                                                          # 訊息乾淨、掃描器在：照常
+        self.assertTrue(ok, msgs)
+
+    def test_public_text_scan_catches_every_absolute_path_form_and_passes_only_system_mail(self):
+        """Codex 對 P2 的第六次審查（兩條 P0）：公開文字（PR 內文、commit 訊息、標籤訊息）的掃描，本機路徑原本只認兩種寫法，
+        Unix 與 macOS 的家目錄、別的磁碟機路徑都掃不到；信箱的豁免寫成「地址裡有 noreply 就放行」，連整個 github.com 網域都放行。
+        現在任何絕對路徑的寫法都擋；信箱只放行確切的幾個系統地址。對照組：少認一種路徑、有 noreply 就放行 → 紅。"""
+        import iw_notify as N
+        main = self.sb.main
+        sl, bs, at = "/", "\\", "@"                                                       # 拼接：這個檔自己也在隱私掃描的範圍裡，失敗訊息也會進驗收機的紀錄
+        paths = (sl + "home" + sl + "alice/notes.txt", sl + "Users" + sl + "alice/Desktop/x.md", "D:" + bs + "work" + bs + "notes.txt", "E:" + sl + "data/x.csv",
+                 sl + "mnt" + sl + "c/proj/x", sl + "d" + sl + "proj/x.py", "~" + sl + "secret.txt", bs + bs + "nas" + bs + "share" + bs + "x", "file:" + sl + sl + sl + "x/y",
+                 sl + "root" + sl + ".ssh/id", sl + "Volumes" + sl + "disk/x")
+        for i, p in enumerate(paths):
+            for j, text in enumerate(("說明：放在 " + p, p, "見（" + p + "）", "path=" + p)):
+                self.assertIn("有本機的絕對路徑", N.text_privacy_problems(main, text), (i, j))
+        fine = ("PR：https://github.com/DAVIDJJX/invest-watch/pull/1", "改了 scripts/verify_ci.py 與 .claude/hooks/iw_guard.py", "docs/a/b.md 與 js/app.js",
+                "比例 3:1、時間 09:00、10/5～10/6", "P0／P1、A/B 測試、和/或", "見 README.md：第 3 節", "git@github.com:davidjjx/invest-watch.git",
+                "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>", "流程檔 .github/workflows/verify.yml（home/ 底下沒有東西）",
+                "🤖 Generated with [Claude Code](https://claude.com/claude-code)")
+        for i, text in enumerate(fine):
+            self.assertEqual(N.text_privacy_problems(main, text), [], i)
+        for i, addr in enumerate(("someone+noreply" + at + "mail.example.org", "noreply" + at + "mail.example.org", "someone" + at + "github.com",
+                                  "x" + at + "example.com", "t" + at + "example.invalid", "someone" + at + "users.noreply.github.com.example.org")):
+            self.assertEqual(N.text_privacy_problems(main, "聯絡 " + addr), ["有電子郵件地址"], i)
+            self.assertFalse(N.public_mail_ok(addr), i)
+        for addr in N.PUBLIC_MAIL_EXACT + ("12345+someone@users.noreply.github.com", "NoReply@GitHub.com"):
+            self.assertEqual(N.text_privacy_problems(main, "署名 " + addr), [], addr)
+        self.assertEqual(N.PUBLIC_MAIL_EXACT, ("noreply@anthropic.com", "noreply@github.com", "git@github.com"))    # 放行清單就這幾個，寫在一個地方
+        self.assertEqual(N.PUBLIC_MAIL_DOMAINS, ("users.noreply.github.com",))
+
+    def test_public_text_scan_catches_common_secret_formats_and_key_value_secrets(self):
+        """Codex 對 P2 的第七次審查（P0）：公開文字的權杖掃描原本只認兩種 GitHub 權杖的開頭；別家的金鑰、JWT、私鑰區塊、
+        「敏感的鍵名後面直接接值」這類寫法都掃不到。對照組：只認 GitHub 那兩種、鍵值的寫法不擋 → 紅。"""
+        import iw_notify as N
+        main = self.sb.main
+        a, b = "A" * 30, "b" * 24                                                         # 下面每一個都用拼接組出來：這個檔自己也在隱私掃描的範圍裡
+        secrets = ("gh" + "o_" + a, "gh" + "s_" + a, "gh" + "r_" + a, "github" + "_pat_" + a, "AK" + "IA" + "ABCDEFGHIJKLMNOP", "AS" + "IA" + "ABCDEFGHIJKLMNOP",
+                   "xo" + "xb-" + "1234567890-abcdefghij", "hooks.slack" + ".com/services/" + "T00000000/B00000000/XXXXXXXXXXXX",
+                   "ey" + "JhbGciOiJIUzI1NiJ9" + "." + "ey" + "JzdWIiOiIxMjM0In0" + "." + "abcDEF123456", "-----BEGIN " + "RSA PRIVATE KEY-----",
+                   "-----BEGIN " + "OPENSSH PRIVATE KEY-----", "s" + "k-" + b, "AI" + "za" + "B" * 35, "s" + "k_live_" + b, "Bea" + "rer " + "abc" * 8)
+        for i, s in enumerate(secrets):
+            for j, text in enumerate(("設定：" + s, s, "見（" + s + "）")):
+                self.assertIn("有像權杖的字串", N.text_privacy_problems(main, text), (i, j))
+        pairs = ("pass" + "word=" + "hunter2abc", "PASS" + "WORD: " + "hunter2abc", "API" + "_KEY=" + "abcdef123456", "api" + "-key: " + "abcdef123456",
+                 "to" + "ken=" + "abc123def456", "client" + "_secret=" + "abc123def456", "sec" + "ret: " + "abc123def", "密" + "碼：" + "abc12345", "權" + "杖=" + "abcd1234efgh")
+        for i, s in enumerate(pairs):
+            self.assertIn("有像密碼或密鑰的寫法（敏感的鍵名後面直接接了值）", N.text_privacy_problems(main, "連線用 " + s), i)
+        fine = ("權杖（token）的檢查改成只列確定只讀的", "token 的格式見文件：第 3 節", "不存 password，也不存任何 secret", "api key 的說明在 README",
+                "task-notification 與 risk-level 這類字不是金鑰", "密碼：＿＿（自己填）", "token: 見下", "Bearer 這個字本身不是權杖",
+                "commit a8ac92093e50992b732beecb13741334de2d10d2", "結果檔 verify-result.json、突變 R121～R132")
+        for i, text in enumerate(fine):
+            self.assertEqual(N.text_privacy_problems(main, text), [], i)
+        self.assertEqual(len(N.SECRET_PATTERNS), 11)
+
+    def test_public_text_is_checked_against_the_named_terms_and_blocked_without_the_salt(self):
+        """Codex 對 P2 的第七次審查（P0）：公開文字原本完全沒有比「具名字串」（私人清單上的名稱；倉庫裡只有加鹽的雜湊）。
+        清單上的名稱只要不帶通用的隱私字樣就過了。現在一起比；鹽或雜湊清單讀不到＝掃不了＝不能送出（缺鹽就擋）。
+        沙盒用自己的假鹽與假清單。對照組：不比具名字串、缺鹽也放行、清單空的也放行 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        main, term, zero = sb.main, SANDBOX_NAMED_TERM, "0" * 40
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.assertEqual(N.text_privacy_problems(main, "一段乾淨的說明"), [])
+        for i, text in enumerate(("說明：" + term, term[:2] + " " + term[2:], "（" + term + "）的資料")):                 # 中間有空白也認得
+            self.assertEqual(N.text_privacy_problems(main, text), ["具名字串命中（私人清單上的名稱）"], i)
+        self.assertNotIn(term, " ".join(N.text_privacy_problems(main, "說明：" + term)))                                      # 回報不帶那個名稱本身
+        sb.write("js/app.js", "// app v3\n", sb.wt)
+        run_git(["add", "--", "js/app.js"], sb.wt)
+        run_git(["commit", "-q", "-m", "feat: y\n\n說明：" + term], sb.wt)
+        named = sb.rev("HEAD", sb.wt)
+        push = ["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (named, zero)]
+        ok, msgs = sb.check(push)
+        self.assertFalse(ok)                                                                                               # commit 訊息裡有清單上的名稱：擋
+        self.assertIn("具名字串命中", " ".join(msgs))
+        self.assertNotIn(term, " ".join(msgs))
+        ok, msgs = sb.check(push, claude=False)
+        self.assertTrue(ok, msgs)                                                                                          # 不是從 Claude Code 推的：這一道不管
+        clean = ["refs/heads/feat/stopX9 %s refs/heads/feat/stopX9 %s" % (sb.cand, zero)]
+        ok, msgs = sb.check(clean)
+        self.assertTrue(ok, msgs)
+        os.rename(sb.salt_file, sb.salt_file + ".off")                                                                    # 鹽不在：這一種掃不了
+        try:
+            self.assertIn(N.NO_SALT, N.text_privacy_problems(main, "一段乾淨的說明"))
+            ok, msgs = sb.check(clean)
+            self.assertFalse(ok)                                                                                           # 訊息再乾淨也不能推：缺鹽就擋
+            self.assertIn("具名字串的鹽讀不到", " ".join(msgs))
+            ok, msgs = sb.check(clean, claude=False)
+            self.assertTrue(ok, msgs)
+        finally:
+            os.rename(sb.salt_file + ".off", sb.salt_file)
+        digest = os.path.join(main, *sb.digest_rel.split("/"))
+        saved = io.open(digest, encoding="utf-8").read()
+        try:
+            for text in ('{"entries": []}\n', None):                                                                      # 雜湊清單是空的、或整個檔不在
+                if text is None:
+                    os.remove(digest)
+                else:
+                    sb.write(sb.digest_rel, text)
+                self.assertIn("具名字串的雜湊清單讀不到或是空的：這一種掃不了，不能送出", N.text_privacy_problems(main, "一段乾淨的說明"))
+                ok, msgs = sb.check(clean)
+                self.assertFalse(ok)
+        finally:
+            sb.write(sb.digest_rel, saved)
+        ok, msgs = sb.check(clean)
+        self.assertTrue(ok, msgs)
+
+    def test_the_hook_itself_scans_file_contents_for_named_terms_before_claude_pushes(self):
+        """Codex 對 P2 的第八次審查（P0）：檔案內容裡的具名字串原本只有全套測試會掃；驗收機上沒有鹽，有沒有帶鹽跑過，
+        程式只看得到施工的一方自己存的文字檔（沒有綁 commit，舊檔或改寫過的都會過）。現在由檢查程式自己掃：從 Claude Code 推送之前，
+        每一筆要推的 commit 改到的檔（整個檔在那一筆裡的內容，連同檔名）都用倉庫外的鹽比一次。中間的 commit 加了又刪掉的也算；
+        缺鹽、讀不到內容、查不出改了哪些檔、推的不是 commit，一律擋。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道、只看最頂端那一筆、不看檔名、不看內容、缺鹽也放行、讀不到就跳過、查不出來當成沒改 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        main, term, zero = sb.main, SANDBOX_NAMED_TERM, "0" * 40
+        cfg = C.config(os.path.join(main, ".claude", "autopilot", "config.json"))
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: run_git(["tag", "-d", "stopX1-blob"], sb.wt, check=False))
+
+        def line(sha, ref="refs/heads/feat/stopX1", remote=None):
+            return ["%s %s %s %s" % (ref, sha, ref, remote or sb.cand)]
+        sb.write("docs/note.md", "說明\n\n這一段提到" + term + "的事。\n", sb.wt)                 # 內容裡有清單上的名稱；commit 訊息是乾淨的
+        bad = sb.commit("docs: note", sb.wt)
+        for push in (line(bad), line(bad, "refs/heads/feat/stopX9", zero), line(bad, "refs/tags/stopX1-c", zero)):   # 接在後面、新的分支、標籤
+            ok, msgs = sb.check(push)
+            said = " ".join(msgs)
+            self.assertFalse(ok, push)
+            self.assertIn("檔案裡有具名字串", said)
+            self.assertIn("docs/note.md", said)
+            self.assertNotIn(term, said)                                                     # 回報只說是哪個檔，不帶那個名稱本身
+            ok, msgs = sb.check(push, claude=False)
+            self.assertTrue(ok, msgs)                                                        # 不是從 Claude Code 推的：這一道不管
+        sb.write("docs/note.md", "說明\n\n這一段改掉了。\n", sb.wt)                              # 下一筆把它刪掉：頂端是乾淨的，歷史裡照樣公開
+        tip = sb.commit("docs: note v2", sb.wt)
+        ok, msgs = sb.check(line(tip))
+        self.assertFalse(ok)
+        self.assertIn("docs/note.md", " ".join(msgs))
+        ok, msgs = sb.check(line(tip, "refs/heads/feat/stopX9", zero))
+        self.assertFalse(ok)
+        ok, msgs = sb.check(line(tip, "refs/heads/feat/stopX9", bad))                        # 只推後面那一筆（前一筆已經在遠端）：這一筆自己是乾淨的
+        self.assertTrue(ok, msgs)
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("docs/" + term + ".md", "內容是乾淨的\n", sb.wt)                              # 檔名本身就是清單上的名稱
+        named_file = sb.commit("docs: add", sb.wt)
+        ok, msgs = sb.check(line(named_file))
+        self.assertFalse(ok)
+        self.assertIn("檔名本身命中的 1 個（不列檔名）", " ".join(msgs))
+        self.assertNotIn(term, " ".join(msgs))
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("data/extra.json", json.dumps({"items": [{"name": term, "value": 10}]}) + "\n", sb.wt)   # 資料檔：字串值裡的也掃得到（\u 跳脫的寫法也一樣）
+        data_sha = sb.commit("data: extra", sb.wt)
+        ok, msgs = sb.check(line(data_sha))
+        self.assertFalse(ok)
+        self.assertIn("data/extra.json", " ".join(msgs))
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        sb.write("docs/note.md", "乾淨的說明\n", sb.wt)
+        os.remove(os.path.join(sb.wt, "README.md"))                                          # 刪掉的檔沒有內容要公開：不算
+        clean = sb.commit("docs: clean", sb.wt)
+        shutil.rmtree(sb.sd, ignore_errors=True)                                             # 上面放行過的那幾次會被記成「推過的頭」；清掉，免得下面被當成別人動了分支
+        for push in (line(clean), line(clean, "refs/heads/feat/stopX9", zero), line(clean, "refs/tags/stopX1-c", zero)):
+            ok, msgs = sb.check(push)
+            self.assertTrue(ok, msgs)                                                        # 乾淨的：照常
+        # 掃描本體（直接呼叫：推送時缺鹽、讀不到掃描器，commit 訊息那一道會先擋，分不出是哪一道擋的）
+        blobs = N.changed_blobs(sb.wt, [sb.cand, clean])
+        self.assertEqual([p for _b, p in blobs], ["docs/note.md"])
+        self.assertIn("README.md", [p for _b, p in N.changed_blobs(sb.wt, [N.EMPTY_TREE, sb.base])])   # 第一筆 commit 沒有 parent：跟空樹比
+        self.assertIsNone(N.changed_blobs(sb.wt, ["f" * 40, clean]))                         # 查不出改了哪些檔：None，呼叫的人要擋
+        self.assertIsNone(N.named_term_blob_problem(main, sb.wt, blobs))
+        self.assertIn("docs/note.md", N.named_term_blob_problem(main, sb.wt, N.changed_blobs(sb.wt, [sb.cand, bad])))
+        self.assertIn("讀不到 docs/ghost.md 在 commit 裡的內容", N.named_term_blob_problem(main, sb.wt, [("f" * 40, "docs/ghost.md")]))
+        os.rename(sb.salt_file, sb.salt_file + ".off")                                       # 鹽不在：掃不了（沒有檔要掃也一樣）
+        try:
+            self.assertEqual(N.named_term_blob_problem(main, sb.wt, blobs), N.NO_SALT)
+            self.assertEqual(N.named_term_blob_problem(main, sb.wt, []), N.NO_SALT)
+            self.assertEqual(P.file_content_problem(sb.wt, main, cfg, clean, sb.cand), N.NO_SALT)
+        finally:
+            os.rename(sb.salt_file + ".off", sb.salt_file)
+        digest = os.path.join(main, *sb.digest_rel.split("/"))
+        saved = io.open(digest, encoding="utf-8").read()
+        try:
+            sb.write(sb.digest_rel, '{"entries": []}\n')
+            self.assertIn("雜湊清單讀不到或是空的", N.named_term_blob_problem(main, sb.wt, blobs))
+        finally:
+            sb.write(sb.digest_rel, saved)
+        guards = os.path.join(main, "scripts", "test_analysis_guards.py")
+        os.rename(guards, guards + ".off")
+        try:
+            self.assertIn("隱私掃描器讀不到", N.named_term_blob_problem(main, sb.wt, blobs))
+        finally:
+            os.rename(guards + ".off", guards)
+        self.assertIsNone(P.file_content_problem(sb.wt, main, cfg, clean, sb.cand))
+        self.assertIn("檔案裡有具名字串", P.file_content_problem(sb.wt, main, cfg, bad, sb.cand))
+        real = N.changed_blobs
+        N.changed_blobs = lambda repo, revs: None                                            # 查不出某一筆改了哪些檔：擋，不可以當成沒改
+        try:
+            self.assertIn("查不出 commit", P.file_content_problem(sb.wt, main, cfg, clean, sb.cand))
+        finally:
+            N.changed_blobs = real
+        blob_id = run_git(["rev-parse", "%s:docs/note.md" % bad], sb.wt)[1].strip()          # 推的東西不是 commit（標籤直接指到一個檔的內容）
+        self.assertIn("不是 commit", P.file_content_problem(sb.wt, main, cfg, blob_id, zero))
+        run_git(["tag", "-a", "stopX1-blob", "-m", "乾淨的訊息", blob_id], sb.wt)
+        tag_sha = run_git(["rev-parse", "refs/tags/stopX1-blob"], sb.wt)[1].strip()
+        self.assertIn("不是 commit", P.file_content_problem(sb.wt, main, cfg, tag_sha, zero))
+        ok, msgs = sb.check(["refs/tags/stopX1-blob %s refs/tags/stopX1-blob %s" % (tag_sha, zero)])
+        self.assertFalse(ok)
+
+    def test_claude_cannot_push_a_branch_or_tag_whose_name_shadows_the_remote_refs(self):
+        """git 解析短名時標籤排在本機分支前面、本機分支排在遠端的記號前面；驗收機會把標籤全部抓下來。推一個叫 origin/main 的標籤上去，
+        寫短名的地方拿到的就是它（2026-10-06 審查代理指出；Cowork 裁決：檢查程式一律用全名，另外多擋一層——這種名字不讓它推上去）。
+        從 Claude Code 推送的分支與標籤，名字不准以 origin/、refs/、remotes/ 開頭（不分大小寫）。筆電排程與 David 自己終端機的推送不經過這一道。
+        對照組：拿掉這一道 → 紅。"""
+        sb = self.sb
+        zero = "0" * 40
+        for ref in ("refs/tags/origin/main", "refs/heads/origin/main", "refs/tags/Origin/Main", "refs/heads/origin/feat/x", "refs/heads/refs/heads/x",
+                    "refs/tags/refs/tags/stopX1", "refs/tags/remotes/origin/main", "refs/heads/REMOTES/x"):
+            line = ["%s %s %s %s" % (ref, sb.cand, ref, zero)]
+            ok, msgs = sb.check(line)
+            self.assertFalse(ok, ref)
+            self.assertIn("名字不可以以", " ".join(msgs), ref)
+            ok, msgs = sb.check(line, claude=False)
+            self.assertTrue(ok, (ref, msgs))                                              # 不是從 Claude Code 推的：這一道不管
+            self.assertIsNotNone(P.ref_name_problem(ref, {"remote": "origin"}), ref)
+        for ref in ("refs/heads/feat/stopX9", "refs/heads/feat/origin-notes", "refs/tags/stopX1-b", "refs/heads/feat/refs-cleanup", "refs/tags/originals"):
+            ok, msgs = sb.check(["%s %s %s %s" % (ref, sb.cand, ref, zero)])
+            self.assertTrue(ok, (ref, msgs))                                              # 正常的名字照常
+            self.assertIsNone(P.ref_name_problem(ref, {"remote": "origin"}), ref)
+        self.assertIsNotNone(P.ref_name_problem("refs/heads/upstream/x", {"remote": "upstream"}))     # 看的是設定裡遠端的名字
+        self.assertIsNone(P.ref_name_problem("refs/heads/upstream/x", {"remote": "origin"}))
+
+    def test_loading_the_scanner_leaves_no_cache_files_in_the_main_checkout(self):
+        """檢查程式載入主目錄上的隱私掃描器時，不可以在主目錄留下 scripts/__pycache__/：寄信前會查主目錄乾不乾淨，多出來的檔會把下一次寄信擋下。
+        2026-10-06 驗收機抓到的（寄 ready 之前多掃一次檔案內容之後才露出來）；本機的環境關掉了寫快取，所以這裡把它打開再測。
+        對照組：載入時不關寫快取 → 紅。"""
+        import iw_notify as N
+        sb = self.sb
+        cache = os.path.join(sb.main, "scripts", "__pycache__")
+        shutil.rmtree(cache, ignore_errors=True)
+        saved = (sys.dont_write_bytecode, sys.pycache_prefix)
+        sys.dont_write_bytecode, sys.pycache_prefix = False, None                         # GitHub 的執行機上就是這樣：會寫快取，而且寫在原始檔旁邊
+        N._GUARDS_CACHE.clear()
+        try:
+            self.assertEqual(N.text_privacy_problems(sb.main, "一段乾淨的說明"), [])
+            self.assertIsNone(N.named_term_blob_problem(sb.main, sb.wt, []))
+            self.assertFalse(sys.dont_write_bytecode)                                     # 載入完要還原，不影響別的程式
+        finally:
+            sys.dont_write_bytecode, sys.pycache_prefix = saved
+            N._GUARDS_CACHE.clear()
+        self.assertFalse(os.path.exists(cache))
+        self.assertEqual(run_git(["status", "--porcelain", "--", "scripts"], sb.main)[1].strip(), "")
+
+    def test_the_message_of_an_annotated_tag_is_scanned_before_it_is_pushed(self):
+        """Codex 對 P2 的第六次審查（P0）：推送前只掃 commit 的訊息。帶訊息的標籤（annotated tag），訊息存在標籤物件裡，原本完全沒看——
+        守門允許建立與推送新標籤，所以標籤訊息裡的個人資料、權杖、信箱、本機路徑會直接公開。現在標籤的訊息照 commit 訊息的規矩掃；讀不到就擋。
+        對照組：不掃標籤的訊息、看不出要推的是什麼也放行 → 紅。"""
+        sb = self.sb
+        zero = "0" * 40
+        names = ("stopX1-ann-bad", "stopX1-ann-ok", "stopX1-light", "stopX1-ann-outer")
+        self.addCleanup(lambda: [run_git(["tag", "-d", n], sb.wt, check=False) for n in names])
+
+        def annotated(name, message, target):
+            run_git(["tag", "-a", name, "-m", message, target], sb.wt)
+            return run_git(["rev-parse", "refs/tags/" + name], sb.wt)[1].strip()          # 帶訊息的標籤：推的是標籤物件，不是 commit
+
+        def push(name, sha, **kw):
+            return sb.check(["refs/tags/%s %s refs/tags/%s %s" % (name, sha, name, zero)], **kw)
+        cases = (("gh" + "p_" + "A" * 30, "像權杖的字串"), ("/ho" + "me/" + "someone/notes.txt", "本機的絕對路徑"),
+                 ("聯絡 someone+noreply" + "@" + "mail.example.org", "電子郵件"), ("持有 " + "1,000 股", "隱私掃描命中"))
+        for i, (bad, word) in enumerate(cases):
+            run_git(["tag", "-d", "stopX1-ann-bad"], sb.wt, check=False)
+            tag_sha = annotated("stopX1-ann-bad", "停點 X1\n\n說明：" + bad, sb.cand)
+            self.assertNotEqual(tag_sha, sb.cand)
+            ok, msgs = push("stopX1-ann-bad", tag_sha)
+            said = " ".join(msgs)
+            self.assertFalse(ok, i)
+            self.assertIn("標籤的訊息", said)
+            self.assertIn(word, said)
+            self.assertNotIn(bad, said)                                                   # 擋下的訊息不重複那段不該公開的字
+            ok, msgs = push("stopX1-ann-bad", tag_sha, claude=False)
+            self.assertTrue(ok, msgs)                                                     # 不是從 Claude Code 推的：這一道不管
+        clean = annotated("stopX1-ann-ok", "停點 X1：做完了", sb.cand)
+        ok, msgs = push("stopX1-ann-ok", clean)
+        self.assertTrue(ok, msgs)                                                         # 訊息乾淨的帶訊息標籤：照常
+        run_git(["tag", "stopX1-light", sb.cand], sb.wt)
+        ok, msgs = push("stopX1-light", sb.cand)
+        self.assertTrue(ok, msgs)                                                         # 不帶訊息的標籤：沒有標籤訊息，照常
+        bad_inner = run_git(["rev-parse", "refs/tags/stopX1-ann-bad"], sb.wt)[1].strip()
+        outer = annotated("stopX1-ann-outer", "外面這一層是乾淨的", bad_inner)             # 標籤指到另一個標籤：裡面那一層的訊息也要掃
+        ok, msgs = push("stopX1-ann-outer", outer)
+        self.assertFalse(ok)
+        self.assertIn("標籤的訊息", " ".join(msgs))
+        ok, msgs = push("stopX1-ghost", "f" * 40)                                         # 看不出要推的是什麼：寧可擋
+        self.assertFalse(ok)
+        self.assertIn("看不出這次要推的東西", " ".join(msgs))
+        self.assertEqual(P.MAX_TAG_DEPTH, 5)
+
+    def test_autopilot_cannot_push_anything_that_touches_the_verifier_or_the_workflows(self):
+        """2026-10-05 裁決二：自動駕駛期間，推送前的檢查擋下所有動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md 的推送（分支與標籤都算）。
+        啟動之前、David 在場時改好而且沒再變的不算；不在自動駕駛就不管（一般模式另有 blob 比對把關）。對照組：拿掉這一道 → 這一條會紅。"""
+        sb = self.sb
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+        self.addCleanup(lambda: run_git(["tag", "-d", "stopX1-probe"], sb.wt, check=False))
+        active = {"version": 1, "active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 1}
+        for rel in (".github/workflows/verify.yml", ".github/workflows/other.yml", "scripts/verify_ci.py", "scripts/mutations/known_survivors.json",
+                    "scripts/mutations/autopilot_mutations.py", "AGENTS.md"):
+            run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+            sb.write(rel, "changed\n", sb.wt)
+            sha = sb.commit("touch " + rel, sb.wt)
+            ST.save(sb.sd, dict(active))
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertFalse(ok, rel)
+            self.assertIn("自動駕駛期間不能推", " ".join(msgs))
+            self.assertIn(rel, " ".join(msgs))
+            ok, msgs = sb.check(["refs/tags/stopX1-probe %s refs/tags/stopX1-probe %s" % (sha, "0" * 40)])          # 標籤也一樣
+            self.assertFalse(ok, rel)
+            blob = run_git(["rev-parse", "%s:%s" % (sha, rel)], sb.wt)[1]
+            ST.save(sb.sd, dict(active, preexisting={rel: blob}))                                # 啟動前就改好、內容沒變：不算
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertTrue(ok, msgs)
+            ST.save(sb.sd, dict(active, preexisting={rel: "0" * 40}))                            # 啟動後又改過：算
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertFalse(ok, rel)
+            ST.save(sb.sd, dict(active, active=False))                                           # 不在自動駕駛：這一道不管
+            ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sha, "0" * 40)])
+            self.assertTrue(ok, msgs)
+        run_git(["reset", "-q", "--hard", sb.cand], sb.wt)
+        ST.save(sb.sd, dict(active))
+        ok, msgs = sb.check(["refs/heads/feat/stopX1 %s refs/heads/feat/stopX1 %s" % (sb.cand, "0" * 40)])       # 沒動到那些檔：照常
+        self.assertTrue(ok, msgs)
 
 
 if __name__ == "__main__":

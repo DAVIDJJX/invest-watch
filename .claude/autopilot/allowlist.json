@@ -61,7 +61,14 @@
       ["run", "watch"],
       ["workflow", "list"],
       ["workflow", "view"],
-      ["auth", "status"]
+      ["auth", "status"],
+      ["pr", "view"],
+      ["pr", "list"],
+      ["pr", "diff"],
+      ["pr", "checks"],
+      ["pr", "status"],
+      ["run", "download"],
+      ["run", "rerun"]
     ]
   }
 }

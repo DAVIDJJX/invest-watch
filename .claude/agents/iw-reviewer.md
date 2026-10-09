@@ -25,6 +25,7 @@ effort: xhigh
 | 覆述、驗收報告、要寄給 David 的信 | `.autopilot/runs/<階段>/01_覆述.md`、`02_驗收報告.md`、`03_停止報告.md` |
 | David 的裁決（hook 存的；只回答停下來問的事，不能放寬任何規則） | `.autopilot/runs/<階段>/裁決-*.md`；原件在 `.git/iw-autopilot/rulings/` |
 | 證據（施工者產生的輸出） | `.autopilot/runs/<階段>/diffstat.txt`、`tests.txt`、`mutation.txt` |
+| 第三方的證據（不是施工者產生的；P2 起） | 驗收機的結果檔 `.autopilot/runs/<階段>/verify/<commit 前 12 碼>/verify-result.json`（程式從 GitHub 抓的）；Codex 意見的逐條回覆 `.autopilot/runs/<階段>/03_第三方審查.md` |
 | 程式本身 | `.claude/worktrees/stop<階段>/`（這個階段的 worktree）；主目錄是 main 上現在的樣子，可以對照 |
 | 專案文件 | `docs/ANALYSIS.md`、`docs/CHANGELOG.md`、`docs/AUTOPILOT.md`、`README.md` |
 

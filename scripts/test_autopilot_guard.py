@@ -65,6 +65,8 @@ class FakeGit(object):
         self.merging = None                  # 合併用的 worktree 裡正在合併的 commit
         self.missing = set()                 # 還不存在的資料夾（真的 git 查不到會回 None）
         self.asked = []
+        self.verify_runs = []                # GitHub 上驗收機對某個 commit 的執行紀錄（None＝查不到）
+        self.asked_runs = []
 
     def info(self, cdir):
         k = C.key(cdir) if cdir else None
@@ -127,6 +129,10 @@ class FakeGit(object):
     def merge_head(self, cdir):
         return self.merging if C.is_under(C.key(cdir), C.key(MERGE_WT)) else None
 
+    def gh_verify_runs(self, cfg, sha):
+        self.asked_runs.append(sha)
+        return None if self.verify_runs is None else [dict(r) for r in self.verify_runs]
+
 
 class Base(unittest.TestCase):
     def setUp(self):
@@ -142,7 +148,7 @@ class Base(unittest.TestCase):
         rec = {"type": "user", "promptId": prompt_id, "message": {"role": "user", "content": text},
                "origin": {"kind": "human" if human else "task-notification"}, "turnOrigin": "human" if human else "task_notification"}
         with io.open(p, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps({"type": "assistant", "message": {"model": "claude-fable-5-1"}}) + "\n")
+            fh.write(json.dumps({"type": "assistant", "message": {"model": CFG["requiredModel"]}}) + "\n")
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         return p
 
@@ -163,7 +169,7 @@ class Base(unittest.TestCase):
         st["credential"] = cred
         return st
 
-    def run_tool(self, tool, ti, state=None, cwd=WT, session="S1", effort="xhigh", model="claude-fable-5-1", now=NOW):
+    def run_tool(self, tool, ti, state=None, cwd=WT, session="S1", effort="xhigh", model=CFG["requiredModel"], now=NOW):
         inp = {"session_id": session, "cwd": cwd, "tool_name": tool, "tool_input": ti, "scratchpad_dir": SCRATCH,
                "permission_mode": "auto", "hook_event_name": "PreToolUse", "_observed_model": model}
         if effort is not None:
@@ -214,12 +220,14 @@ class TestBypassesAreBlocked(Base):
         self.each(["git push", "git push origin", "git push origin HEAD"], cwd=MAIN)
 
     def test_push_from_elsewhere_with_dash_C_or_cd(self):
+        # 換行分隔的那一種：Windows 用 Git Bash 的磁碟機寫法（/d/…＝D:/…，只有 Windows 才有這種對應）；別的系統用一般寫法
+        newline = "cd /d/Fake/invest-watch\ngit push" if C.IS_WINDOWS else "cd D:/Fake/invest-watch\ngit push"
         self.each(["git -C D:/Fake/invest-watch push",
                    "git -C 'D:/Fake/invest-watch' push origin main",
                    "git -CD:/Fake/invest-watch push",
                    "cd D:/Fake/invest-watch && git push",
                    "cd D:/Fake/invest-watch; git push",
-                   "cd /d/Fake/invest-watch\ngit push",
+                   newline,
                    "pushd D:/Fake/invest-watch && git push origin"], cwd=ELSE)
 
     def test_push_when_the_branch_upstream_is_main(self):
@@ -342,6 +350,35 @@ class TestBypassesAreBlocked(Base):
         self.each(["git merge --no-ff --no-commit feat/stopX1",
                    "git merge feat/stopX1",
                    "git pull origin feat/stopX1"], cwd=MERGE_WT)
+
+    def test_names_that_shadow_the_remote_refs_cannot_be_created_or_pushed(self):
+        """git 解析短名的順序是標籤 → 本機分支 → 遠端的記號。有人建一個名字就叫 origin/main 的標籤或分支，寫 origin/main 的地方拿到的就是它
+        （2026-10-06 審查代理指出；檢查程式自己已經一律用全名，這一道是多擋一層）。分支與標籤的名字不准以 origin/、refs/、remotes/ 開頭：
+        建立、改名、fetch 進來、推上去都算；大小寫不分。對照組：拿掉這一道、推送的目的地不看 → 紅。"""
+        cmds = ["git tag origin/main", "git tag origin/main " + CAND, "git tag -a origin/main -m x", "git tag -m x -a origin/main",
+                "git tag Origin/Main", "git tag refs/tags/x", "git tag remotes/origin/main",
+                "git tag -am x origin/main", "git tag -am 'x y' origin/main " + CAND, "git tag -aF msg.txt origin/main",     # 短選項黏成一串、最後一個要接值
+                "git tag -sm x origin/main", "git tag -asu KEYID origin/main", "git tag -a -m x -- origin/main", "git tag --message x origin/main",
+                "git tag -a --trailer 'k: v' -m x origin/main", "git branch -- origin/main", "git branch -qf origin/x", "git branch -t origin/x",
+                "git pull origin feat/stopX1:origin/x", "git pull . HEAD:refs/heads/remotes/x",
+                "git branch origin/main", "git branch origin/main " + CAND, "git branch --track origin/feat origin/main",
+                "git branch -m origin/main", "git branch -c feat/stopX1 refs/heads/x", "git branch --copy feat/stopX1 remotes/x",
+                "git checkout -b origin/main", "git checkout -qb origin/main", "git checkout -B remotes/origin/main " + CAND,
+                "git checkout --orphan origin/x", "git checkout --orphan=origin/x",
+                "git switch -c origin/main", "git switch --create refs/heads/main2", "git switch -C Origin/Main",
+                "git worktree add -b origin/main .claude/worktrees/tmpx",
+                "git stash branch origin/main",
+                "git fetch . HEAD:origin/x", "git fetch origin feat/stopX1:refs/tags/origin/x", "git fetch . HEAD:refs/heads/remotes/x",
+                "git push origin HEAD:refs/tags/origin/main", "git push origin HEAD:origin/x", "git push . HEAD:refs/heads/origin/x",
+                "git push origin HEAD:refs/heads/refs/x", "git push origin stopX2:refs/tags/Origin/main"]
+        for cmd in cmds:
+            self.blocked(self.bash(cmd), code=4, has="名字不可以以", msg=cmd)
+        self.assertTrue(C.reserved_ref_name("origin/main") and C.reserved_ref_name("refs/heads/origin/main") and C.reserved_ref_name("REFS/x"))
+        self.assertTrue(C.reserved_ref_name("refs/heads/feat/x", literal=True) and not C.reserved_ref_name("refs/heads/feat/x"))   # 要建立的名字照字面看
+        self.assertTrue(C.reserved_ref_name("upstream/main", "upstream") and not C.reserved_ref_name("upstream/main"))
+        for fine in ("feat/stopX1", "stopX2", "refs/heads/feat/stopX1", "refs/tags/stopX2", "main", "feat/origin-notes", "originals", "remote-notes", "refsheet", ""):
+            self.assertFalse(C.reserved_ref_name(fine), fine)
+        self.assertEqual(C.remote_main_ref({"remote": "origin", "mainBranch": "main"}), "refs/remotes/origin/main")
 
     def test_moving_main_directly(self):
         self.each(["git branch -f main " + CAND,
@@ -520,6 +557,36 @@ class TestRoutineWorkIsNotBlocked(Base):
                    "git worktree list",
                    "git status --short && git log --oneline -3 && git diff --stat"])
 
+    def test_ordinary_names_and_start_points_are_not_mistaken_for_shadowing_names(self):
+        """「名字不准跟遠端的記號撞名」只看新建立的名字與推送的目的地：把 origin/main 當起點、當比較的對象、列出來看，都照常。"""
+        self.each(["git branch feat/tmp origin/main",
+                   "git branch --track feat/tmp origin/main",
+                   "git branch -u origin/feat/stopX1",
+                   "git branch --set-upstream-to=origin/feat/stopX1",
+                   "git branch --contains origin/main",
+                   "git branch -r",
+                   "git branch --list 'origin/*'",
+                   "git branch -m feat/renamed",
+                   "git tag stopX2 origin/main",
+                   "git tag -a stopX2 -m 'origin/main 的位置'",
+                   "git tag -am origin/main stopX2",                                  # origin/main 是訊息（-m 的值），名字是 stopX2
+                   "git tag -aF origin/notes.txt stopX2",
+                   "git tag -amorigin/main stopX2",                                   # 值直接黏在 -m 後面
+                   "git tag -l 'origin/*'",
+                   "git tag --contains origin/main",
+                   "git checkout -b feat/tmp origin/main",
+                   "git checkout --detach origin/main",
+                   "git switch -c feat/tmp origin/main",
+                   "git switch --detach origin/main",
+                   "git worktree add -b feat/stopX2 .claude/worktrees/stopX2 origin/main",
+                   "git worktree add --detach .claude/worktrees/stopX1-merge origin/main",
+                   "git stash branch feat/tmp",
+                   "git fetch origin feat/stopX1:feat/copy",
+                   "git diff --stat origin/main...HEAD",
+                   "git log --oneline origin/main..HEAD",
+                   "git push origin HEAD:refs/heads/feat/stopX1",
+                   "git push origin HEAD:feat/origin-notes"])
+
     def test_main_checkout_can_be_read_and_fast_forwarded(self):
         self.each(["git status -sb",
                    "git log --oneline -5",
@@ -690,10 +757,12 @@ class TestAutopilotOnly(Base):
                           ("gh workflow run notify.yml -f title=x", 3),
                           ("gh workflow run notify.yml -R davidjjx/invest-data --ref evil -f title=x", 3),
                           ("gh workflow run probe-analysis.yml --ref feat/stopX1", 3),
-                          ("gh issue create -R davidjjx/invest-data -t x -b y", 8),
-                          ("gh pr create --fill", 8),
+                          ("gh issue create -R davidjjx/invest-data -t x -b y", 1),          # P2：PR／issue 的寫入兩種模式都擋
+                          ("gh pr create --fill", 1),
                           ("gh api repos/davidjjx/invest-watch/commits", 8),
-                          ("gh run rerun 123", 8),
+                          ("gh run rerun 123", 3),                                           # 2026-10-06 起：重跑驗收有自己的規則（見 TestRerunTheVerifier）；這一次不是現在這個 commit 的驗收
+                          ("gh run cancel 123", 1),                                          # 會動到執行紀錄的：兩種模式都擋（見 TestRerunTheVerifier）
+                          ("gh run delete 123", 1),
                           ("gh run list -R someone/else", 8),
                           ("gh release create v1", 8)):
             self.blocked(self.bash(cmd, state=st), code=code, msg=cmd)
@@ -824,30 +893,44 @@ class TestAutopilotOnly(Base):
         self.assertEqual(effects[0][0], "activate")
 
     def test_start_is_refused_on_another_model(self):
-        block, effects = self.bash("ls", state=self.state(status="pending"), model="claude-opus-5-5")
+        block, effects = self.bash("ls", state=self.state(status="pending"), model="claude-sonnet-5-5")
         self.assertIsNotNone(block)
-        self.assertIn("claude-opus-5-5", block.reason)
+        self.assertIn("claude-sonnet-5-5", block.reason)
+        self.assertIn(CFG["requiredModel"], block.reason)                              # 訊息裡說規定的是哪一個（施工＝Opus 5.5）
+        block, effects = self.bash("ls", state=self.state(status="pending"), model=CFG["reviewer"]["model"])
+        self.assertIsNotNone(block, "審查代理的模型（Fable 5.1）不是施工的模型")
         self.assertEqual([e[0] for e in effects], ["deactivate"])
 
     def test_model_swap_mid_run_pauses_everything(self):
         st = self.state()
-        block, effects = self.bash("ls", state=st, model="claude-opus-5")
+        block, effects = self.bash("ls", state=st, model="claude-sonnet-5")
         self.assertIsNotNone(block)
-        self.assertIn(("model_violation", "claude-opus-5"), effects)
+        self.assertIn(("model_violation", "claude-sonnet-5"), effects)
         self.assertIn("放行模型", block.reason)
-        st = self.state(model_violation={"model": "claude-opus-5", "at": C.iso(NOW)})
+        st = self.state(model_violation={"model": "claude-sonnet-5", "at": C.iso(NOW)})
         for tool, ti in (("Bash", {"command": "ls"}), ("Write", {"file_path": MAIN + "/.autopilot/runs/X1/x.md", "content": "x"}),
                          ("Agent", {"subagent_type": "iw-reviewer", "prompt": "REVIEW-KIND: acceptance\nSTAGE: X1\nCOMMIT: none\n"})):
             self.blocked(self.run_tool(tool, ti, state=st), has="放行模型", msg=tool)
-        st = self.state(model_violation={"model": "claude-opus-5", "at": C.iso(NOW)}, model_approved=["claude-opus-5"])
-        self.allowed(self.bash("ls", state=st, model="claude-opus-5"))
-        self.allowed(self.bash("ls", state=self.state(), model="claude-fable-5-1[1m]"))               # 只是上下文長度不同
+        st = self.state(model_violation={"model": "claude-sonnet-5", "at": C.iso(NOW)}, model_approved=["claude-sonnet-5"])
+        self.allowed(self.bash("ls", state=st, model="claude-sonnet-5"))
+        self.allowed(self.bash("ls", state=self.state(), model=CFG["requiredModel"] + "[1m]"))        # 只是上下文長度不同
         self.allowed(self.bash("ls", state=self.state(), model=None))                                  # 還讀不到就先放行，下一個動作再看
 
     def test_effort_change_mid_run_pauses(self):
+        """中途改思考強度＝暫停。Max 可以由 David 手打「放行模型」臨時放行（config 的 approvableEfforts）；其他強度只能改回來。
+        對照組：拿掉中途的強度檢查 → 這一條會紅。"""
         block, effects = self.bash("ls", state=self.state(), effort="max")
         self.assertIsNotNone(block)
         self.assertEqual(effects[0][0], "pause")
+        self.assertIn(("effort_violation", "max"), effects)
+        self.assertIn("放行模型", block.reason)
+        block, effects = self.bash("ls", state=self.state(), effort="low")
+        self.assertIsNotNone(block)
+        self.assertIn(("effort_violation", "low"), effects)
+        self.assertNotIn("放行模型", block.reason)                                      # 不能放行的強度：只說改回來
+        self.allowed(self.bash("ls", state=self.state(effort_approved=["max"]), effort="max"))         # 放行過的 Max：可以
+        self.allowed(self.bash("ls", state=self.state(effort_approved=["max"]), effort="xhigh"))       # 切回規定的強度：不需要任何指令
+        self.blocked(self.bash("ls", state=self.state(effort_approved=["max"]), effort="high"))        # 放行的是 Max，不是別的
 
     def test_time_limit_is_stop_condition_9(self):
         late = self.state(clock_started_at=C.iso(NOW - datetime.timedelta(hours=8, minutes=1)))
@@ -1666,6 +1749,225 @@ class TestStructuralPauseInTheGuard(Base):
         self.allowed(self.bash("git worktree add --detach " + nowhere + " origin/main", state=self.state(), cwd=MAIN))   # 第一個指令：單獨建
         self.allowed(self.bash("cd " + nowhere + " && git status", state=self.state()))              # 唯讀的照舊放行
         self.allowed(self.bash("cd " + nowhere + " && git merge --no-ff feat/stopX1"))              # 一般模式照舊（git 自己會失敗）
+
+
+# ============================================================ P2：PR 的寫入只准經過 iw_notify.py pr
+
+class TestPullRequestWrites(Base):
+    """P2 第 2 節：PR 相關的寫入只准三種（開、改標題內文、留言剛好是 @codex review），而且只准經過主目錄那支 iw_notify.py；
+    gh 直接寫 PR／issue、用 gh api 寫、resolve／刪／隱藏留言——兩種模式都擋；唯讀的放行。"""
+
+    NOTIFY = "python " + MAIN + "/.claude/hooks/iw_notify.py"
+
+    def test_gh_pr_and_issue_writes_are_blocked_in_both_modes(self):
+        """對照組：拿掉 GH_PR_WRITES／GH_ISSUE_WRITES 那兩道 → 這一條會紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh pr create --fill", "gh pr create -t x -b y --base main --head feat/stopX1", "gh pr edit 7 --title x",
+                        "gh pr comment 7 --body \"@codex review\"", "gh pr review 7 --approve", "gh pr review 7 --comment -b x", "gh pr close 7",
+                        "gh pr reopen 7", "gh pr ready 7", "gh pr lock 7", "gh pr merge 7",
+                        "gh issue create -t x -b y", "gh issue comment 1 --body x", "gh issue close 1", "gh issue edit 1 --title x",
+                        "gh api -X POST repos/davidjjx/invest-watch/pulls/7/comments -f body=x",
+                        "gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: \"x\"}) { thread { id } } }'",
+                        "gh api --method PATCH repos/davidjjx/invest-watch/pulls/comments/1 -f body=x",
+                        "gh api -X DELETE repos/davidjjx/invest-watch/pulls/comments/1"):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh pr view 7", "gh pr list", "gh pr diff 7", "gh pr checks 7", "gh pr status", "gh pr view 7 --json reviews"):
+            self.allowed(self.bash(cmd), msg=cmd)
+            self.allowed(self.bash(cmd, state=self.state()), msg=cmd)
+        self.allowed(self.bash("gh issue list"))
+
+    def test_the_notify_program_is_the_only_door_and_downloads_stay_in_the_runs_folder(self):
+        st = self.state()
+        for cmd in (self.NOTIFY + " pr open --stage X1 --title x --body-file " + MAIN + "/.autopilot/runs/X1/pr-body.md",
+                    self.NOTIFY + " pr request-review --stage X1", self.NOTIFY + " verify --stage X1 --wait", self.NOTIFY + " review-status --stage X1"):
+            self.allowed(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh run download 123 -n verify-result -D " + MAIN + "/.autopilot/runs/X1/verify/abc", state=st))
+        self.blocked(self.bash("gh run download 123 -n verify-result -D /tmp/x", state=st), code=8)
+        self.blocked(self.bash("gh run download 123 -n verify-result", state=st), code=8)
+        paused = self.state(pause={"reason": "blocked", "code": 8, "detail": "x", "at": C.iso(NOW), "retries": 0})
+        block, effects = self.bash(self.NOTIFY + " pr request-review --stage X1", state=paused)
+        self.assertIsNotNone(block)                                                               # 暫停中不碰 PR
+        self.assertIn(("pause_retry",), effects)
+        self.allowed(self.bash(self.NOTIFY + " review-status --stage X1", state=paused))
+        self.allowed(self.bash(self.NOTIFY + " verify --stage X1", state=paused))
+
+    def test_file_contents_cannot_be_written_through_the_github_api(self):
+        """2026-10-05 裁決二：不論哪種模式，用 gh api（或 curl 打 api.github.com）寫入或刪除檔案內容（contents）一律擋——
+        那條路不經過 git、不經過推送前的檢查，流程檔與驗收程式可以直接被改掉。對照組：gh api 的寫入不擋（M67）→ 這一條會紅。"""
+        repo = "repos/davidjjx/invest-watch"
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh api -X PUT %s/contents/.github/workflows/verify.yml -f message=x -f content=eA== -f branch=feat/stopX1" % repo,
+                        "gh api --method PUT %s/contents/scripts/verify_ci.py -f message=x -f content=eA==" % repo,
+                        "gh api -XPUT %s/contents/AGENTS.md -f message=x -f content=eA==" % repo,
+                        "gh api --method=DELETE %s/contents/scripts/mutations/known_survivors.json -f message=x -f sha=abc" % repo,
+                        "gh api -X DELETE %s/contents/.github/workflows/verify.yml -f message=x -f sha=abc" % repo,
+                        "gh api %s/contents/README.md -f message=x -f content=eA==" % repo,                      # 沒寫方法、帶欄位＝POST
+                        "gh api %s/contents/README.md --input body.json" % repo,
+                        "gh api %s/git/trees -f base_tree=abc" % repo, "gh api %s/git/blobs -f content=x" % repo,
+                        "gh api graphql -f query='mutation { createCommitOnBranch(input: {}) { commit { oid } } }'",
+                        "curl -X PUT https://api.github.com/%s/contents/.github/workflows/verify.yml -d '{}'" % repo,
+                        "curl --request DELETE https://api.github.com/%s/contents/AGENTS.md --data '{}'" % repo):
+                self.blocked(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh api %s/contents/AGENTS.md --jq .sha" % repo))                               # 讀：可以（一般模式）
+        self.allowed(self.bash("gh api -X GET %s/contents/.github/workflows/verify.yml" % repo))
+
+    def test_gh_pr_and_issue_subcommands_must_be_known_read_only(self):
+        """Codex 對 P2 的第二次審查：寫入清單漏了 gh pr revert（它會直接開一個 PR，不經過隱私掃描與保護範圍清單）。
+        會寫的子指令列不完、gh 以後還會加新的，所以反過來：只有確定只讀的幾個放行，其他一律擋。兩種模式都是。
+        對照組：把 revert 當成只讀、或 gh issue 只擋列得出來的幾個 → 紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh pr revert 7", "gh pr revert 7 --title x --body y", "gh pr revert 7 --draft", "gh pr update-branch 7", "gh pr unlock 7",
+                        "gh pr checkout 7", "gh pr some-future-subcommand 7",
+                        "gh issue transfer 1 davidjjx/other", "gh issue develop 1", "gh issue pin 1", "gh issue delete 1 --yes", "gh issue some-future-subcommand 1"):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh pr view 7", "gh pr list", "gh pr diff 7", "gh pr checks 7", "gh pr status", "gh pr --help",
+                    "gh issue list", "gh issue view 1", "gh issue status"):
+            self.allowed(self.bash(cmd), msg=cmd)
+
+    def test_gh_api_options_must_be_recognizable_as_read_only(self):
+        """gh 接受把短旗標黏在一起（-fbody=x、-XPOST、-iXPOST）；帶了欄位又沒寫方法就自動變成 POST。逐種去認是認不完的，
+        所以每一個選項都要是認得的寫法，認不得的一律擋（Codex 對 P2 的意見：-fbody=x 原本漏掉、可以直接在 PR 上留言）。
+        對照組：認不得的選項放行 → 紅。"""
+        repo = "repos/davidjjx/invest-watch"
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh api %s/issues/7/comments -fbody=x" % repo,                    # 黏在一起的欄位：其實是 POST
+                        "gh api %s/issues/7/comments -Fbody=@x.txt" % repo,
+                        "gh api %s/pulls/7/reviews -fevent=APPROVE" % repo,
+                        "gh api -XPOST %s/pulls/7/comments" % repo,
+                        "gh api -iXPOST %s/pulls/7/comments" % repo,                      # 兩個短旗標黏在一起
+                        "gh api -X GET -iXDELETE %s/pulls/comments/1" % repo,             # 前面寫 GET、後面黏一個 DELETE
+                        "gh api %s/contents/AGENTS.md -fmessage=x -fcontent=eA==" % repo,
+                        "gh api %s/pulls/7/comments --no-such-option" % repo,             # 認不得的選項
+                        "gh api %s/pulls/7/comments -Z" % repo):
+                self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+        for cmd in ("gh api %s/pulls/7/comments --paginate" % repo,
+                    "gh api --paginate --slurp %s/pulls/7/reviews" % repo,
+                    "gh api %s/pulls/7/reviews -q '.[].state'" % repo,
+                    "gh api %s/pulls/7/reviews --jq='.[].state'" % repo,
+                    "gh api -H 'Accept: application/vnd.github+json' %s/pulls/7" % repo,
+                    "gh api -i %s/pulls/7" % repo,
+                    "gh api -X GET %s/pulls -f state=open -f per_page=5" % repo,           # 明寫 GET：欄位只是查詢參數
+                    "gh api -XGET %s/pulls -fstate=open" % repo):
+            self.allowed(self.bash(cmd), msg=cmd)
+
+    def test_autopilot_cannot_touch_the_verifier_the_workflows_or_agents_md(self):
+        """2026-10-05 裁決二：自動駕駛期間，守門擋下所有寫入 .github/workflows/、驗收程式、突變與已知例外清單、AGENTS.md 的動作（停止條件 3）。
+        對照組：把它們從第一層拿掉 → 這一條會紅。"""
+        st = self.state()
+        for rel in (".github/workflows/verify.yml", ".github/workflows/brand-new.yml", "scripts/verify_ci.py", "scripts/mutations/known_survivors.json",
+                    "scripts/mutations/run_mutations.py", "scripts/mutations/autopilot_mutations.py", "AGENTS.md"):
+            for tool in ("Edit", "Write"):
+                block = self.blocked(self.run_tool(tool, {"file_path": WT + "/" + rel, "content": "x"}, state=st), code=3, msg=rel)
+                self.assertIn("動不得", block.reason)
+            self.blocked(self.bash("echo x >> " + rel, state=st), code=3, msg=rel)
+            self.blocked(self.bash("cp /tmp/x " + rel, state=st), code=3, msg=rel)
+            self.blocked(self.bash("sed -i s/a/b/ " + rel, state=st), code=3, msg=rel)
+            self.git.staged = [rel]
+            self.blocked(self.bash("git commit -m x", state=st), code=3, msg=rel)
+            self.git.staged = []
+            self.git.changed = [rel]
+            self.blocked(self.bash("git push origin feat/stopX1", state=st), code=3, msg=rel)
+            self.git.changed = []
+            self.allowed(self.run_tool("Edit", {"file_path": WT + "/" + rel}), msg=rel)                         # 一般模式（David 在場）：可以改，另有 blob 比對把關
+        for path in (CFG["verify"]["protected"]):
+            self.assertIn(path, CFG["tier1"]["paths"], path)
+
+    def test_the_two_new_command_words_cannot_be_sent_through_messaging_tools(self):
+        for word in ("免外部審查 X1", "驗收機變更 X1", "免 外部審查 X1"):
+            block, _ = self.run_tool("SendMessage", {"to": "x", "message": word})
+            self.assertIsNotNone(block, word)
+
+
+# ============================================================ P2 收尾：重跑驗收（gh run rerun）准用、有範圍
+
+class TestRerunTheVerifier(Base):
+    """2026-10-06 裁決第一節：gh run rerun 兩種模式都可以用，但只准對「流程檔是驗收機、head_sha 是現在分支最頂端的 commit、由 push 觸發」
+    的那一次執行；同一個 commit 最多重跑 2 次。對別的流程、別的 commit、超過次數，一律擋；查不到也擋。每一次放行都記下來。
+    （10/6 凌晨 GitHub 的執行機不夠用，驗收的工作排不到被取消；重跑是對策，不是放寬——算數的是最後那一次嘗試的結果。）"""
+
+    WANT = ".github/workflows/" + CFG["verify"]["workflow"]
+
+    def rec(self, rid=501, sha=CAND, attempt=1, path=None, event="push"):
+        return {"id": rid, "head_sha": sha, "run_attempt": attempt, "path": path or self.WANT, "event": event, "status": "completed", "conclusion": "failure"}
+
+    def test_the_verifier_run_of_the_current_commit_can_be_rerun_in_both_modes(self):
+        self.assertEqual(CFG["verify"]["maxReruns"], 2)
+        self.assertIn(["run", "rerun"], ALLOW["programs"]["ghAllowed"])
+        self.git.verify_runs = [self.rec()]
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run rerun 501", "gh run rerun 501 --failed", "gh run rerun --failed 501"):
+                effects = self.allowed(self.bash(cmd, state=st), msg=cmd)
+                self.assertIn(("verify_rerun", {"sha": CAND, "run": "501", "nth": 1, "limit": 2}), effects, cmd)      # 每一次都記：哪個 commit、哪一次執行、第幾次重跑
+        self.assertEqual(set(self.git.asked_runs), set([CAND]))                                  # 問的是現在所在分支最頂端的 commit
+        self.git.verify_runs = [self.rec(attempt=2)]                                             # 重跑過一次：還可以再一次
+        effects = self.allowed(self.bash("gh run rerun 501 --failed"))
+        self.assertIn(("verify_rerun", {"sha": CAND, "run": "501", "nth": 2, "limit": 2}), effects)
+
+    def test_a_third_rerun_is_blocked(self):
+        """對照組：不看次數 → 紅。"""
+        self.git.verify_runs = [self.rec(attempt=3)]                                             # 第 3 次嘗試＝已經重跑 2 次
+        block = self.blocked(self.bash("gh run rerun 501 --failed"), code=1, has="已經重跑 2 次，上限是 2 次")
+        self.assertIn("【%s】" % CFG["stopLevels"]["decide"], block.reason)
+        block, effects = self.bash("gh run rerun 501 --failed", state=self.state())              # 自動駕駛：這是停止條件（修兩次還是壞的）
+        self.assertEqual(block.code, 5)
+        self.assertTrue(any(e[0] == "stop_required" and e[1] == 5 for e in effects), effects)
+        self.assertFalse(any(e[0] == "verify_rerun" for e in effects))
+        self.git.verify_runs = [self.rec(501, attempt=2), self.rec(502, attempt=2)]              # 同一個 commit 的兩次執行（推分支、推標籤）合起來算
+        self.blocked(self.bash("gh run rerun 502"), has="已經重跑 2 次")
+        self.git.verify_runs = [self.rec(501, attempt=2), self.rec(503, sha="d" * 40, attempt=3)]  # 別的 commit 重跑幾次不算在這個 commit 頭上
+        self.allowed(self.bash("gh run rerun 501"))
+
+    def test_a_run_of_another_commit_is_blocked(self):
+        """對照組：不比 head_sha → 紅。"""
+        self.git.verify_runs = [self.rec(601, sha="d" * 40)]
+        self.blocked(self.bash("gh run rerun 601"), code=1, has="別的 commit")
+        self.blocked(self.bash("gh run rerun 601 --failed", state=self.state()), code=3, has="別的 commit")
+        self.git.verify_runs = [self.rec(501)]
+        self.blocked(self.bash("gh run rerun 999"), has="不在驗收機")                            # 這個編號不在現在這個 commit 的紀錄裡
+        self.git.asked_runs = []
+        self.git.verify_runs = []
+        self.blocked(self.bash("gh run rerun 501", cwd=MAIN), has="不在驗收機")                  # 在主目錄下：問的是 main 的 commit，那裡沒有驗收紀錄
+        self.assertEqual(self.git.asked_runs, [TIP])
+
+    def test_a_run_of_another_workflow_is_blocked(self):
+        """對照組：不比流程檔的路徑 → 紅。"""
+        self.git.verify_runs = [self.rec(701, path=".github/workflows/update-data.yml")]
+        self.blocked(self.bash("gh run rerun 701"), code=1, has="別的流程")
+        self.blocked(self.bash("gh run rerun 701", state=self.state()), code=3, has="別的流程")
+        self.git.verify_runs = [self.rec(702, event="workflow_dispatch")]                        # 手動觸發的那一次：關卡不認，重跑也不准
+        self.blocked(self.bash("gh run rerun 702"), has="不是由推送觸發")
+
+    def test_runs_cannot_be_deleted_or_cancelled_in_either_mode(self):
+        """Codex 對 P2 的第五次審查（P0）：一般模式原本放行 gh run delete。同一個 commit 可以有兩次由推送觸發的驗收（推分支、推標籤），
+        關卡認最新的那一次——把最新的、紅的那一次刪掉，比較舊的綠的就重新算數。驗收機的執行紀錄是證據：確定只讀的子指令才放行，
+        其他一律擋（gh 以後加的新子指令也是），兩種模式都一樣；能改變結果的只有有範圍的 rerun。對照組：只在自動駕駛中擋 → 紅。"""
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run delete 501", "gh run delete", "gh run delete 501 -R davidjjx/invest-watch", "gh run cancel 501", "gh run cancel 501 --force",
+                        "gh run some-future-subcommand 501", "gh workflow some-future-subcommand verify.yml"):
+                block = self.blocked(self.bash(cmd, state=st), code=1, msg=cmd)
+                self.assertNotIn("清單裡", block.reason, cmd)                                      # 不是靠自動駕駛的允許清單擋的
+        for st in (ST.default_state(), self.state()):
+            for cmd in ("gh run list", "gh run view 501", "gh run view 501 --log-failed", "gh run watch 501 -i 20", "gh workflow list", "gh workflow view verify.yml"):
+                self.allowed(self.bash(cmd, state=st), msg=cmd)
+        self.allowed(self.bash("gh run --help"))
+        self.assertEqual(G.GH_RUN_READS, set(["list", "view", "watch", "download"]))
+        for cmd in ("gh api -X DELETE repos/davidjjx/invest-watch/actions/runs/501", "gh api --method POST repos/davidjjx/invest-watch/actions/runs/501/cancel",
+                    "gh api -X DELETE repos/davidjjx/invest-watch/actions/artifacts/9"):               # 直接打 API 刪執行、取消、刪結果檔：寫入一律擋
+            self.blocked(self.bash(cmd), code=1, msg=cmd)
+
+    def test_other_forms_and_failed_lookups_are_blocked(self):
+        self.git.verify_runs = [self.rec()]
+        for cmd in ("gh run rerun", "gh run rerun --failed", "gh run rerun 501 502", "gh run rerun 501 --job 9", "gh run rerun --job 9",
+                    "gh run rerun 501 -R davidjjx/other", "gh run rerun 501 --debug", "gh run rerun abc", "gh run rerun 501abc"):
+            self.blocked(self.bash(cmd), msg=cmd)
+            self.blocked(self.bash(cmd, state=self.state()), msg=cmd)
+        self.git.verify_runs = None                                                              # 查不到就擋
+        self.blocked(self.bash("gh run rerun 501"), has="查不到")
+        self.git.verify_runs = [self.rec()]
+        self.blocked(self.bash("gh run rerun 501", cwd=ELSE))                                    # 不是這個倉庫
+        for cmd in ("gh api -X POST repos/davidjjx/invest-watch/actions/runs/501/rerun",          # 繞過 gh run rerun 直接打 API：寫入一律擋
+                    "gh api --method POST repos/davidjjx/invest-watch/actions/runs/501/rerun-failed-jobs"):
+            self.blocked(self.bash(cmd), code=1, msg=cmd)
 
 
 if __name__ == "__main__":

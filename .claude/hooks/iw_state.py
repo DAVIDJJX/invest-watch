@@ -10,6 +10,7 @@ iw_state.py — 自動駕駛的狀態、放行通行證、對話紀錄核對。
 
 這些檔只有 hook 與我們自己的腳本會寫；守門會擋下模型用改檔工具或指令寫這個資料夾。
 """
+import hashlib
 import io
 import json
 import os
@@ -171,6 +172,20 @@ def save_spec(sd, stage, text):
     return p
 
 
+def file_sha256(path):
+    """一個檔內容的 SHA-256（十六進位）。讀不到、不是一般的檔（例如捷徑）回 None——拿它比對的地方一律把 None 當成對不上。"""
+    try:
+        if not path or os.path.islink(path) or not os.path.isfile(path):
+            return None
+        h = hashlib.sha256()
+        with io.open(path, "rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 16), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:                                              # noqa: B902
+        return None
+
+
 def save_ruling(sd, stage, text, stamp):
     """David 的裁決原件（hook 存的，跟規格一樣放在狀態資料夾；給人看的副本另外放 .autopilot/runs/<階段>/）。"""
     d = os.path.join(sd, "rulings")
@@ -303,7 +318,7 @@ def clean_prompt(text):
 def parse_command(prompt):
     """看一則訊息是不是你的指令詞。回傳 dict(kind=…, stage=…, rest=…) 或 None。
 
-    整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛
+    整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛、免外部審查 <階段>、驗收機變更 <階段>
     第一行相符：      自動駕駛：<階段>（下面是規格）、修改 <階段>：＿＿、裁決：<階段>（下面是 Cowork 寫的內容）
     為什麼不能用「訊息裡有這幾個字就算」：規格本身就寫著「放行 P1」；代理回報、背景工作通知也會經過同一個 hook（外面包著標籤）。"""
     t = clean_prompt(prompt)
@@ -323,6 +338,12 @@ def parse_command(prompt):
         return {"kind": "ruling", "stage": m.group(1), "rest": rest.strip("\n")}
     if "\n" in t:
         return None
+    m = re.match(r"^免外部審查\s+(\S+)$", t)
+    if m:
+        return {"kind": "waive", "stage": m.group(1), "rest": ""}
+    m = re.match(r"^驗收機變更\s+(\S+)$", t)
+    if m:
+        return {"kind": "verifier_change", "stage": m.group(1), "rest": ""}
     m = re.match(r"^放行\s+(\S+)$", t)
     if m and m.group(1) != "模型":
         return {"kind": "approve", "stage": m.group(1), "rest": ""}
@@ -378,7 +399,8 @@ def near_miss(prompt, stage=None):
     first = lines[0]
     colon = "[:" + chr(0xFF1A) + "]"
     shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("approve_model", r"^放行\s*模型"),
-              ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛"), ("ruling", r"^裁決\s*" + colon + r"?\s*[A-Za-z0-9]")]
+              ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛"), ("ruling", r"^裁決\s*" + colon + r"?\s*[A-Za-z0-9]"),
+              ("waive", r"^免外部審查(\s*[A-Za-z0-9]|$)"), ("verifier_change", r"^驗收機變更(\s*[A-Za-z0-9]|$)")]
     if stage:
         end = r"(?![A-Za-z0-9._-])"                                 # 階段名稱要完整（P1 不可以對到 P10）；後面接中文字沒關係
         shapes += [("resume", r"^繼續\s*" + re.escape(stage) + end), ("revise", r"^修改\s*" + re.escape(stage) + end)]
@@ -387,7 +409,8 @@ def near_miss(prompt, stage=None):
             return {"kind": kind, "where": "shape"}
     if len(lines) == 1 and len(first) <= _SHORT:                    # 一句話裡提到了（「請幫我 放行 P1」「我想結束自動駕駛」）
         for kind, pat in (("approve_model", r"放行\s*模型"), ("approve", r"放行\s*[A-Za-z0-9]"),
-                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛")):
+                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛"), ("waive", r"免外部審查\s*[A-Za-z0-9]"),
+                          ("verifier_change", r"驗收機變更\s*[A-Za-z0-9]")):
             if re.search(pat, first):
                 return {"kind": kind, "where": "shape"}
     return None
