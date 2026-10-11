@@ -1337,13 +1337,20 @@ class TestMutationRunnerHelpers(unittest.TestCase):
         with io.open(os.path.join(copy, "t.py"), "w", encoding="utf-8", newline="\n") as fh:
             fh.write("import unittest\nimport a\n\n\nclass T(unittest.TestCase):\n    def test_real(self):\n        self.assertEqual(a.X, 1)\n")
         os.utime(src, (when, when))
+        # 這條測試自己也會在執行器底下跑（跑基準、對照 R159 的時候）：那裡的環境已經把快取指到別處。要重現的是「快取檔就在原始檔旁邊」，
+        # 所以留快取、叫執行器的這兩步都先把外層的設定拿掉。2026-10-12 發現：原本沒拿掉，快取被寫到別處，下面「會被騙」那一步在執行器底下
+        # 不管有沒有突變都會紅——R159 的紅不是因為抓到突變。
+        outer_prefix, outer_env = sys.pycache_prefix, os.environ.pop("PYTHONPYCACHEPREFIX", None)
+        sys.pycache_prefix = None
+        self.addCleanup(setattr, sys, "pycache_prefix", outer_prefix)
+        if outer_env is not None:
+            self.addCleanup(os.environ.__setitem__, "PYTHONPYCACHEPREFIX", outer_env)
         py_compile.compile(src, doraise=True)                                    # 沒改壞的那一版留下快取檔
+        self.assertTrue(os.path.isdir(os.path.join(copy, "__pycache__")))        # 真的留在原始檔旁邊
         with io.open(src, "w", encoding="utf-8", newline="\n") as fh:
             fh.write("X = 2\n")                                                  # 改壞：一樣長
         os.utime(src, (when, when))                                              # 修改時間也一樣（在執行機上是「同一秒」）
-        plain = dict(os.environ)
-        plain.pop("PYTHONPYCACHEPREFIX", None)
-        fooled = subprocess.run([sys.executable, "-m", "unittest", "t.py"], cwd=copy, env=plain, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        fooled = subprocess.run([sys.executable, "-m", "unittest", "t.py"], cwd=copy, env=dict(os.environ), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         self.assertEqual(fooled.returncode, 0, fooled.stdout.decode("utf-8", "replace")[-400:])   # 一般的跑法：讀到舊快取，以為沒改壞
         rc, ran, fails, _tail, _out = RM.run_tests(copy, [sys.executable], ["t.py"])
         self.assertEqual((ran, fails), (1, ["test_real"]))                       # 執行器：從原始碼重新編譯，改壞的那一版真的被跑到

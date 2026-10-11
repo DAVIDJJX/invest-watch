@@ -17,6 +17,7 @@ import datetime
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -392,6 +393,74 @@ class TestBypassesAreBlocked(Base):
                    "git fetch --update-head-ok origin feat/stopX1:main",
                    "git symbolic-ref HEAD refs/heads/other"])
 
+    def test_fetch_and_pull_only_take_the_listed_options(self):
+        """git fetch／pull 的選項走白名單（2026-10-12 Cowork 的裁決，跟 gh 同一個做法）：只放行確定不會改「記號寫到哪裡」的那幾個，其餘一律擋。
+        起因是 --refmap：它可以另外指定記號的目的地，把本機「遠端的 main 在哪裡」改到分支的頂端，「這個分支改了哪些檔」就算成什麼都沒改
+        （2026-10-07 審查代理指出；在無關的暫存倉庫實測成立，縮寫、分開寫、pull 都一樣）。git 的選項與縮寫追不完，所以不列黑名單。
+        參數是變數、大括號、沒加引號的萬用字元時，實際的選項與目的地看不出來，也擋。
+        對照組：不看白名單、pull 不看、黏成一串只看第一個字母、把 --refmap 加進清單、變數照樣放行 → 紅。"""
+        refmap = "refs/heads/feat/stopX1:refs/remotes/origin/main"
+        cmds = ["git fetch --refmap=%s origin feat/stopX1" % refmap,
+                "git fetch --refmap %s origin feat/stopX1" % refmap,              # 值分開寫
+                "git fetch --refm=%s origin feat/stopX1" % refmap,                # git 認得縮寫；白名單要一字不差
+                "git fetch --refmap= origin feat/stopX1",
+                "git fetch -q --refmap=%s origin feat/stopX1" % refmap,
+                "git fetch --force origin", "git fetch -f origin", "git fetch -pf origin", "git fetch -fp origin",       # 短選項黏成一串：每個字母都要在清單裡
+                "git fetch --update-head-ok origin", "git fetch -u origin",
+                "git fetch --prune-tags origin", "git fetch -P origin", "git fetch -pP origin",
+                "git fetch --depth=1 origin", "git fetch --depth 1 origin", "git fetch --unshallow", "git fetch --deepen=3 origin",
+                "git fetch --set-upstream origin feat/stopX1", "git fetch --multiple origin other", "git fetch --recurse-submodules origin",
+                "git fetch --negotiate-only origin", "git fetch -j4 origin", "git fetch -o x origin", "git fetch --append origin",
+                "git fetch -- origin", "git fetch - origin", "git fetch --prune=now origin", "git fetch --Prune origin",
+                "git pull --refmap=%s origin feat/stopX1" % refmap,
+                "git pull --no-rebase --refmap %s origin feat/stopX1" % refmap,
+                "git pull --force origin feat/stopX1", "git pull -f", "git pull -qf", "git pull --depth=1", "git pull --squash origin feat/stopX1",
+                "git pull --no-ff origin feat/stopX1", "git pull --allow-unrelated-histories origin feat/stopX1", "git pull -X theirs origin feat/stopX1",
+                "git pull --autostash", "git pull --set-upstream origin feat/stopX1", "git pull --all"]
+        for cmd in cmds:
+            self.blocked(self.bash(cmd), code=4, has="不在允許的清單裡", msg=cmd)
+        for cmd in ("git fetch --refmap=%s origin feat/stopX1" % refmap, "git pull --ff-only --refmap=%s origin main" % refmap, "git pull --ff-only --depth=1"):
+            self.blocked(self.bash(cmd, cwd=MAIN), code=4, has="不在允許的清單裡", msg=cmd)          # 主目錄也一樣（原本只看有沒有 --ff-only）
+        for cmd in ("git fetch $OPT origin feat/stopX1", "git fetch origin \"$SPEC\"", "git pull origin $SPEC",
+                    "git fetch origin feat/{a,b}:refs/heads/x", "git fetch origin refs/heads/feat/*:refs/heads/*"):
+            self.blocked(self.bash(cmd), code=4, has="看不出實際的選項與目的地", msg=cmd)
+        # 白名單的內容釘在這裡：要多放行一個選項，得先改這一條（同一個清單只有一份）
+        common = ["--quiet", "--verbose", "--progress", "--no-progress", "--prune", "--tags", "--no-tags"]
+        self.assertEqual(G._FETCH_OPTIONS_OK, {"fetch": (frozenset(common + ["--all", "--dry-run"]), "qvptn"),
+                                               "pull": (frozenset(common + ["--ff-only", "--no-rebase", "--no-edit", "--stat", "--no-stat"]), "qvptn")})
+        guide = io.open(os.path.join(ROOT, "docs", "AUTOPILOT.md"), encoding="utf-8").read()                 # 說明文件列的清單跟程式的一樣
+        bullet = [x for x in guide.split("\n") if x.startswith("- `git fetch`／`git pull` 帶清單以外的選項")]
+        self.assertEqual(len(bullet), 1)
+        fetch_part, pull_part = bullet[0].split("fetch 只放行")[1].split("pull 只放行")
+        self.assertEqual(set(re.findall(r"`(--[a-z-]+)`", fetch_part)), set(G._FETCH_OPTIONS_OK["fetch"][0]))
+        self.assertEqual(set(re.findall(r"`(--[a-z-]+)`", pull_part.split("短的只有")[0])), set(G._FETCH_OPTIONS_OK["pull"][0]))
+        self.assertIn("短的只有 `-q -v -p -t -n`", bullet[0])
+        self.assertIsNone(G._unlisted_option(["-pq", "--prune", "origin", "main"], *G._FETCH_OPTIONS_OK["fetch"]))
+        self.assertEqual(G._unlisted_option(["-q", "origin", "--refmap=x"], *G._FETCH_OPTIONS_OK["fetch"]), "--refmap=x")
+
+    def test_fetch_and_pull_cannot_reach_the_remote_markers_through_the_destination(self):
+        """「來源:目的地」的目的地只准寫成普通的分支或標籤名字：refs/ 底下只認 refs/heads/ 與 refs/tags/，不准有萬用字元，main 不分大小寫。
+        2026-10-12 補 --refmap 時在無關的暫存倉庫實測到的：目的地寫 refs/remotes/origin/HEAD（它指向 origin/main，改到的是 origin/main）、
+        用萬用字元對過去（遠端有一個 feat/main 就對到 origin/main；加 --prune 還會把它刪掉）、大小寫不同的 Main（Windows 上是同一個檔），
+        都改得到「記著遠端 main 在哪裡」的記號或本機的 main；git pull 帶目的地原本完全沒看。
+        對照組：萬用字元不擋、refs/remotes/ 不擋、分大小寫、pull 不看 → 紅。"""
+        cmds = ["git fetch origin 'refs/heads/feat/*:refs/remotes/origin/*'",
+                "git fetch origin '+refs/heads/feat/*:refs/remotes/origin/*'",
+                "git fetch --prune origin 'refs/heads/zzz/*:refs/remotes/origin/*'",
+                "git fetch origin 'refs/heads/feat/*:refs/heads/*'",
+                "git fetch origin \"refs/heads/*:refs/heads/copy/*\"",
+                "git fetch origin feat/stopX1:refs/remotes/origin/HEAD",
+                "git fetch origin feat/stopX1:refs/remotes/origin/feat/other",
+                "git fetch . feat/stopX1:refs/remotes/upstream/x",
+                "git fetch origin feat/stopX1:refs/stash", "git fetch origin feat/stopX1:refs/notes/x",
+                "git pull origin feat/stopX1:refs/remotes/origin/HEAD",
+                "git pull --no-rebase origin 'refs/heads/feat/*:refs/heads/*'"]
+        for cmd in cmds:
+            self.blocked(self.bash(cmd), code=4, has="目的地不可以有萬用字元", msg=cmd)
+        for cmd in ("git fetch origin feat/stopX1:refs/remotes/origin/MAIN", "git fetch origin feat/stopX1:refs/heads/Main", "git fetch origin feat/stopX1:MAIN",
+                    "git pull origin feat/stopX1:refs/remotes/origin/main", "git pull origin feat/stopX1:main", "git pull --no-rebase origin feat/stopX1:refs/heads/Main"):
+            self.blocked(self.bash(cmd), code=4, has="記著遠端 main 在哪裡", msg=cmd)
+
     def test_rewriting_history(self):
         self.git.published = True
         self.each(["git rebase main",
@@ -586,6 +655,18 @@ class TestRoutineWorkIsNotBlocked(Base):
                    "git log --oneline origin/main..HEAD",
                    "git push origin HEAD:refs/heads/feat/stopX1",
                    "git push origin HEAD:feat/origin-notes"])
+
+    def test_ordinary_fetch_and_pull_still_work(self):
+        """fetch／pull 的選項改成白名單之後，平常會用到的寫法照常：清單裡的選項（長的、短的、黏成一串的）、不帶目的地的分支、
+        目的地是普通的分支名字。"""
+        self.each(["git fetch", "git fetch origin", "git fetch --prune", "git fetch --prune origin", "git fetch -p origin", "git fetch -pq origin",
+                   "git fetch --prune --tags origin", "git fetch -pt origin", "git fetch --no-tags origin feat/stopX1", "git fetch -n origin",
+                   "git fetch --all --prune", "git fetch --dry-run origin", "git fetch -v --progress origin main", "git fetch -q --no-progress origin",
+                   "git fetch origin feat/stopX1:feat/copy", "git fetch origin feat/stopX1:refs/heads/feat/copy", "git fetch origin pull/1/head:pr-1",
+                   "git fetch --prune origin 2>&1 | tail -1",
+                   "git pull", "git pull --no-rebase", "git pull --ff-only", "git pull -q --no-edit origin feat/stopX1", "git pull --no-rebase origin main",
+                   "git pull --ff-only --stat origin feat/stopX1", "git pull -p --tags"])
+        self.each(["git fetch --prune origin", "git fetch -pq", "git pull --ff-only -q", "git pull --ff-only --prune origin main"], cwd=MAIN)
 
     def test_main_checkout_can_be_read_and_fast_forwarded(self):
         self.each(["git status -sb",
@@ -1610,6 +1691,16 @@ class TestVersionQueriesAndTheFixedTestEnvironment(Base):
         self.allowed(self.bash(self.FULL_SUITE), msg=self.FULL_SUITE)
         one = "export IW_BROWSER=\"%s\"\npy -3.12 -W ignore -m unittest scripts/test_freshness_js.py" % self.CHROME
         self.allowed(self.bash(one, state=self.state()), msg=one)
+
+    def test_the_local_test_record_can_start_with_its_commit(self):
+        """本機測試紀錄（tests.txt）的第一行記這份輸出是哪個 commit 跑的（2026-10-12；流程檔第 5 步的寫法）。
+        這個指令要下得了，自動駕駛期間也一樣；全套測試的輸出改成接在後面。"""
+        first = "git log -1 --format=\"commit %%H\" > \"%s/.autopilot/runs/X1/tests.txt\"" % MAIN
+        rest = self.FULL_SUITE.replace("\"test_*.py\" > ", "\"test_*.py\" >> ")
+        self.assertIn(">> \"%s/.autopilot/runs/X1/tests.txt\" 2>&1" % MAIN, rest)
+        for cmd in (first, rest, first + "\n" + rest):
+            self.allowed(self.bash(cmd, state=self.state()), msg="自動駕駛中：" + cmd)
+            self.allowed(self.bash(cmd), msg=cmd)
 
     def test_a_version_flag_after_the_code_does_not_switch_the_checks_off(self):
         """對照組：改回「參數裡有 --version 就整段不檢查」→ 這一條會紅。"""

@@ -1538,9 +1538,25 @@ def _git(words, cwd, ctx, auto):
             if "--no-ff" not in opts:
                 raise Block("合併進 main 要用 --no-ff（留下一個合併 commit，之後才退得回去）。", 1)
         return
-    if sub == "pull":
-        if any(o in ("--rebase", "-r") or o.startswith("--rebase=") for o in opts):
+    if sub in _FETCH_OPTIONS_OK:                                    # fetch 與 pull：pull 的前半段就是一次 fetch，選項與目的地照同一套規矩
+        if sub == "pull" and any(o in ("--rebase", "-r") or o.startswith("--rebase=") for o in opts):
             raise Block("git pull --rebase 會改寫歷史，不允許。", 4)
+        hidden = next((w.text for w in words if w.opaque and w.text in args), None)
+        if hidden is not None:                                      # 變數、大括號、沒加引號的萬用字元：實際的選項與目的地要執行了才知道
+            raise Block("git %s 的參數含有變數、大括號或沒加引號的萬用字元（%s），看不出實際的選項與目的地。請把遠端與分支寫成字面的名字。" % (sub, hidden), 4)
+        unlisted = _unlisted_option(args, *_FETCH_OPTIONS_OK[sub])
+        if unlisted is not None:
+            raise Block(FETCH_OPTION_MSG % (sub, unlisted, sub, "、".join(sorted(_FETCH_OPTIONS_OK[sub][0]))), 4)
+        for a in pos[1:]:                                           # 來源:目的地（fetch 與 pull 都看）
+            dst = a.split(":", 1)[1].strip().lower() if ":" in a else None   # 大小寫不分：Windows 的檔案系統上 refs/heads/Main 跟 main 是同一個檔
+            if dst is not None and (dst == MAIN or dst.endswith("/" + MAIN)):
+                # refs/heads/main＝本機的 main；refs/remotes/origin/main＝本機「記著遠端 main 在哪裡」的記號。
+                # 後者被改到分支的頂端，「這個分支改了哪些檔」就會算成什麼都沒改（第三輪審查找到的）。
+                raise Block("用 fetch 直接改本機的 main 分支、或改「記著遠端 main 在哪裡」的那個記號（origin/main），不允許。", 4)
+            if dst is not None and ("*" in dst or (dst.startswith("refs/") and not dst.startswith(_FETCH_DST_DIRS_OK))):
+                raise Block(FETCH_DST_MSG % (sub, a.split(":", 1)[1]), 4)
+        if sub == "fetch":
+            return
         if in_main or on_main or (info.get("head") and info["head"] in ctx.git.main_tips()):
             if "--ff-only" in opts and pos in ([], ["origin"], ["origin", MAIN]):
                 return
@@ -1586,16 +1602,6 @@ def _git(words, cwd, ctx, auto):
     if sub == "remote":
         if pos and pos[0] in ("add", "set-url", "rename", "remove", "rm", "set-head", "set-branches"):
             raise Block("改 git 的遠端設定，不允許。", 3)
-        return
-    if sub == "fetch":
-        if "--update-head-ok" in opts or _short_flag(args, "u", "") or "--force" in opts or _short_flag(args, "f", ""):
-            raise Block("git fetch 的這個選項會直接改本機分支，不允許。", 4)
-        for a in pos[1:]:
-            dst = a.split(":", 1)[1] if ":" in a else None
-            if dst is not None and (dst == MAIN or dst.endswith("/" + MAIN)):
-                # refs/heads/main＝本機的 main；refs/remotes/origin/main＝本機「記著遠端 main 在哪裡」的記號。
-                # 後者被改到分支的頂端，「這個分支改了哪些檔」就會算成什麼都沒改（第三輪審查找到的）。
-                raise Block("用 fetch 直接改本機的 main 分支、或改「記著遠端 main 在哪裡」的那個記號（origin/main），不允許。", 4)
         return
     if sub == "init":
         target = C.key(pos[0], cdir) if pos else C.key(cdir)
@@ -1726,6 +1732,43 @@ def _new_ref_names(sub, args):
                 out.append(dst)
         return out
     return []
+
+
+# ---- git fetch／pull：選項走白名單（2026-10-12 Cowork 的裁決，跟 gh 同一個做法）
+# 只放行確定不會改「記號寫到哪裡」、也不會讓「跟正式版比」比不出來的選項，其餘一律擋。擋的那一邊有：
+#   --refmap：另外指定記號的目的地。git fetch --refmap=分支:refs/remotes/origin/main origin 分支 會把本機「遠端的 main 在哪裡」那個記號改到分支的頂端，
+#             「這個分支改了哪些檔」就算成什麼都沒改（2026-10-07 審查代理指出；10-12 在無關的暫存倉庫實測成立，縮寫、分開寫、pull 都一樣）；
+#   --force／-f、--update-head-ok／-u：直接改本機分支；--prune-tags／-P：刪本機的標籤；
+#   --depth 那一類：把歷史截短，「跟正式版比」會找不到共同的起點（實測：三點比對直接失敗）；
+#   --set-upstream、--multiple、--recurse-submodules、「--」……以及 git 之後新增的任何選項。
+# 長選項要一字不差：git 認得縮寫（--refm=… 就是 --refmap=…），白名單不認縮寫。短選項可以黏成一串（-pq），每一個字母都要在清單裡。
+_FETCH_LONG_OK = frozenset(["--quiet", "--verbose", "--progress", "--no-progress", "--prune", "--tags", "--no-tags", "--all", "--dry-run"])
+_PULL_LONG_OK = frozenset(["--quiet", "--verbose", "--progress", "--no-progress", "--prune", "--tags", "--no-tags",
+                           "--ff-only", "--no-rebase", "--no-edit", "--stat", "--no-stat"])
+_FETCH_OPTIONS_OK = {"fetch": (_FETCH_LONG_OK, "qvptn"),            # -q -v -p（--prune）-t（--tags）-n（--no-tags）
+                     "pull": (_PULL_LONG_OK, "qvptn")}              # pull 的 -n 是 --no-stat
+FETCH_OPTION_MSG = ("git %s 的選項 %s 不在允許的清單裡。git %s 只放行這幾個選項：%s，以及短的 -q -v -p -t -n。"
+                    "其他的選項裡，有的可以改掉「記著遠端 main 在哪裡」的那個記號（例如 --refmap），有的會直接改本機的分支或標籤，有的會把歷史截短；"
+                    "所以沒列的一律不放行。真的要用，請 David 自己動手。")
+# 目的地（來源:目的地 的後半）：只准寫成普通的分支或標籤名字。refs/ 底下只認 refs/heads/ 與 refs/tags/；不准有萬用字元。
+# 10-12 實測：目的地寫 refs/remotes/origin/HEAD（它指向 origin/main，寫進去改到的是 origin/main）、
+# 用萬用字元對過去（refs/heads/feat/*:refs/remotes/origin/*，遠端有一個 feat/main 就改到 origin/main；加 --prune 還會把 origin/main 刪掉），都改得到那個記號。
+_FETCH_DST_DIRS_OK = ("refs/heads/", "refs/tags/")
+FETCH_DST_MSG = ("git %s 的目的地（%s）不允許：目的地不可以有萬用字元，也不可以直接寫到 refs/ 底下分支與標籤以外的地方（例如 refs/remotes/…）。"
+                 "那樣改得到「記著遠端 main 在哪裡」的那個記號。要另存一份，目的地請寫普通的分支名字。")
+
+
+def _unlisted_option(args, longs, shorts):
+    """參數裡第一個不在白名單裡的選項；都在就回 None。longs：放行的長選項（要一字不差）；shorts：放行的短選項字母。"""
+    for a in args:
+        if not a.startswith("-"):
+            continue
+        if a.startswith("--"):
+            if a not in longs:
+                return a
+        elif len(a) < 2 or any(ch not in shorts for ch in a[1:]):
+            return a
+    return None
 
 
 def _short_flag(args, letters, takes_value):

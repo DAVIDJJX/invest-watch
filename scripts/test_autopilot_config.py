@@ -589,6 +589,20 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertIn(must, criteria, must)
         self.assertIn("驗收機", read(".claude/skills/iw-autopilot/report-template.md"))
 
+    def test_the_local_test_record_starts_with_the_commit_it_ran_on(self):
+        """本機測試紀錄（tests.txt）的第一行記這份輸出是哪個 commit 跑的（2026-10-12；審查代理的建議、Cowork 的裁決）。
+        寫法在流程檔第 5 步；審查準則要拿它跟被審的 commit 對，對不上是必改；審查代理自己的說明與 PR 的步驟也要提。
+        那一行是施工的一方自己寫的，說明文件要寫明它不是證據。對照組：審查準則把「必改」改成建議 → 紅。"""
+        skill = read(".claude/skills/iw-autopilot/SKILL.md")
+        self.assertIn("`tests.txt` 的第一行記這份輸出是哪個 commit 跑的", skill)
+        self.assertIn("git log -1 --format=\"commit %H\"", skill)
+        criteria = read(".claude/skills/iw-autopilot/review-criteria.md")
+        self.assertIn("`tests.txt` 的第一行（`commit <40 碼>`）要等於被審的 commit", criteria)
+        self.assertIn("列為必改（重跑全套）", criteria)
+        self.assertIn("第一行（`commit <40 碼>`）是不是被審的那個 commit", read(".claude/agents/iw-reviewer.md"))
+        self.assertIn("第一行要記是哪個 commit 跑的", read(".claude/skills/iw-autopilot/pr-steps.md"))
+        self.assertIn("只用來抓「忘了重跑」", read("docs/AUTOPILOT.md"))
+
     def test_mutation_list_lives_in_the_repo_and_its_anchors_hold(self):
         """突變清單搬進倉庫（驗收機才跑得到）：每個錨點在現在的程式裡剛好出現一次；已知例外都是真的編號；有 P2 的 Q 系列。"""
         sys.path.insert(0, os.path.join(HERE, "mutations"))

@@ -71,7 +71,7 @@ hook 記成暫停之後（任何擋下、程式判定的停止條件、你寄了
 
 **4b. 第三方**（P2）　照同資料夾的 [pr-steps.md](pr-steps.md)：推上去之後驗收機（GitHub 的電腦）會重跑全套；開 PR 給 Codex 審；意見逐條回覆進 `.autopilot/runs/<階段>/03_第三方審查.md`（採納並修／不採納＋理由），不在 PR 上回。Codex 逾時或不能用＝「外部審查未完成」：寄 `--kind stop`，等 David 手打「免外部審查 <階段>」或之後「繼續」。驗收機本身（`.github/workflows/`、`scripts/verify_ci.py`、`scripts/mutations/`、`AGENTS.md`）自動駕駛期間寫入與推送都會被擋；要改只能在一般模式做，而且要 David 手打「驗收機變更 <階段>」那個 commit 才能用驗收機的綠。
 
-**5. 驗收材料**　都放 `.autopilot/runs/<階段>/`：`02_驗收報告.md`、`diffstat.txt`（`git diff --stat origin/main...HEAD`）、`tests.txt`（全套測試的輸出）、`mutation.txt`、`03_停止報告.md`（照 `report-template.md`）。報告裡的測試數以驗收機為準，旁邊附本機的數字。
+**5. 驗收材料**　都放 `.autopilot/runs/<階段>/`：`02_驗收報告.md`、`diffstat.txt`（`git diff --stat origin/main...HEAD`）、`tests.txt`（全套測試的輸出）、`mutation.txt`、`03_停止報告.md`（照 `report-template.md`）。報告裡的測試數以驗收機為準，旁邊附本機的數字。`tests.txt` 的第一行記這份輸出是哪個 commit 跑的：commit 之後、worktree 乾淨的時候，先在 worktree 裡用 `git log -1 --format="commit %H" > <tests.txt 的完整路徑>` 寫第一行，全套測試的輸出接在後面（`>>`）。跑完之後又有新的 commit 就要重跑。這一行程式不看，是給審查代理與 David 對的：審查代理會拿它跟被審的 commit 比，對不上是必改。
 
 **6. 審驗收**　同第 3 步，開頭改成 `REVIEW-KIND: acceptance`、`COMMIT: <worktree 的 HEAD，完整 40 碼>`。審完之後如果又改了任何東西，要重審。一般模式也要審：沒有跳過的選項。
 
