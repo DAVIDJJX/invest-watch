@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-10-12T15:05:27+08:00",
- "runAtText": "2026-10-12 15:05",
+ "runAt": "2026-10-12T15:30:22+08:00",
+ "runAtText": "2026-10-12 15:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "full",
- "requests": 5,
+ "mode": "light",
+ "requests": 3,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -68,16 +68,16 @@
     4262.0,
     4327.0
    ],
-   "fetchedAt": "2026-10-12T15:05:22+08:00",
+   "fetchedAt": "2026-10-12T15:30:19+08:00",
    "error": null,
    "buy": 4280.0,
    "sell": 4327.0,
-   "quoteTime": "2026/10/12 14:24",
+   "quoteTime": "2026/10/12 15:19",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-12T15:05:22+08:00",
-   "lastSuccessAt": "2026-10-12T15:05:22+08:00"
+   "lastAttemptAt": "2026-10-12T15:30:19+08:00",
+   "lastSuccessAt": "2026-10-12T15:30:19+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,16 +138,16 @@
     893.6,
     905.55
    ],
-   "fetchedAt": "2026-10-12T15:05:24+08:00",
+   "fetchedAt": "2026-10-12T15:30:22+08:00",
    "error": null,
    "buy": 895.9,
    "sell": 905.55,
-   "quoteTime": "2026/10/12 14:24",
+   "quoteTime": "2026/10/12 15:19",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-12T15:05:24+08:00",
-   "lastSuccessAt": "2026-10-12T15:05:24+08:00"
+   "lastAttemptAt": "2026-10-12T15:30:22+08:00",
+   "lastSuccessAt": "2026-10-12T15:30:22+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -239,7 +239,9 @@
    "error": null,
    "source": "local",
    "lastAttemptAt": "2026-10-12T15:05:27+08:00",
-   "lastSuccessAt": "2026-10-12T15:05:27+08:00"
+   "lastSuccessAt": "2026-10-12T15:05:27+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
   }
  }
 }
