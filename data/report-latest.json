@@ -1,21 +1,21 @@
 {
- "date": "2026-10-09",
- "slot": "review",
- "slotLabel": "盤後（檢討與分析）",
- "title": "盤後：檢討與分析",
- "generatedAt": "2026-10-09T15:30:47+08:00",
- "generatedAtText": "2026-10-09 15:30",
+ "date": "2026-10-12",
+ "slot": "morning",
+ "slotLabel": "晨報（了解今天狀況）",
+ "title": "晨報：了解今天狀況",
+ "generatedAt": "2026-10-12T09:30:53+08:00",
+ "generatedAtText": "2026-10-12 09:30",
  "market": {
-  "date": "2026-10-09",
-  "twTradingDay": false,
-  "twPhase": "holiday",
-  "twNote": "台股今日休市（最新報價仍停在 2026-10-08）。",
-  "goldQuoteTime": "2026/10/08 19:56",
-  "goldQuoteDate": "2026-10-08",
-  "goldFresh": false,
+  "date": "2026-10-12",
+  "twTradingDay": true,
+  "twPhase": "open",
+  "twNote": null,
+  "goldQuoteTime": "2026/10/12 08:39",
+  "goldQuoteDate": "2026-10-12",
+  "goldFresh": true,
   "fxDate": "2026-10-08",
   "fxFresh": false,
-  "simplified": true
+  "simplified": false
  },
  "dataStatus": {
   "total": 14,
@@ -25,17 +25,85 @@
  },
  "sections": [
   {
-   "type": "text",
-   "id": "tw",
-   "title": "台股",
-   "paragraphs": [
-    "台股今日休市（最新報價仍停在 2026-10-08）。"
-   ]
+   "type": "quotes",
+   "id": "intl",
+   "title": "隔夜美股與國際行情",
+   "items": [
+    {
+     "id": "nvda",
+     "name": "NVIDIA",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元",
+     "priceLabel": "收盤價",
+     "price": 229.28,
+     "priceText": "229.28",
+     "change": -1.199996,
+     "changeText": "-1.20",
+     "changePct": -0.5207,
+     "changePctText": "-0.52%",
+     "dir": "down",
+     "date": "2026-10-09",
+     "text": "NVIDIA 229.28 下跌（-0.52%）"
+    },
+    {
+     "id": "gspc",
+     "name": "S&P 500 指數",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "點",
+     "priceLabel": "指數",
+     "price": 7811.54,
+     "priceText": "7,811.54",
+     "change": 46.180137,
+     "changeText": "46.18",
+     "changePct": 0.5947,
+     "changePctText": "+0.59%",
+     "dir": "up",
+     "date": "2026-10-09",
+     "text": "S&P 500 指數 7,811.54 上漲（+0.59%）"
+    },
+    {
+     "id": "btc",
+     "name": "比特幣",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元",
+     "priceLabel": "現價",
+     "price": 83633.11,
+     "priceText": "83,633",
+     "change": -0.04,
+     "changeText": "-0",
+     "changePct": -0.0,
+     "changePctText": "+-0.00%",
+     "dir": "flat",
+     "date": "2026-10-12",
+     "text": "比特幣 83,633 持平（+-0.00%）"
+    },
+    {
+     "id": "wti",
+     "name": "WTI 原油",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元 / 桶",
+     "priceLabel": "近月期貨",
+     "price": 90.18,
+     "priceText": "90.18",
+     "change": -1.669998,
+     "changeText": "-1.67",
+     "changePct": -1.8182,
+     "changePctText": "-1.82%",
+     "dir": "down",
+     "date": "2026-10-11",
+     "text": "WTI 原油 90.18 下跌（-1.82%）"
+    }
+   ],
+   "subtitle": "台灣早上看到的美股是前一個交易日的收盤；比特幣則是 24 小時連續交易。"
   },
   {
    "type": "quotes",
    "id": "bot",
-   "title": "台銀金價與匯率",
+   "title": "今早台銀金價與匯率掛牌",
    "items": [
     {
      "id": "gold_twd",
@@ -44,27 +112,27 @@
      "currency": "TWD",
      "unit": "元 / 公克",
      "priceLabel": "本行賣出",
-     "price": 4255.0,
-     "priceText": "4,255",
-     "change": 5.0,
-     "changeText": "5",
-     "changePct": 0.1176,
-     "changePctText": "+0.12%",
+     "price": 4331.0,
+     "priceText": "4,331",
+     "change": 76.0,
+     "changeText": "76",
+     "changePct": 1.7861,
+     "changePctText": "+1.79%",
      "dir": "up",
-     "date": "2026-10-08",
-     "text": "黃金存摺（台幣） 4,255 上漲（+0.12%）",
+     "date": "2026-10-12",
+     "text": "黃金存摺（台幣） 4,331 上漲（+1.79%）",
      "extra": [
       {
        "k": "本行買入",
-       "v": "4,204"
+       "v": "4,284"
       },
       {
        "k": "本行賣出",
-       "v": "4,255"
+       "v": "4,331"
       },
       {
        "k": "掛牌時間",
-       "v": "2026/10/08 19:56"
+       "v": "2026/10/12 08:39"
       }
      ]
     },
@@ -75,27 +143,27 @@
      "currency": "CNY",
      "unit": "人民幣 / 公克",
      "priceLabel": "本行賣出",
-     "price": 893.6,
-     "priceText": "893.60",
-     "change": -1.65,
-     "changeText": "-1.65",
-     "changePct": -0.1843,
-     "changePctText": "-0.18%",
-     "dir": "down",
-     "date": "2026-10-08",
-     "text": "黃金存摺（人民幣） 893.60 下跌（-0.18%）",
+     "price": 909.3,
+     "priceText": "909.30",
+     "change": 15.7,
+     "changeText": "15.70",
+     "changePct": 1.7569,
+     "changePctText": "+1.76%",
+     "dir": "up",
+     "date": "2026-10-12",
+     "text": "黃金存摺（人民幣） 909.30 上漲（+1.76%）",
      "extra": [
       {
        "k": "本行買入",
-       "v": "884.10"
+       "v": "899.65"
       },
       {
        "k": "本行賣出",
-       "v": "893.60"
+       "v": "909.30"
       },
       {
        "k": "掛牌時間",
-       "v": "2026/10/08 19:56"
+       "v": "2026/10/12 08:39"
       }
      ]
     },
@@ -230,497 +298,120 @@
       }
      ]
     }
-   ],
-   "subtitle": "台銀今日尚未掛牌（或今日無掛牌），以下是最近一次掛牌的牌價。"
+   ]
   },
   {
    "type": "quotes",
-   "id": "intl",
-   "title": "國際行情",
+   "id": "tw",
+   "title": "台股開盤狀況",
    "items": [
     {
-     "id": "nvda",
-     "name": "NVIDIA",
+     "id": "twii",
+     "name": "台股加權指數",
      "status": "ok",
-     "currency": "USD",
-     "unit": "美元",
-     "priceLabel": "收盤價",
-     "price": 230.48,
-     "priceText": "230.48",
-     "change": -6.990001,
-     "changeText": "-6.99",
-     "changePct": -2.9435,
-     "changePctText": "-2.94%",
-     "dir": "down",
-     "date": "2026-10-08",
-     "text": "NVIDIA 230.48 下跌（-2.94%）"
-    },
-    {
-     "id": "gspc",
-     "name": "S&P 500 指數",
-     "status": "ok",
-     "currency": "USD",
+     "currency": "TWD",
      "unit": "點",
      "priceLabel": "指數",
-     "price": 7765.36,
-     "priceText": "7,765.36",
-     "change": -36.41002,
-     "changeText": "-36.41",
-     "changePct": -0.4667,
-     "changePctText": "-0.47%",
+     "price": 48996.42,
+     "priceText": "48,996.42",
+     "change": -317.02,
+     "changeText": "-317.02",
+     "changePct": -0.6429,
+     "changePctText": "-0.64%",
      "dir": "down",
-     "date": "2026-10-08",
-     "text": "S&P 500 指數 7,765.36 下跌（-0.47%）"
+     "date": "2026-10-12",
+     "text": "台股加權指數 48,996.42 下跌（-0.64%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:30:15"
+      }
+     ]
     },
     {
-     "id": "btc",
-     "name": "比特幣",
+     "id": "tw2330",
+     "name": "台積電 2330",
      "status": "ok",
-     "currency": "USD",
-     "unit": "美元",
-     "priceLabel": "現價",
-     "price": 82446.59,
-     "priceText": "82,447",
-     "change": 770.254062,
-     "changeText": "770",
-     "changePct": 0.9431,
-     "changePctText": "+0.94%",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 2530.0,
+     "priceText": "2,530",
+     "change": -20.0,
+     "changeText": "-20",
+     "changePct": -0.7843,
+     "changePctText": "-0.78%",
+     "dir": "down",
+     "date": "2026-10-12",
+     "text": "台積電 2330 2,530 下跌（-0.78%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:30:00"
+      }
+     ]
+    },
+    {
+     "id": "tw00646",
+     "name": "元大 S&P500 00646",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 78.65,
+     "priceText": "78.65",
+     "change": 0.3,
+     "changeText": "0.30",
+     "changePct": 0.3829,
+     "changePctText": "+0.38%",
      "dir": "up",
-     "date": "2026-10-09",
-     "text": "比特幣 82,447 上漲（+0.94%）"
-    },
-    {
-     "id": "wti",
-     "name": "WTI 原油",
-     "status": "ok",
-     "currency": "USD",
-     "unit": "美元 / 桶",
-     "priceLabel": "近月期貨",
-     "price": 91.03,
-     "priceText": "91.03",
-     "change": -0.459998,
-     "changeText": "-0.46",
-     "changePct": -0.5028,
-     "changePctText": "-0.50%",
-     "dir": "down",
-     "date": "2026-10-09",
-     "text": "WTI 原油 91.03 下跌（-0.50%）"
+     "date": "2026-10-12",
+     "text": "元大 S&P500 00646 78.65 上漲（+0.38%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:29:58"
+      }
+     ]
     }
-   ]
-  },
-  {
-   "type": "table",
-   "id": "rank",
-   "title": "今日漲跌排行",
-   "subtitle": "各標的的計價幣別不同，這裡只比漲跌幅百分比。　未列入：黃金存摺（台幣）、黃金存摺（人民幣）、台股加權指數、台積電 2330、元大 S&P500 00646、元大美債20年 00679B、NVIDIA、S&P 500 指數、美元 / 台幣、人民幣 / 台幣——它們今天沒有新報價（最新資料停在 2026-10-08），顯示的漲跌會是上一個交易日的，不是今天的。",
-   "columns": [
-    "標的",
-    "價格",
-    "今日漲跌"
    ],
-   "align": [
-    "left",
-    "right",
-    "right"
-   ],
-   "rows": [
-    [
-     {
-      "text": "國際金價（COMEX 近月期貨）"
-     },
-     {
-      "text": "4,219.00"
-     },
-     {
-      "text": "+1.49%",
-      "cls": "up"
-     }
-    ],
-    [
-     {
-      "text": "比特幣"
-     },
-     {
-      "text": "82,447"
-     },
-     {
-      "text": "+0.94%",
-      "cls": "up"
-     }
-    ],
-    [
-     {
-      "text": "WTI 原油"
-     },
-     {
-      "text": "91.03"
-     },
-     {
-      "text": "-0.50%",
-      "cls": "down"
-     }
-    ]
-   ]
-  },
-  {
-   "type": "table",
-   "id": "signals",
-   "title": "全部標的燈號一覽",
-   "subtitle": "燈號只是把 52 週區間位置分成三段的客觀分類，不是買賣訊號。「資料日期」不是今天，代表該標的今天沒有新報價。",
-   "columns": [
-    "標的",
-    "價格",
-    "今日漲跌",
-    "位置燈號",
-    "資料日期"
-   ],
-   "align": [
-    "left",
-    "right",
-    "right",
-    "left",
-    "right"
-   ],
-   "rows": [
-    [
-     {
-      "text": "黃金存摺（台幣）"
-     },
-     {
-      "text": "4,255"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "中性",
-      "cls": "sig-mid"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "黃金存摺（人民幣）"
-     },
-     {
-      "text": "893.60"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對低檔區",
-      "cls": "sig-low"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "國際金價（COMEX 近月期貨）"
-     },
-     {
-      "text": "4,219.00"
-     },
-     {
-      "text": "+1.49%",
-      "cls": "up"
-     },
-     {
-      "text": "相對低檔區",
-      "cls": "sig-low"
-     },
-     {
-      "text": "2026-10-09",
-      "cls": ""
-     }
-    ],
-    [
-     {
-      "text": "台股加權指數"
-     },
-     {
-      "text": "49,313.44"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "台積電 2330"
-     },
-     {
-      "text": "2,550"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "元大 S&P500 00646"
-     },
-     {
-      "text": "78.35"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "元大美債20年 00679B"
-     },
-     {
-      "text": "24.35"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對低檔區",
-      "cls": "sig-low"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "NVIDIA"
-     },
-     {
-      "text": "230.48"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "S&P 500 指數"
-     },
-     {
-      "text": "7,765.36"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "比特幣"
-     },
-     {
-      "text": "82,447"
-     },
-     {
-      "text": "+0.94%",
-      "cls": "up"
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-09",
-      "cls": ""
-     }
-    ],
-    [
-     {
-      "text": "WTI 原油"
-     },
-     {
-      "text": "91.03"
-     },
-     {
-      "text": "-0.50%",
-      "cls": "down"
-     },
-     {
-      "text": "中性",
-      "cls": "sig-mid"
-     },
-     {
-      "text": "2026-10-09",
-      "cls": ""
-     }
-    ],
-    [
-     {
-      "text": "美元 / 台幣"
-     },
-     {
-      "text": "31.950"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "中性",
-      "cls": "sig-mid"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ],
-    [
-     {
-      "text": "人民幣 / 台幣"
-     },
-     {
-      "text": "4.783"
-     },
-     {
-      "text": "—",
-      "cls": ""
-     },
-     {
-      "text": "相對高檔區",
-      "cls": "sig-high"
-     },
-     {
-      "text": "2026-10-08（非今日）",
-      "cls": "stale"
-     }
-    ]
-   ]
-  },
-  {
-   "type": "text",
-   "id": "tonight",
-   "title": "今晚觀察",
-   "paragraphs": [
-    "美股開盤時間：台北 21:30（美國夏令時間）／22:30（冬令時間）。台北下午看到的美股是前一個交易日的收盤；比特幣 24 小時連續交易，原油期貨近全天交易。",
-    "NVIDIA：230.48 USD（資料日期 2026-10-08）",
-    "S&P 500 指數：7,765.36 USD（資料日期 2026-10-08）",
-    "比特幣：82,447 USD（資料日期 2026-10-09）",
-    "WTI 原油：91.03 USD（資料日期 2026-10-09）"
-   ]
+   "subtitle": "台股盤中即時報價。"
   },
   {
    "type": "notes",
    "id": "observations",
-   "title": "今日變化提醒",
+   "title": "今日觀察",
    "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
    "items": [
     {
-     "level": "down",
-     "id": "gold_twd",
-     "text": "黃金存摺（台幣） 的 RSI(14) 為 26.4，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
-    },
-    {
-     "level": "down",
-     "id": "gold_cny",
-     "text": "黃金存摺（人民幣） 位於 52 週區間第 8 百分位，接近一年來的低點（區間 862.55 ～ 1,248.45）。"
-    },
-    {
-     "level": "down",
-     "id": "gold_cny",
-     "text": "黃金存摺（人民幣） 的 RSI(14) 為 27.8，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
-    },
-    {
      "level": "up",
      "id": "twii",
-     "text": "台股加權指數 位於 52 週區間第 98 百分位，接近一年來的高點（區間 25,580.32 ～ 49,822.55）。"
-    },
-    {
-     "level": "up",
-     "id": "twii",
-     "text": "台股加權指數 的 RSI(14) 為 74.5，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+     "text": "台股加權指數 位於 52 週區間第 97 百分位，接近一年來的高點（區間 25,580.32 ～ 49,822.55）。"
     },
     {
      "level": "up",
      "id": "tw2330",
-     "text": "台積電 2330 位於 52 週區間第 94 百分位，接近一年來的高點（區間 1,300 ～ 2,625）。"
+     "text": "台積電 2330 位於 52 週區間第 93 百分位，接近一年來的高點（區間 1,300 ～ 2,625）。"
     },
     {
      "level": "up",
      "id": "tw00646",
-     "text": "元大 S&P500 00646 位於 52 週區間第 96 百分位，接近一年來的高點（區間 63.20 ～ 78.95）。"
+     "text": "元大 S&P500 00646 位於 52 週區間第 98 百分位，接近一年來的高點（區間 63.30 ～ 78.95）。"
     },
     {
      "level": "up",
      "id": "tw00646",
-     "text": "元大 S&P500 00646 的 RSI(14) 為 74.0，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+     "text": "元大 S&P500 00646 的 RSI(14) 為 75.3，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
     },
     {
      "level": "down",
      "id": "tw00679b",
-     "text": "元大美債20年 00679B 位於 52 週區間第 1 百分位，接近一年來的低點（區間 24.30 ～ 28.00）。"
-    },
-    {
-     "level": "down",
-     "id": "tw00679b",
-     "text": "元大美債20年 00679B 的 RSI(14) 為 13.4，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
-    },
-    {
-     "level": "down",
-     "id": "nvda",
-     "text": "NVIDIA 今天下跌 2.94%，變動幅度較大。"
+     "text": "元大美債20年 00679B 的 RSI(14) 為 28.1，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
     },
     {
      "level": "up",
      "id": "gspc",
-     "text": "S&P 500 指數 位於 52 週區間第 96 百分位，接近一年來的高點（區間 6,343.72 ～ 7,818.93）。"
+     "text": "S&P 500 指數 位於 52 週區間第 99 百分位，接近一年來的高點（區間 6,343.72 ～ 7,818.93）。"
     },
     {
      "level": "up",
@@ -736,17 +427,17 @@
   }
  ],
  "quoteSnapshot": {
-  "gold_twd": 4255.0,
-  "gold_cny": 893.6,
-  "gold_intl": 4219.0,
-  "twii": 49313.44,
-  "tw2330": 2550.0,
-  "tw00646": 78.35,
-  "tw00679b": 24.35,
-  "nvda": 230.48,
-  "gspc": 7765.36,
-  "btc": 82446.59,
-  "wti": 91.03,
+  "gold_twd": 4331.0,
+  "gold_cny": 909.3,
+  "gold_intl": 4235.4,
+  "twii": 48996.42,
+  "tw2330": 2530.0,
+  "tw00646": 78.65,
+  "tw00679b": 24.72,
+  "nvda": 229.28,
+  "gspc": 7811.54,
+  "btc": 83633.11,
+  "wti": 90.18,
   "fx_usd": 31.95,
   "fx_cny": 4.783
  },
@@ -769,6 +460,6 @@
  "producedBy": {
   "host": "github-actions",
   "event": "workflow_dispatch",
-  "runId": "37899397165"
+  "runId": "38192144415"
  }
 }
