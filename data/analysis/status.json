@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-10-09T15:30:47+08:00",
- "lastRun": "2026-10-09T15:30:47+08:00",
+ "generatedAt": "2026-10-12T15:30:48+08:00",
+ "lastRun": "2026-10-12T15:30:48+08:00",
  "slot": "review",
  "ok": true,
  "mode": "live",
@@ -12,74 +12,85 @@
   "data/analysis/cost.json",
   "data/analysis/fx.json"
  ],
- "requests": 1,
+ "requests": 14,
  "longHistory": {
   "gold_intl": {
-   "points": 1362,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1363,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1363 根",
+   "barsStartOn": "Mon"
   },
   "twii": {
-   "points": 1507,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1508,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1508 根",
+   "barsStartOn": "Mon"
   },
   "tw2330": {
-   "points": 1396,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1397,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1397 根",
+   "barsStartOn": "Mon"
   },
   "tw00646": {
-   "points": 565,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 566,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 566 根",
+   "barsStartOn": "Mon"
   },
   "tw00679b": {
-   "points": 508,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 509,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 509 根",
+   "barsStartOn": "Mon"
   },
   "nvda": {
-   "points": 1446,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1447,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 1447 根",
+   "barsStartOn": "Mon"
   },
   "gspc": {
-   "points": 2961,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 2962,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 2962 根",
+   "barsStartOn": "Mon"
   },
   "btc": {
-   "points": 629,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 630,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 630 根",
+   "barsStartOn": "Mon"
   },
   "wti": {
-   "points": 1363,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1364,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1364 根",
+   "barsStartOn": "Mon"
   },
   "fx_usd": {
-   "points": 1072,
-   "lastDate": "2026-10-02",
-   "action": "最後一根 2026-10-02 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1073,
+   "lastDate": "2026-10-08",
+   "action": "incremental：抓到 5 週，合併後 1073 週"
   },
   "fx_cny": {
-   "points": 711,
-   "lastDate": "2026-10-02",
-   "action": "最後一根 2026-10-02 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 712,
+   "lastDate": "2026-10-08",
+   "action": "incremental：抓到 5 週，合併後 712 週"
   },
   "sp500tr": {
-   "points": 2022,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 2023,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 2023 根",
+   "barsStartOn": "Mon"
   },
   "usdcny": {
-   "points": 1289,
-   "lastDate": "2026-09-28",
-   "action": "最後一根 2026-09-28 已是最近一個完成週（週一 2026-09-28），這週不必抓"
+   "points": 1290,
+   "lastDate": "2026-10-05",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1290 根",
+   "barsStartOn": "Mon"
   }
  },
  "note": "分析只在 review（15:30）那一輪跑；出錯不影響行情與報告。錯誤訊息不含機器名與路徑。",
- "finishedAt": "2026-10-09T15:30:48+08:00"
+ "finishedAt": "2026-10-12T15:31:11+08:00"
 }

@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-09T15:30:47+08:00",
+ "generatedAt": "2026-10-12T15:30:48+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -3798,24 +3798,24 @@
    },
    {
     "d": "2026-10-08",
-    "goldSell": 4255.0,
-    "goldBuy": 4204.0,
+    "goldSell": 4262.0,
+    "goldBuy": 4215.0,
     "fxDate": "2026-10-08",
     "fxMid": 31.9,
     "gcDate": "2026-10-08",
     "gc": 4157.0,
     "impliedSameDay": 4263.45,
-    "residualSameDayPct": -0.198,
+    "residualSameDayPct": -0.034,
     "gcPrevDate": "2026-10-07",
     "gcPrev": 4140.700195,
     "impliedPrevDay": 4246.74,
-    "residualPrevDayPct": 0.195
+    "residualPrevDayPct": 0.359
    }
   ],
   "summarySameDay": {
    "n": 60,
-   "medianPct": -0.205,
-   "meanPct": -0.257,
+   "medianPct": -0.185,
+   "meanPct": -0.254,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
@@ -3825,7 +3825,7 @@
   "summaryPrevDay": {
    "n": 60,
    "medianPct": -0.397,
-   "meanPct": -0.185,
+   "meanPct": -0.182,
    "minPct": -1.477,
    "maxPct": 2.207,
    "window": "最近 60 個有資料的日子",
@@ -3833,27 +3833,27 @@
    "through": "2026-10-08"
   },
   "live": {
-   "goldSell": 4255.0,
-   "goldDate": "2026-10-08",
-   "goldQuoteTime": "2026/10/08 19:56",
-   "gcPrice": 4219.0,
-   "gcDate": "2026-10-09",
-   "gcFetchedAt": "2026-10-09T15:30:30+08:00",
+   "goldSell": 4327.0,
+   "goldDate": "2026-10-12",
+   "goldQuoteTime": "2026/10/12 14:24",
+   "gcPrice": 4208.2,
+   "gcDate": "2026-10-12",
+   "gcFetchedAt": "2026-10-12T15:30:31+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
    "fxMid": 31.9,
    "fxDate": "2026-10-08",
-   "implied": 4327.04,
-   "residualPct": -1.665,
+   "implied": 4315.96,
+   "residualPct": 0.256,
    "label": "估算"
   },
   "inputs": {
    "gold_twd": {
-    "points": 270,
-    "lastDate": "2026-10-08"
+    "points": 271,
+    "lastDate": "2026-10-12"
    },
    "gold_intl": {
-    "points": 266,
-    "lastDate": "2026-10-09"
+    "points": 268,
+    "lastDate": "2026-10-12"
    },
    "fx_usd": {
     "points": 400,
@@ -5321,16 +5321,16 @@
   },
   "inputs": {
    "tw00646": {
-    "bars": 565,
-    "lastBar": "2026-09-28"
+    "bars": 566,
+    "lastBar": "2026-10-05"
    },
    "gspc": {
-    "bars": 2961,
-    "lastBar": "2026-09-28"
+    "bars": 2962,
+    "lastBar": "2026-10-05"
    },
    "fx_usd": {
-    "bars": 1072,
-    "lastBar": "2026-10-02"
+    "bars": 1073,
+    "lastBar": "2026-10-08"
    }
   }
  },
@@ -5345,45 +5345,34 @@
   "windows": {
    "1y": {
     "weeks": 52,
-    "from": "2025-09-26",
-    "through": "2026-10-02",
-    "rCnyTwdPct": 11.213,
-    "rUsdTwdPct": 4.359,
-    "rUsdCnyPct": -6.018,
-    "combinedPct": 11.041,
-    "residualPct": 0.172
+    "from": "2025-10-03",
+    "through": "2026-10-08",
+    "rCnyTwdPct": 11.821,
+    "rUsdTwdPct": 5.072,
+    "rUsdCnyPct": -5.856,
+    "combinedPct": 11.608,
+    "residualPct": 0.213
    },
    "3y": {
     "weeks": 156,
-    "from": "2023-09-22",
-    "through": "2026-10-02",
-    "rCnyTwdPct": 7.977,
-    "rUsdTwdPct": -0.887,
-    "rUsdCnyPct": -8.107,
-    "combinedPct": 7.857,
-    "residualPct": 0.12
+    "from": "2023-09-28",
+    "through": "2026-10-08",
+    "rCnyTwdPct": 7.769,
+    "rUsdTwdPct": -1.147,
+    "rUsdCnyPct": -8.105,
+    "combinedPct": 7.572,
+    "residualPct": 0.197
    }
   },
   "summary52": {
    "n": 52,
-   "from": "2025-10-03",
-   "through": "2026-10-02",
+   "from": "2025-10-09",
+   "through": "2026-10-08",
    "medianPct": 0.001,
    "minPct": -0.496,
    "maxPct": 0.332
   },
   "weekly": [
-   {
-    "week": "2026-04-06",
-    "dCny": "2026-04-10",
-    "cnyTwdMid": 4.643,
-    "dUsd": "2026-04-10",
-    "usdTwdMid": 31.735,
-    "dUsdCny": "2026-04-06",
-    "usdCny": 6.8314,
-    "implied": 4.6455,
-    "residualPct": -0.053
-   },
    {
     "week": "2026-04-13",
     "dCny": "2026-04-17",
@@ -5658,20 +5647,31 @@
     "usdCny": 6.7045,
     "implied": 4.7498,
     "residualPct": 0.025
+   },
+   {
+    "week": "2026-10-05",
+    "dCny": "2026-10-08",
+    "cnyTwdMid": 4.758,
+    "dUsd": "2026-10-08",
+    "usdTwdMid": 31.9,
+    "dUsdCny": "2026-10-05",
+    "usdCny": 6.7021,
+    "implied": 4.7597,
+    "residualPct": -0.036
    }
   ],
   "inputs": {
    "fx_cny": {
-    "bars": 711,
-    "lastBar": "2026-10-02"
+    "bars": 712,
+    "lastBar": "2026-10-08"
    },
    "fx_usd": {
-    "bars": 1072,
-    "lastBar": "2026-10-02"
+    "bars": 1073,
+    "lastBar": "2026-10-08"
    },
    "usdcny": {
-    "bars": 1289,
-    "lastBar": "2026-09-28"
+    "bars": 1290,
+    "lastBar": "2026-10-05"
    }
   }
  }
