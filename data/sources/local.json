@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-10-12T10:01:13+08:00",
- "runAtText": "2026-10-12 10:01",
+ "runAt": "2026-10-12T10:06:18+08:00",
+ "runAtText": "2026-10-12 10:06",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
- "requests": 3,
+ "mode": "full",
+ "requests": 5,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -21,9 +21,9 @@
    "priceLabel": "本行賣出",
    "status": "ok",
    "price": 4347.0,
-   "prevClose": 4255.0,
-   "change": 92.0,
-   "changePct": 2.1622,
+   "prevClose": 4262.0,
+   "change": 85.0,
+   "changePct": 1.9944,
    "date": "2026-10-12",
    "points": 271,
    "spark": [
@@ -65,10 +65,10 @@
     4268.0,
     4257.0,
     4250.0,
-    4255.0,
+    4262.0,
     4347.0
    ],
-   "fetchedAt": "2026-10-12T10:01:10+08:00",
+   "fetchedAt": "2026-10-12T10:06:13+08:00",
    "error": null,
    "buy": 4300.0,
    "sell": 4347.0,
@@ -76,8 +76,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-12T10:01:10+08:00",
-   "lastSuccessAt": "2026-10-12T10:01:10+08:00"
+   "lastAttemptAt": "2026-10-12T10:06:13+08:00",
+   "lastSuccessAt": "2026-10-12T10:06:13+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,7 +138,7 @@
     893.6,
     910.8
    ],
-   "fetchedAt": "2026-10-12T10:01:13+08:00",
+   "fetchedAt": "2026-10-12T10:06:15+08:00",
    "error": null,
    "buy": 901.1,
    "sell": 910.8,
@@ -146,8 +146,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-12T10:01:13+08:00",
-   "lastSuccessAt": "2026-10-12T10:01:13+08:00"
+   "lastAttemptAt": "2026-10-12T10:06:15+08:00",
+   "lastSuccessAt": "2026-10-12T10:06:15+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -164,52 +164,52 @@
    "bars": [
     {
      "spec": "1 公斤",
-     "sell": 4295887.0,
+     "sell": 4381710.0,
      "buy": null,
      "grams": 1000.0,
-     "perGram": 4295.89,
-     "premiumPct": 0.961
+     "perGram": 4381.71,
+     "premiumPct": 0.798
     },
     {
      "spec": "500 公克",
-     "sell": 2151629.0,
+     "sell": 2194584.0,
      "buy": null,
      "grams": 500.0,
-     "perGram": 4303.26,
-     "premiumPct": 1.134
+     "perGram": 4389.17,
+     "premiumPct": 0.97
     },
     {
      "spec": "250 公克",
-     "sell": 1077918.0,
+     "sell": 1099417.0,
      "buy": null,
      "grams": 250.0,
-     "perGram": 4311.67,
-     "premiumPct": 1.332
+     "perGram": 4397.67,
+     "premiumPct": 1.166
     },
     {
      "spec": "100 公克",
-     "sell": 432451.0,
+     "sell": 441060.0,
      "buy": null,
      "grams": 100.0,
-     "perGram": 4324.51,
-     "premiumPct": 1.634
+     "perGram": 4410.6,
+     "premiumPct": 1.463
     },
     {
      "spec": "金鑽 1 台兩",
-     "sell": 162359.0,
-     "buy": 158063.0,
+     "sell": 165587.0,
+     "buy": 161250.0,
      "grams": 37.5,
-     "perGram": 4329.57,
-     "premiumPct": 1.753
+     "perGram": 4415.65,
+     "premiumPct": 1.579
     }
    ],
-   "quoteTime": "2026/10/08 15:25",
+   "quoteTime": "2026/10/12 09:49",
    "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
-   "points": 20,
-   "goldSell": 4255.0,
+   "points": 21,
+   "goldSell": 4347.0,
    "spark": [
     4592.501,
     4569.963,
@@ -230,17 +230,16 @@
     4297.741,
     4285.773,
     4285.574,
-    4295.887
+    4295.887,
+    4381.71
    ],
-   "date": "2026-10-08",
+   "date": "2026-10-12",
    "historyNote": null,
-   "fetchedAt": "2026-10-11T15:05:32+08:00",
+   "fetchedAt": "2026-10-12T10:06:18+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-11T15:05:32+08:00",
-   "lastSuccessAt": "2026-10-11T15:05:32+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-10-12T10:06:18+08:00",
+   "lastSuccessAt": "2026-10-12T10:06:18+08:00"
   }
  }
 }
