@@ -214,7 +214,15 @@ def check(root):
     bad += line(branch == "main", "主目錄在 %s 分支" % branch)
     py = shutil.which("py") or shutil.which("python3") or shutil.which("python")
     bad += line(bool(py), "hook 用的 Python：%s" % (py or "找不到 py／python3／python"))
-    print("提醒：自動駕駛只在「資料夾選 %s」的工作階段有效；模型選 Fable 5.1、思考強度選 Extra high。" % os.path.basename(main_root))
+    model, effort = "設定檔寫的那一個", "設定檔寫的那一個"
+    try:                                                            # 模型與強度只寫在設定檔（2026-10-05 起施工是 Opus 5.5），這裡照它印
+        with io.open(os.path.join(main_root, ".claude", "autopilot", "config.json"), encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        model = cfg.get("requiredModelLabel") or cfg.get("requiredModel") or model
+        effort = cfg.get("requiredEffortLabel") or cfg.get("requiredEffort") or effort
+    except Exception:                                               # noqa: B902
+        pass
+    print("提醒：自動駕駛只在「資料夾選 %s」的工作階段有效；模型選 %s、思考強度選 %s。" % (os.path.basename(main_root), model, effort))
     return bad
 
 

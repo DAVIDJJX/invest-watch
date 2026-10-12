@@ -22,6 +22,7 @@ iw_prepush.py — 第二道保護：git push 之前，看「實際要推上去�
 由 .git/hooks/pre-push 的入口決定：在 Claude Code 裡擋，其他情況放行。
 """
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -89,7 +90,181 @@ def all_plain(repo, shas, allowed=None, prefix=None):
     return True
 
 
-def check_main(repo, lsha, rsha, st, cfg, environ, now, sd):
+MAX_SCAN_COMMITS = 2000
+MAX_TAG_DEPTH = 5                                                    # 標籤可以指到另一個標籤：最多往下看這麼多層，再多就擋
+
+
+def tag_message_problem(repo, main_root, sha):
+    """這次要推的東西如果是帶訊息的標籤（annotated tag），標籤自己的訊息有沒有不該公開的東西。可以推回 None；不行回一句原因。
+    2026-10-06 Codex 的審查意見（P0）：推送前只看 commit 的訊息；帶訊息的標籤，訊息存在標籤物件裡，git log 讀不到它，
+    裡面的個人資料、權杖、信箱、本機路徑會直接公開。標籤的訊息照 commit 訊息的規矩掃；讀不到、看不出是什麼，一律擋。
+    不帶訊息的標籤（直接指到 commit）沒有自己的訊息，這裡不管；它指到的 commit 由 commit_message_problem 掃。"""
+    import iw_notify as N      # noqa: E402
+    cur = sha
+    for _depth in range(MAX_TAG_DEPTH + 1):
+        rc, kind = C.git(["cat-file", "-t", cur], repo)
+        if rc != 0:
+            return "看不出這次要推的東西（%s）是什麼，沒辦法檢查標籤的訊息，先擋下。" % str(cur)[:7]
+        if kind.strip() != "tag":
+            return None                                             # 不是標籤物件（commit）：沒有標籤訊息要掃
+        rc, raw = C.git(["cat-file", "-p", cur], repo)
+        if rc != 0:
+            return "讀不到標籤（%s）的內容，沒辦法檢查標籤的訊息，先擋下。" % str(cur)[:7]
+        head, _sep, msg = raw.replace("\r\n", "\n").partition("\n\n")
+        problems = N.text_privacy_problems(main_root, msg)
+        if problems:
+            return ("標籤的訊息裡有不該公開的東西——一推上公開倉庫就收不回來：%s（%s）。請把標籤刪掉、重打一個訊息乾淨的"
+                    "（或不帶訊息的）再推。" % (str(cur)[:7], "、".join(problems)))
+        m = re.search(r"(?m)^object ([0-9a-f]{40,64})$", head)
+        if not m:
+            return "讀不出標籤（%s）指到哪裡，先擋下。" % str(cur)[:7]
+        cur = m.group(1)
+    return "標籤一層指一層超過 %d 層，沒辦法逐層檢查訊息，先擋下。" % MAX_TAG_DEPTH
+
+
+def commit_message_problem(repo, main_root, cfg, lsha, rsha):
+    """這次推送會公開的新 commit，訊息裡有沒有不該公開的東西（個人資料的字樣、權杖、信箱、本機路徑）。可以推回 None；不行回一句原因。
+    commit 訊息一推上公開倉庫就收不回來，驗收機事後判紅也來不及（2026-10-06 Codex 的審查意見；原本推送前完全不看訊息）。
+    用主目錄上的隱私掃描器（＝main 的版本）。列不出要推的 commit、讀不到掃描器（那會算成每一筆都有問題）、筆數多到看不完——一律擋。
+    只在 Claude Code 裡的推送做（呼叫的人判斷）；筆電排程與 David 自己終端機的推送不經過這裡。"""
+    import iw_notify as N      # noqa: E402   用到才載入：排程的推送不必付這個成本
+    tag_problem = tag_message_problem(repo, main_root, lsha)        # 推的是帶訊息的標籤：標籤自己的訊息也要掃
+    if tag_problem:
+        return tag_problem
+    if rsha != ZERO and has(repo, rsha):
+        rng = ["%s..%s" % (rsha, lsha)]
+    else:                                                           # 新的分支或標籤：還不在遠端任何分支上的那些 commit
+        rng = [lsha, "--not", "--remotes=%s" % cfg["remote"]]
+    rc, out = C.git(["log", "--format=%H%x00%B%x01", "--max-count=%d" % (MAX_SCAN_COMMITS + 1)] + rng, repo, timeout=60)
+    if rc != 0:
+        return "列不出這次要推的 commit，沒辦法檢查 commit 訊息，先擋下（%s）。" % (out or "")[:80]
+    bad, n = [], 0
+    for chunk in out.split("\x01"):
+        if "\x00" not in chunk:
+            continue
+        sha, msg = chunk.strip("\n").split("\x00", 1)
+        n += 1
+        problems = N.text_privacy_problems(main_root, msg)
+        if problems:
+            bad.append("%s（%s）" % (sha.strip()[:7], "、".join(problems)))
+    if n > MAX_SCAN_COMMITS:
+        return "這次要推的 commit 超過 %d 筆，沒辦法逐筆檢查訊息，先擋下。" % MAX_SCAN_COMMITS
+    if bad:
+        return ("commit 訊息裡有不該公開的東西——一推上公開倉庫就收不回來：%s。請把那幾筆的訊息改掉再推"
+                "（訊息裡不要放個人資料、權杖、電子郵件、本機的絕對路徑）。" % "；".join(bad[:8]))
+    return None
+
+
+def file_content_problem(repo, main_root, cfg, lsha, rsha):
+    """這次推送會公開的新 commit，改到的檔案內容（與檔名）裡有沒有具名字串。可以推回 None；不行回一句原因。
+    2026-10-06 Codex 的審查意見（P0）：檔案內容裡的具名字串原本只有全套測試會掃，驗收機上沒有鹽、掃不了；有沒有帶鹽跑過，
+    程式只看得到施工的一方自己存的文字檔。Cowork 的裁決：由檢查程式自己掃，而且在推送之前——分支一推上公開倉庫就收不回來。
+    每一筆要推的 commit 都看（跟它的第一個 parent 比、改到的每一個檔，整個檔在那一筆裡的內容）：中間那幾筆加了又刪掉的，歷史裡照樣公開。
+    範圍跟 commit_message_problem 一樣。推的東西不是 commit（或指到 commit 的標籤）、列不出 commit、查不出改了哪些檔、缺鹽——一律擋。
+    只在 Claude Code 裡的推送做（呼叫的人判斷）；筆電排程與 David 自己終端機的推送不經過這裡。"""
+    import iw_notify as N      # noqa: E402
+    if not has(repo, lsha):
+        return "這次要推的東西（%s）不是 commit、也不是指到 commit 的標籤，沒辦法檢查檔案內容，先擋下。" % str(lsha)[:7]
+    new_ref = not (rsha != ZERO and has(repo, rsha))                # 新的分支或標籤：看還不在遠端任何分支上的那些 commit
+    scope = [lsha, "--not", "--remotes=%s" % cfg["remote"]] if new_ref else ["%s..%s" % (rsha, lsha)]
+    rc, out = C.git(["rev-list", "--parents", "--max-count=%d" % (MAX_SCAN_COMMITS + 1)] + scope, repo, timeout=60)
+    if rc != 0:
+        return "列不出這次要推的 commit，沒辦法檢查檔案內容，先擋下（%s）。" % (out or "")[:80]
+    rows = [line.split() for line in out.split("\n") if line.strip()]
+    if len(rows) > MAX_SCAN_COMMITS:
+        return "這次要推的 commit 超過 %d 筆，沒辦法逐筆檢查檔案內容，先擋下。" % MAX_SCAN_COMMITS
+    blobs = []
+    for row in rows:
+        got = N.changed_blobs(repo, [row[1] if len(row) > 1 else N.EMPTY_TREE, row[0]])
+        if got is None:
+            return "查不出 commit %s 改了哪些檔，沒辦法檢查檔案內容，先擋下。" % row[0][:7]
+        blobs += got
+    problem = N.named_term_blob_problem(main_root, repo, blobs)
+    if problem:
+        return ("%s。一推上公開倉庫就收不回來：請把那幾個檔改掉；中間的 commit 裡有的話，要連那幾筆 commit 一起重做，再推。" % problem
+                if problem.startswith("檔案裡有具名字串") else problem)
+    return None
+
+
+def ref_name_problem(rref, cfg):
+    """這次要推的分支或標籤，名字會不會跟 git 內部的記號撞名（以「<遠端的名字>/」「refs/」「remotes/」開頭）。可以推回 None；不行回一句原因。
+    2026-10-06 審查代理指出、Cowork 裁決在 P2 修：git 解析短名時標籤排在本機分支前面、本機分支排在遠端的記號前面；
+    推一個叫 origin/main 的標籤上去，驗收機（會把標籤全部抓下來）眼中的「main 上的驗收程式」就換成它指的版本。
+    檢查程式自己指正式版時已經一律用全名，這一道是多擋一層：這種名字根本不讓它出現。只在 Claude Code 裡的推送做（呼叫的人判斷）。"""
+    if rref.startswith(("refs/heads/", "refs/tags/")) and C.reserved_ref_name(rref, cfg["remote"]):
+        return ("分支或標籤的名字不可以以「%s/」「refs/」「remotes/」開頭（%s）：git 會把它跟「遠端的正式版在哪裡」那一類記號搞混。請換一個名字。"
+                % (cfg["remote"], rref.split("/", 2)[-1]))
+    return None
+
+
+def verify_gate(main_root, sd, cfg, stage, sha, now):
+    """P2 第 3 節：合併前再查一次驗收機（放行時已查過一次）。設定裡沒有驗收機（舊版）就不查；查不到＝不綠＝擋。"""
+    if not (cfg.get("verify") and cfg.get("externalReview")):
+        return None
+    try:
+        import iw_review as R
+        vs = R.verify_status(main_root or C.main_root(), sd, cfg, stage, sha, now=now)
+    except Exception as e:                                          # noqa: B902
+        return "查驗收機時出錯（%r）" % (e,)
+    return None if vs.get("green") else vs.get("why")
+
+
+def protected_push_problem(repo, lsha, st, cfg):
+    """自動駕駛期間，推上去的東西（分支或標籤）相對於正式版不可以動到流程檔、驗收程式、突變與已知例外清單、AGENTS.md（2026-10-05 裁決二）。
+    啟動之前、David 在場時就改好、而且內容到現在沒變的不算（跟第一道同一條規則）。可以推回 None；不行回一句原因。"""
+    pats = (cfg.get("verify") or {}).get("protected") or []
+    if not pats or not st.get("active"):
+        return None
+    base = C.remote_main_ref(cfg)
+    rc, out = C.git(["-c", "core.quotepath=false", "diff", "--name-only", "%s...%s" % (base, lsha)], repo, timeout=60)
+    if rc != 0:
+        return "查不出這次推送相對於正式版動了哪些檔；自動駕駛期間先不推。"
+    files = [f for f in out.split("\n") if f.strip() and C.glob_match(f.strip(), pats)]
+    pre = st.get("preexisting") or {}
+    blobs = C.head_blobs(repo, lsha) or {}
+    hot = [f for f in files if not (f in pre and blobs.get(f, "(deleted)") == pre[f])]
+    if hot:
+        return ("自動駕駛期間不能推動到流程檔、驗收程式、突變與已知例外清單或 AGENTS.md 的東西（%s）。這是停止條件 3：寫停止報告、寄信，由 David 決定。"
+                % "、".join(hot[:6]))
+    return None
+
+
+def foreign_ok(st, rref, rsha):
+    """P2 第 2 節：feat 分支的遠端頭要是自己上一次推的（任何一次都算）；第一次推、或還沒有紀錄就放行。"""
+    pushes = (st.get("branch_pushes") or {}).get(rref) or []
+    return (not pushes) or rsha in pushes
+
+
+def remember_push(sd, rref, lsha):
+    def fn(s):
+        lst = s.setdefault("branch_pushes", {}).setdefault(rref, [])
+        if lsha not in lst:
+            lst.append(lsha)
+        del lst[:-30]
+    ST.update(sd, fn)
+
+
+def mark_foreign(main_root, sd, cfg, st, rref, rsha):
+    """分支上出現不是自己推的 commit：記下來；自動駕駛中立刻暫停（等級「要你決定」）、寄短信。"""
+    now = C.iso()
+    detail = "遠端的 %s 上有不是你推的 commit（%s）" % (rref[11:], rsha[:7])
+
+    def fn(s):
+        s["foreign_commit"] = {"ref": rref, "sha": rsha, "at": now}
+        if s.get("active") and not s.get("pause"):
+            s["pause"] = {"reason": "foreign-commit", "detail": detail, "code": None, "at": now, "retries": 0}
+    ST.update(sd, fn)
+    ST.log(sd, {"event": "foreign-commit", "ref": rref, "sha": rsha[:12], "active": bool(st.get("active"))})
+    if st.get("active"):
+        try:
+            import iw_notify as N
+            N.fallback(main_root or C.main_root(), sd, cfg, detail + "。有人（Codex？別的帳號？）動了這個分支，自動駕駛已暫停；請看 PR，確認沒事之後輸入「繼續 %s」。"
+                       % st.get("stage"), min_gap_key="foreign")
+        except Exception:                                           # noqa: B902
+            pass
+
+
+def check_main(repo, lsha, rsha, st, cfg, environ, now, sd, main_root=None):
     """回傳 (可以推, 白話說明)。"""
     if lsha == ZERO:
         return False, "不能刪除遠端的 main。"
@@ -133,6 +308,9 @@ def check_main(repo, lsha, rsha, st, cfg, environ, now, sd):
         if rc != 0 or got != want:
             return False, ("這個合併 commit 的內容，跟「把放行的 commit（%s）原封不動合併進現在的 main」算出來的不一樣"
                            "——合併的時候多改了東西。請重做一次乾淨的合併（git merge --no-ff，不要再動任何檔）。" % cand[:7])
+        problem = verify_gate(main_root, sd, cfg, stage, cand, now)
+        if problem:
+            return False, "合併前再查一次驗收機：%s。查不到也算不綠，不能推。" % problem
 
         def fn(s):
             if s.get("credential"):
@@ -176,22 +354,48 @@ def check(lines, repo, environ=None, now=None, main_root=None, cfg=None):
             continue
         lref, lsha, rref, rsha = parts
         ok, why = True, None
-        if rref.startswith("refs/tags/"):
+        msg_problem = None
+        if lsha != ZERO and C.in_claude_session(environ) and not rref.startswith("refs/remotes/"):
+            # 先看 commit 訊息（分支、標籤、main 都看）：排在通行證的檢查之前，訊息有問題就不會白白用掉一張通行證
+            msg_problem = commit_message_problem(repo, main_root, cfg, lsha, rsha)
+            if not msg_problem:                                             # 訊息乾淨，再看檔案內容裡的具名字串（檢查程式自己帶鹽掃）
+                msg_problem = file_content_problem(repo, main_root, cfg, lsha, rsha)
+            if not msg_problem:                                             # 名字會不會跟遠端的記號撞名（推上去之後，驗收機眼中的「正式版」可能被它換掉）
+                msg_problem = ref_name_problem(rref, cfg)
+        if msg_problem:
+            ok, why = False, msg_problem
+        elif rref.startswith("refs/tags/"):
             if lsha == ZERO:
                 ok, why = False, "不能刪除遠端的標籤 %s（停止條件 4）。" % rref[10:]
             elif rsha != ZERO and rsha != lsha:
                 ok, why = False, "不能移動既有的標籤 %s（停止條件 4）。" % rref[10:]
+            else:
+                problem = protected_push_problem(repo, lsha, st, cfg)
+                if problem:
+                    ok, why = False, problem
         elif rref == main_ref:
-            ok, why = check_main(repo, lsha, rsha, st, cfg, environ, now, sd)
+            ok, why = check_main(repo, lsha, rsha, st, cfg, environ, now, sd, main_root)
             st = ST.load(sd)
         elif rref.startswith("refs/remotes/"):
             ok, why = False, "把東西推進 refs/remotes/（用來記遠端位置的記號）不是正常的推送，不允許。"
         elif rref.startswith("refs/heads/"):
             if lsha != ZERO and rsha != ZERO:
-                if not has(repo, rsha):
+                ok_foreign = foreign_ok(st, rref, rsha)
+                if not ok_foreign:
+                    ok, why = False, ("遠端的 %s 上有不是你推的 commit（%s）。有人（Codex？別的帳號？）動了這個分支：停下來寄「要你決定」的信，"
+                                      "不要覆蓋、不要合併它。" % (rref[11:], rsha[:7]))
+                    mark_foreign(main_root, sd, cfg, st, rref, rsha)
+                    st = ST.load(sd)
+                elif not has(repo, rsha):
                     ok, why = False, "遠端的 %s 有這台電腦還沒有的 commit。先 git fetch 再試。" % rref[11:]
                 elif not is_ancestor(repo, rsha, lsha):
                     ok, why = False, "這個推送會改寫遠端 %s 的歷史（強推），不允許。" % rref[11:]
+            if ok and lsha != ZERO:
+                problem = protected_push_problem(repo, lsha, st, cfg)
+                if problem:
+                    ok, why = False, problem
+            if ok and lsha != ZERO:
+                remember_push(sd, rref, lsha)
         ST.log(sd, {"event": "prepush", "ref": rref, "local": lsha[:12], "remote": rsha[:12], "ok": ok, "why": why,
                     "claude": C.in_claude_session(environ)})
         if not ok:

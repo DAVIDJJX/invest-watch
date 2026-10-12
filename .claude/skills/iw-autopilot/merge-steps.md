@@ -14,7 +14,7 @@ hook 說「已放行 <階段>：通行證已開」之後才做。通行證只准
 3. **第二個指令才進去合併**：`cd .claude/worktrees/stop<階段>-merge && git merge --no-ff --no-commit feat/stop<階段>`（或通行證指定的那個 commit）。
 4. 在合併後的樹上跑全套測試（寫死的那一個指令）→ `git commit`（訊息寫成檔用 `-F`）。
 5. 推之前再 `git fetch origin`：`origin/main` 還是合併的第一個 parent 才推；不是就 `git checkout --detach origin/main` 以新的為底重做第 3、4 步（不強推）。
-6. `git push origin HEAD:main`。推送前的檢查會印「David 放行的合併」。
+6. `git push origin HEAD:main`。推送前的檢查會印「David 放行的合併」。這一次推送，程式會把整條分支每一筆 commit 的訊息與改到的檔都掃一遍（具名字串要帶鹽算），大的階段要幾分鐘：指令的逾時設成 10 分鐘。逾時不是被擋，重下同一個指令。
 
 ## 文件那一筆（合併推上去之後立刻做）
 
