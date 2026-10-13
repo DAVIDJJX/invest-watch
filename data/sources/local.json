@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-10-13T13:00:11+08:00",
- "runAtText": "2026-10-13 13:00",
+ "runAt": "2026-10-13T13:37:16+08:00",
+ "runAtText": "2026-10-13 13:37",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
  "mode": "light",
- "requests": 3,
+ "requests": 4,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4352.0,
+   "price": 4355.0,
    "prevClose": 4327.0,
-   "change": 25.0,
-   "changePct": 0.5778,
+   "change": 28.0,
+   "changePct": 0.6471,
    "date": "2026-10-13",
    "points": 272,
    "spark": [
@@ -66,18 +66,18 @@
     4250.0,
     4262.0,
     4327.0,
-    4352.0
+    4355.0
    ],
-   "fetchedAt": "2026-10-13T13:00:08+08:00",
+   "fetchedAt": "2026-10-13T13:37:14+08:00",
    "error": null,
-   "buy": 4304.0,
-   "sell": 4352.0,
-   "quoteTime": "2026/10/13 12:54",
+   "buy": 4307.0,
+   "sell": 4355.0,
+   "quoteTime": "2026/10/13 13:19",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-13T13:00:08+08:00",
-   "lastSuccessAt": "2026-10-13T13:00:08+08:00"
+   "lastAttemptAt": "2026-10-13T13:37:14+08:00",
+   "lastSuccessAt": "2026-10-13T13:37:14+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -90,10 +90,10 @@
    "decimals": 2,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 908.1,
+   "price": 908.85,
    "prevClose": 905.55,
-   "change": 2.55,
-   "changePct": 0.2816,
+   "change": 3.3,
+   "changePct": 0.3644,
    "date": "2026-10-13",
    "points": 272,
    "spark": [
@@ -136,18 +136,18 @@
     895.25,
     893.6,
     905.55,
-    908.1
+    908.85
    ],
-   "fetchedAt": "2026-10-13T13:00:11+08:00",
+   "fetchedAt": "2026-10-13T13:37:16+08:00",
    "error": null,
-   "buy": 898.45,
-   "sell": 908.1,
-   "quoteTime": "2026/10/13 12:54",
+   "buy": 899.2,
+   "sell": 908.85,
+   "quoteTime": "2026/10/13 13:19",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-13T13:00:11+08:00",
-   "lastSuccessAt": "2026-10-13T13:00:11+08:00"
+   "lastAttemptAt": "2026-10-13T13:37:16+08:00",
+   "lastSuccessAt": "2026-10-13T13:37:16+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
