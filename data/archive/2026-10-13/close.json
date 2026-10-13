@@ -1,0 +1,227 @@
+{
+ "date": "2026-10-13",
+ "slot": "close",
+ "slotLabel": "收盤（台股收盤快報）",
+ "title": "收盤：台股收盤快報",
+ "generatedAt": "2026-10-13T13:35:39+08:00",
+ "generatedAtText": "2026-10-13 13:35",
+ "market": {
+  "date": "2026-10-13",
+  "twTradingDay": true,
+  "twPhase": "closed",
+  "twNote": null,
+  "goldQuoteTime": "2026/10/13 12:54",
+  "goldQuoteDate": "2026-10-13",
+  "goldFresh": true,
+  "fxDate": "2026-10-12",
+  "fxFresh": false,
+  "simplified": false
+ },
+ "dataStatus": {
+  "total": 14,
+  "ok": 14,
+  "error": 0,
+  "errorNames": []
+ },
+ "sections": [
+  {
+   "type": "quotes",
+   "id": "tw",
+   "title": "台股收盤快報",
+   "items": [
+    {
+     "id": "twii",
+     "name": "台股加權指數",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "點",
+     "priceLabel": "指數",
+     "price": 48341.31,
+     "priceText": "48,341.31",
+     "change": -960.65,
+     "changeText": "-960.65",
+     "changePct": -1.9485,
+     "changePctText": "-1.95%",
+     "dir": "down",
+     "date": "2026-10-13",
+     "text": "台股加權指數 48,341.31 下跌（-1.95%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:33:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 48603.83,
+      "beforeText": "48,603.83",
+      "diff": -262.5200000000041,
+      "diffText": "-262.52",
+      "diffPct": -0.5401220438800894,
+      "diffPctText": "-0.54%",
+      "dir": "down",
+      "text": "與今早相比下跌 262.52（0.54%）"
+     }
+    },
+    {
+     "id": "tw2330",
+     "name": "台積電 2330",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 2490.0,
+     "priceText": "2,490",
+     "change": -50.0,
+     "changeText": "-50",
+     "changePct": -1.9685,
+     "changePctText": "-1.97%",
+     "dir": "down",
+     "date": "2026-10-13",
+     "text": "台積電 2330 2,490 下跌（-1.97%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:30:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 2505.0,
+      "beforeText": "2,505",
+      "diff": -15.0,
+      "diffText": "-15",
+      "diffPct": -0.5988023952095809,
+      "diffPctText": "-0.60%",
+      "dir": "down",
+      "text": "與今早相比下跌 15（0.60%）"
+     }
+    },
+    {
+     "id": "tw00646",
+     "name": "元大 S&P500 00646",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 78.65,
+     "priceText": "78.65",
+     "change": -0.15,
+     "changeText": "-0.15",
+     "changePct": -0.1904,
+     "changePctText": "-0.19%",
+     "dir": "down",
+     "date": "2026-10-13",
+     "text": "元大 S&P500 00646 78.65 下跌（-0.19%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:30:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 78.5,
+      "beforeText": "78.50",
+      "diff": 0.15000000000000568,
+      "diffText": "0.15",
+      "diffPct": 0.19108280254777793,
+      "diffPctText": "+0.19%",
+      "dir": "up",
+      "text": "與今早相比上漲 0.15（0.19%）"
+     }
+    }
+   ],
+   "subtitle": "台股已收盤，以下是今日收盤價。　（已和今早的晨報做比較）"
+  },
+  {
+   "type": "notes",
+   "id": "observations",
+   "title": "收盤觀察",
+   "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
+   "items": [
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 位於 52 週區間第 10 百分位，接近一年來的低點（區間 870.80 ～ 1,248.45）。"
+    },
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 的 RSI(14) 為 28.9，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "up",
+     "id": "twii",
+     "text": "台股加權指數 位於 52 週區間第 94 百分位，接近一年來的高點（區間 25,820.54 ～ 49,822.55）。"
+    },
+    {
+     "level": "down",
+     "id": "tw2330",
+     "text": "台積電 2330 今天跌破 20 日均線（均線 2,493，現價 2,490）。"
+    },
+    {
+     "level": "up",
+     "id": "tw00646",
+     "text": "元大 S&P500 00646 位於 52 週區間第 98 百分位，接近一年來的高點（區間 63.30 ～ 78.95）。"
+    },
+    {
+     "level": "up",
+     "id": "tw00646",
+     "text": "元大 S&P500 00646 的 RSI(14) 為 72.8，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 今天跌破 20 日均線（均線 227.50，現價 226.32）。"
+    },
+    {
+     "level": "up",
+     "id": "gspc",
+     "text": "S&P 500 指數 位於 52 週區間第 99 百分位，接近一年來的高點（區間 6,343.72 ～ 7,818.93）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 位於 52 週區間第 93 百分位，接近一年來的高點（區間 4.280 ～ 4.833）。"
+    }
+   ]
+  }
+ ],
+ "quoteSnapshot": {
+  "gold_twd": 4352.0,
+  "gold_cny": 908.1,
+  "gold_intl": 4221.0,
+  "twii": 48341.31,
+  "tw2330": 2490.0,
+  "tw00646": 78.65,
+  "tw00679b": 24.98,
+  "nvda": 226.32,
+  "gspc": 7807.24,
+  "btc": 83552.15,
+  "wti": 92.42,
+  "fx_usd": 31.96,
+  "fx_cny": 4.792
+ },
+ "signalSnapshot": {
+  "gold_twd": "mid",
+  "gold_cny": "low",
+  "gold_intl": "low",
+  "twii": "high",
+  "tw2330": "high",
+  "tw00646": "high",
+  "tw00679b": "low",
+  "nvda": "high",
+  "gspc": "high",
+  "btc": "high",
+  "wti": "mid",
+  "fx_usd": "mid",
+  "fx_cny": "high"
+ },
+ "disclaimer": "本報告是把公開市場數據依固定規則整理成白話句子，所有描述都是客觀指標的陳述，未經歷史回測驗證，不構成投資建議，也不保證未來走勢。",
+ "producedBy": {
+  "host": "github-actions",
+  "event": "workflow_dispatch",
+  "runId": "38352147576"
+ }
+}
