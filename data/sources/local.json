@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-10-14T15:05:26+08:00",
- "runAtText": "2026-10-14 15:05",
+ "runAt": "2026-10-14T15:30:22+08:00",
+ "runAtText": "2026-10-14 15:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "full",
- "requests": 5,
+ "mode": "light",
+ "requests": 3,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -68,7 +68,7 @@
     4367.0,
     4310.0
    ],
-   "fetchedAt": "2026-10-14T15:05:21+08:00",
+   "fetchedAt": "2026-10-14T15:30:19+08:00",
    "error": null,
    "buy": 4262.0,
    "sell": 4310.0,
@@ -76,8 +76,8 @@
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-14T15:05:21+08:00",
-   "lastSuccessAt": "2026-10-14T15:05:21+08:00"
+   "lastAttemptAt": "2026-10-14T15:30:19+08:00",
+   "lastSuccessAt": "2026-10-14T15:30:19+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -90,10 +90,10 @@
    "decimals": 2,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 897.35,
+   "price": 896.5,
    "prevClose": 907.1,
-   "change": -9.75,
-   "changePct": -1.0749,
+   "change": -10.6,
+   "changePct": -1.1686,
    "date": "2026-10-14",
    "points": 273,
    "spark": [
@@ -136,18 +136,18 @@
     893.6,
     905.55,
     907.1,
-    897.35
+    896.5
    ],
-   "fetchedAt": "2026-10-14T15:05:24+08:00",
+   "fetchedAt": "2026-10-14T15:30:22+08:00",
    "error": null,
-   "buy": 887.75,
-   "sell": 897.35,
+   "buy": 886.9,
+   "sell": 896.5,
    "quoteTime": "2026/10/14 14:59",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-14T15:05:24+08:00",
-   "lastSuccessAt": "2026-10-14T15:05:24+08:00"
+   "lastAttemptAt": "2026-10-14T15:30:22+08:00",
+   "lastSuccessAt": "2026-10-14T15:30:22+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -241,7 +241,9 @@
    "error": null,
    "source": "local",
    "lastAttemptAt": "2026-10-14T15:05:26+08:00",
-   "lastSuccessAt": "2026-10-14T15:05:26+08:00"
+   "lastSuccessAt": "2026-10-14T15:05:26+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
   }
  }
 }
