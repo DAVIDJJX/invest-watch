@@ -1,16 +1,16 @@
 {
  "date": "2026-10-15",
- "slot": "midmorning",
- "slotLabel": "午前（盤中整理）",
- "title": "午前：盤中整理",
- "generatedAt": "2026-10-15T11:31:00+08:00",
- "generatedAtText": "2026-10-15 11:31",
+ "slot": "close",
+ "slotLabel": "收盤（台股收盤快報）",
+ "title": "收盤：台股收盤快報",
+ "generatedAt": "2026-10-15T13:35:37+08:00",
+ "generatedAtText": "2026-10-15 13:35",
  "market": {
   "date": "2026-10-15",
   "twTradingDay": true,
-  "twPhase": "open",
+  "twPhase": "closed",
   "twNote": null,
-  "goldQuoteTime": "2026/10/15 11:24",
+  "goldQuoteTime": "2026/10/15 13:29",
   "goldQuoteDate": "2026-10-15",
   "goldFresh": true,
   "fxDate": "2026-10-14",
@@ -27,7 +27,7 @@
   {
    "type": "quotes",
    "id": "tw",
-   "title": "台股盤中",
+   "title": "台股收盤快報",
    "items": [
     {
      "id": "twii",
@@ -36,31 +36,31 @@
      "currency": "TWD",
      "unit": "點",
      "priceLabel": "指數",
-     "price": 46959.28,
-     "priceText": "46,959.28",
-     "change": -1666.55,
-     "changeText": "-1,666.55",
-     "changePct": -3.4273,
-     "changePctText": "-3.43%",
+     "price": 46969.87,
+     "priceText": "46,969.87",
+     "change": -1655.96,
+     "changeText": "-1,655.96",
+     "changePct": -3.4055,
+     "changePctText": "-3.41%",
      "dir": "down",
      "date": "2026-10-15",
-     "text": "台股加權指數 46,959.28 下跌（-3.43%）",
+     "text": "台股加權指數 46,969.87 下跌（-3.41%）",
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:30:10"
+       "v": "13:33:00"
       }
      ],
      "compare": {
       "label": "今早",
       "before": 47299.8,
       "beforeText": "47,299.80",
-      "diff": -340.5200000000041,
-      "diffText": "-340.52",
-      "diffPct": -0.7199184774565728,
-      "diffPctText": "-0.72%",
+      "diff": -329.9300000000003,
+      "diffText": "-329.93",
+      "diffPct": -0.6975293764455669,
+      "diffPctText": "-0.70%",
       "dir": "down",
-      "text": "與今早相比下跌 340.52（0.72%）"
+      "text": "與今早相比下跌 329.93（0.70%）"
      }
     },
     {
@@ -82,7 +82,7 @@
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:30:10"
+       "v": "13:30:00"
       }
      ],
      "compare": {
@@ -116,7 +116,7 @@
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:30:05"
+       "v": "13:30:00"
       }
      ],
      "compare": {
@@ -132,257 +132,12 @@
      }
     }
    ],
-   "subtitle": "台股盤中即時報價。　（已和今早的晨報做比較）"
-  },
-  {
-   "type": "quotes",
-   "id": "bot",
-   "title": "金價與匯率",
-   "items": [
-    {
-     "id": "gold_twd",
-     "name": "黃金存摺（台幣）",
-     "status": "ok",
-     "currency": "TWD",
-     "unit": "元 / 公克",
-     "priceLabel": "本行賣出",
-     "price": 4338.0,
-     "priceText": "4,338",
-     "change": 28.0,
-     "changeText": "28",
-     "changePct": 0.6497,
-     "changePctText": "+0.65%",
-     "dir": "up",
-     "date": "2026-10-15",
-     "text": "黃金存摺（台幣） 4,338 上漲（+0.65%）",
-     "extra": [
-      {
-       "k": "本行買入",
-       "v": "4,291"
-      },
-      {
-       "k": "本行賣出",
-       "v": "4,338"
-      },
-      {
-       "k": "掛牌時間",
-       "v": "2026/10/15 11:24"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 4324.0,
-      "beforeText": "4,324",
-      "diff": 14.0,
-      "diffText": "14",
-      "diffPct": 0.32377428307123035,
-      "diffPctText": "+0.32%",
-      "dir": "up",
-      "text": "與今早相比上漲 14（0.32%）"
-     }
-    },
-    {
-     "id": "gold_cny",
-     "name": "黃金存摺（人民幣）",
-     "status": "ok",
-     "currency": "CNY",
-     "unit": "人民幣 / 公克",
-     "priceLabel": "本行賣出",
-     "price": 898.55,
-     "priceText": "898.55",
-     "change": 2.05,
-     "changeText": "2.05",
-     "changePct": 0.2287,
-     "changePctText": "+0.23%",
-     "dir": "up",
-     "date": "2026-10-15",
-     "text": "黃金存摺（人民幣） 898.55 上漲（+0.23%）",
-     "extra": [
-      {
-       "k": "本行買入",
-       "v": "889.00"
-      },
-      {
-       "k": "本行賣出",
-       "v": "898.55"
-      },
-      {
-       "k": "掛牌時間",
-       "v": "2026/10/15 11:24"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 897.7,
-      "beforeText": "897.70",
-      "diff": 0.849999999999909,
-      "diffText": "0.85",
-      "diffPct": 0.0946864208532816,
-      "diffPctText": "+0.09%",
-      "dir": "up",
-      "text": "與今早相比上漲 0.85（0.09%）"
-     }
-    },
-    {
-     "id": "gold_bar",
-     "name": "台銀實體黃金條塊",
-     "status": "ok",
-     "currency": "TWD",
-     "bars": [
-      {
-       "spec": "1 公斤",
-       "sell": 4359782.0,
-       "sellText": "4,359,782",
-       "perGram": 4359.782,
-       "perGramText": "4,359.8"
-      },
-      {
-       "spec": "500 公克",
-       "sell": 2183625.0,
-       "sellText": "2,183,625",
-       "perGram": 4367.25,
-       "perGramText": "4,367.2"
-      },
-      {
-       "spec": "250 公克",
-       "sell": 1093943.0,
-       "sellText": "1,093,943",
-       "perGram": 4375.772,
-       "perGramText": "4,375.8"
-      },
-      {
-       "spec": "100 公克",
-       "sell": 438877.0,
-       "sellText": "438,877",
-       "perGram": 4388.77,
-       "perGramText": "4,388.8"
-      },
-      {
-       "spec": "金鑽 1 台兩",
-       "sell": 164771.0,
-       "sellText": "164,771",
-       "perGram": 4393.893333333333,
-       "perGramText": "4,393.9"
-      }
-     ],
-     "quoteTime": "2026/10/15 09:49",
-     "text": "台銀實體金條塊今日掛牌：1 公斤 4,359,782 元（每公克 4,359.8 元）。"
-    },
-    {
-     "id": "fx_usd",
-     "name": "美元 / 台幣",
-     "status": "ok",
-     "currency": "TWD",
-     "unit": "台幣 / 1 美元",
-     "priceLabel": "即期賣出",
-     "price": 32.135,
-     "priceText": "32.135",
-     "change": 0.0,
-     "changeText": "0.000",
-     "changePct": 0.0,
-     "changePctText": "+0.00%",
-     "dir": "flat",
-     "date": "2026-10-14",
-     "text": "美元 / 台幣 32.135 持平（+0.00%）",
-     "extra": [
-      {
-       "k": "即期買入",
-       "v": "32.035"
-      },
-      {
-       "k": "即期賣出",
-       "v": "32.135"
-      },
-      {
-       "k": "現金買入",
-       "v": "31.685"
-      },
-      {
-       "k": "現金賣出",
-       "v": "32.355"
-      },
-      {
-       "k": "資料來源",
-       "v": "台銀每日匯率（經 FinMind）"
-      },
-      {
-       "k": "資料日期",
-       "v": "2026-10-14"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 32.135,
-      "beforeText": "32.135",
-      "diff": 0.0,
-      "diffText": "0.000",
-      "diffPct": 0.0,
-      "diffPctText": "+0.00%",
-      "dir": "flat",
-      "text": "與今早相同，沒有變動。"
-     }
-    },
-    {
-     "id": "fx_cny",
-     "name": "人民幣 / 台幣",
-     "status": "ok",
-     "currency": "TWD",
-     "unit": "台幣 / 1 人民幣",
-     "priceLabel": "即期賣出",
-     "price": 4.818,
-     "priceText": "4.818",
-     "change": 0.001,
-     "changeText": "0.001",
-     "changePct": 0.0208,
-     "changePctText": "+0.02%",
-     "dir": "up",
-     "date": "2026-10-14",
-     "text": "人民幣 / 台幣 4.818 上漲（+0.02%）",
-     "extra": [
-      {
-       "k": "即期買入",
-       "v": "4.768"
-      },
-      {
-       "k": "即期賣出",
-       "v": "4.818"
-      },
-      {
-       "k": "現金買入",
-       "v": "4.696"
-      },
-      {
-       "k": "現金賣出",
-       "v": "4.858"
-      },
-      {
-       "k": "資料來源",
-       "v": "台銀每日匯率（經 FinMind）"
-      },
-      {
-       "k": "資料日期",
-       "v": "2026-10-14"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 4.818,
-      "beforeText": "4.818",
-      "diff": 0.0,
-      "diffText": "0.000",
-      "diffPct": 0.0,
-      "diffPctText": "+0.00%",
-      "dir": "flat",
-      "text": "與今早相同，沒有變動。"
-     }
-    }
-   ],
-   "subtitle": "　掛牌時間 2026/10/15 11:24"
+   "subtitle": "台股已收盤，以下是今日收盤價。　（已和今早的晨報做比較）"
   },
   {
    "type": "notes",
    "id": "observations",
-   "title": "盤中觀察",
+   "title": "收盤觀察",
    "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
    "items": [
     {
@@ -392,13 +147,18 @@
     },
     {
      "level": "down",
-     "id": "twii",
-     "text": "台股加權指數 今天下跌 3.43%，變動幅度較大。"
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 的 RSI(14) 為 30.0，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
     },
     {
      "level": "down",
      "id": "twii",
-     "text": "台股加權指數 今天跌破 20 日均線（均線 48,261.23，現價 46,959.28）。"
+     "text": "台股加權指數 今天下跌 3.41%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "twii",
+     "text": "台股加權指數 今天跌破 20 日均線（均線 48,261.76，現價 46,969.87）。"
     },
     {
      "level": "down",
@@ -454,17 +214,17 @@
   }
  ],
  "quoteSnapshot": {
-  "gold_twd": 4338.0,
-  "gold_cny": 898.55,
-  "gold_intl": 4171.6,
-  "twii": 46959.28,
+  "gold_twd": 4325.0,
+  "gold_cny": 897.05,
+  "gold_intl": 4162.8,
+  "twii": 46969.87,
   "tw2330": 2440.0,
   "tw00646": 78.15,
   "tw00679b": 25.56,
   "nvda": 221.3,
   "gspc": 7718.94,
-  "btc": 80905.38,
-  "wti": 93.84,
+  "btc": 80916.77,
+  "wti": 94.15,
   "fx_usd": 32.135,
   "fx_cny": 4.818
  },
@@ -487,6 +247,6 @@
  "producedBy": {
   "host": "github-actions",
   "event": "workflow_dispatch",
-  "runId": "38676609405"
+  "runId": "38687576436"
  }
 }
