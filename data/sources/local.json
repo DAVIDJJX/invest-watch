@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-10-16T10:00:21+08:00",
- "runAtText": "2026-10-16 10:00",
+ "runAt": "2026-10-16T10:05:25+08:00",
+ "runAtText": "2026-10-16 10:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
- "requests": 3,
+ "mode": "full",
+ "requests": 5,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4352.0,
-   "prevClose": 4336.0,
-   "change": 16.0,
-   "changePct": 0.369,
+   "price": 4359.0,
+   "prevClose": 4335.0,
+   "change": 24.0,
+   "changePct": 0.5536,
    "date": "2026-10-16",
    "points": 275,
    "spark": [
@@ -65,19 +65,19 @@
     4327.0,
     4367.0,
     4310.0,
-    4336.0,
-    4352.0
+    4335.0,
+    4359.0
    ],
-   "fetchedAt": "2026-10-16T10:00:19+08:00",
+   "fetchedAt": "2026-10-16T10:05:20+08:00",
    "error": null,
-   "buy": 4304.0,
-   "sell": 4352.0,
-   "quoteTime": "2026/10/16 09:49",
+   "buy": 4312.0,
+   "sell": 4359.0,
+   "quoteTime": "2026/10/16 10:04",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-16T10:00:19+08:00",
-   "lastSuccessAt": "2026-10-16T10:00:19+08:00"
+   "lastAttemptAt": "2026-10-16T10:05:20+08:00",
+   "lastSuccessAt": "2026-10-16T10:05:20+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -138,16 +138,16 @@
     895.3,
     898.3
    ],
-   "fetchedAt": "2026-10-16T10:00:21+08:00",
+   "fetchedAt": "2026-10-16T10:05:23+08:00",
    "error": null,
    "buy": 888.7,
    "sell": 898.3,
-   "quoteTime": "2026/10/16 09:49",
+   "quoteTime": "2026/10/16 10:04",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-16T10:00:21+08:00",
-   "lastSuccessAt": "2026-10-16T10:00:21+08:00"
+   "lastAttemptAt": "2026-10-16T10:05:23+08:00",
+   "lastSuccessAt": "2026-10-16T10:05:23+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -164,52 +164,52 @@
    "bars": [
     {
      "spec": "1 公斤",
-     "sell": 4365833.0,
+     "sell": 4394119.0,
      "buy": null,
      "grams": 1000.0,
-     "perGram": 4365.83,
-     "premiumPct": 0.804
+     "perGram": 4394.12,
+     "premiumPct": 0.806
     },
     {
      "spec": "500 公克",
-     "sell": 2186660.0,
+     "sell": 2200820.0,
      "buy": null,
      "grams": 500.0,
-     "perGram": 4373.32,
-     "premiumPct": 0.977
+     "perGram": 4401.64,
+     "premiumPct": 0.978
     },
     {
      "spec": "250 公克",
-     "sell": 1095467.0,
+     "sell": 1102555.0,
      "buy": null,
      "grams": 250.0,
-     "perGram": 4381.87,
+     "perGram": 4410.22,
      "premiumPct": 1.175
     },
     {
      "spec": "100 公克",
-     "sell": 439491.0,
+     "sell": 442330.0,
      "buy": null,
      "grams": 100.0,
-     "perGram": 4394.91,
-     "premiumPct": 1.476
+     "perGram": 4423.3,
+     "premiumPct": 1.475
     },
     {
      "spec": "金鑽 1 台兩",
-     "sell": 165002.0,
-     "buy": 160650.0,
+     "sell": 166067.0,
+     "buy": 161700.0,
      "grams": 37.5,
-     "perGram": 4400.05,
-     "premiumPct": 1.594
+     "perGram": 4428.45,
+     "premiumPct": 1.593
     }
    ],
-   "quoteTime": "2026/10/15 14:49",
+   "quoteTime": "2026/10/16 10:04",
    "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
    "quoteTimeError": null,
    "hasHistory": true,
    "historyFrom": "2026-08-31",
-   "points": 24,
-   "goldSell": 4331.0,
+   "points": 25,
+   "goldSell": 4359.0,
    "spark": [
     4592.501,
     4569.963,
@@ -234,17 +234,16 @@
     4361.675,
     4395.13,
     4343.96,
-    4365.833
+    4365.833,
+    4394.119
    ],
-   "date": "2026-10-15",
+   "date": "2026-10-16",
    "historyNote": null,
-   "fetchedAt": "2026-10-15T15:05:27+08:00",
+   "fetchedAt": "2026-10-16T10:05:25+08:00",
    "error": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-15T15:05:27+08:00",
-   "lastSuccessAt": "2026-10-15T15:05:27+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-10-16T10:05:25+08:00",
+   "lastSuccessAt": "2026-10-16T10:05:25+08:00"
   }
  }
 }
