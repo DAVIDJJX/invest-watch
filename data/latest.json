@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-22T14:10:32+08:00",
- "updatedAtText": "2026-10-22 14:10",
+ "updatedAt": "2026-10-22T14:30:24+08:00",
+ "updatedAtText": "2026-10-22 14:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -24,10 +24,10 @@
    "decimals": 0,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 4301.0,
+   "price": 4328.0,
    "prevClose": 4324.0,
-   "change": -23.0,
-   "changePct": -0.5319,
+   "change": 4.0,
+   "changePct": 0.0925,
    "date": "2026-10-22",
    "points": 279,
    "spark": [
@@ -70,21 +70,21 @@
     4403.0,
     4364.0,
     4324.0,
-    4301.0
+    4328.0
    ],
-   "fetchedAt": "2026-10-22T14:00:22+08:00",
+   "fetchedAt": "2026-10-22T14:30:22+08:00",
    "error": null,
-   "buy": 4253.0,
-   "sell": 4301.0,
-   "quoteTime": "2026/10/22 13:49",
+   "buy": 4280.0,
+   "sell": 4328.0,
+   "quoteTime": "2026/10/22 14:29",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-22T14:00:22+08:00",
-   "lastSuccessAt": "2026-10-22T14:00:22+08:00",
+   "lastAttemptAt": "2026-10-22T14:30:22+08:00",
+   "lastSuccessAt": "2026-10-22T14:30:22+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-22T14:00:00+08:00",
-   "nextDueAt": "2026-10-22T14:30:00+08:00"
+   "lastDueAt": "2026-10-22T14:30:00+08:00",
+   "nextDueAt": "2026-10-22T15:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -97,10 +97,10 @@
    "decimals": 2,
    "priceLabel": "本行賣出",
    "status": "ok",
-   "price": 879.85,
+   "price": 883.7,
    "prevClose": 888.15,
-   "change": -8.3,
-   "changePct": -0.9345,
+   "change": -4.45,
+   "changePct": -0.501,
    "date": "2026-10-22",
    "points": 279,
    "spark": [
@@ -143,21 +143,21 @@
     903.65,
     891.15,
     888.15,
-    879.85
+    883.7
    ],
-   "fetchedAt": "2026-10-22T14:00:24+08:00",
+   "fetchedAt": "2026-10-22T14:30:24+08:00",
    "error": null,
-   "buy": 870.4,
-   "sell": 879.85,
-   "quoteTime": "2026/10/22 13:49",
+   "buy": 874.25,
+   "sell": 883.7,
+   "quoteTime": "2026/10/22 14:29",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-22T14:00:24+08:00",
-   "lastSuccessAt": "2026-10-22T14:00:24+08:00",
+   "lastAttemptAt": "2026-10-22T14:30:24+08:00",
+   "lastSuccessAt": "2026-10-22T14:30:24+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-22T14:00:00+08:00",
-   "nextDueAt": "2026-10-22T14:30:00+08:00"
+   "lastDueAt": "2026-10-22T14:30:00+08:00",
+   "nextDueAt": "2026-10-22T15:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -1059,19 +1059,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 19,
    "nextDueAt": "2026-10-22T14:40:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-22T14:00:24+08:00",
+   "runAt": "2026-10-22T14:30:24+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 3,
    "error": 0,
    "requests": 3,
-   "ageMinutes": 10,
-   "nextDueAt": "2026-10-22T14:30:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-10-22T15:00:00+08:00",
    "status": "ok"
   }
  }
