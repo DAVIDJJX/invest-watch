@@ -1,0 +1,155 @@
+{
+ "date": "2026-10-23",
+ "slot": "close",
+ "slotLabel": "收盤（台股收盤快報）",
+ "title": "收盤：台股收盤快報",
+ "generatedAt": "2026-10-23T13:35:39+08:00",
+ "generatedAtText": "2026-10-23 13:35",
+ "market": {
+  "date": "2026-10-23",
+  "twTradingDay": false,
+  "twPhase": "holiday",
+  "twNote": "台股今日休市（最新報價仍停在 2026-10-22）。",
+  "goldQuoteTime": "2026/10/22 19:49",
+  "goldQuoteDate": "2026-10-22",
+  "goldFresh": false,
+  "fxDate": "2026-10-22",
+  "fxFresh": false,
+  "simplified": true
+ },
+ "dataStatus": {
+  "total": 14,
+  "ok": 14,
+  "error": 0,
+  "errorNames": []
+ },
+ "sections": [
+  {
+   "type": "text",
+   "id": "tw",
+   "title": "台股",
+   "paragraphs": [
+    "台股今日休市（最新報價仍停在 2026-10-22）。"
+   ]
+  },
+  {
+   "type": "notes",
+   "id": "observations",
+   "title": "收盤觀察",
+   "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
+   "items": [
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 位於 52 週區間第 3 百分位，接近一年來的低點（區間 870.80 ～ 1,248.45）。"
+    },
+    {
+     "level": "down",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 位於 52 週區間第 5 百分位，接近一年來的低點（區間 3,960.50 ～ 5,318.40）。"
+    },
+    {
+     "level": "down",
+     "id": "twii",
+     "text": "台股加權指數 今天跌破 60 日均線（均線 46,442.56，現價 46,041.43）。"
+    },
+    {
+     "level": "up",
+     "id": "tw00646",
+     "text": "元大 S&P500 00646 位於 52 週區間第 98 百分位，接近一年來的高點（區間 63.30 ～ 79.35）。"
+    },
+    {
+     "level": "up",
+     "id": "tw00679b",
+     "text": "元大美債20年 00679B 的 RSI(14) 為 80.7，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 的 RSI(14) 為 29.7，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 今天下跌 4.40%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 今天跌破 60 日均線（均線 221.24，現價 212.21）。"
+    },
+    {
+     "level": "info",
+     "id": "nvda",
+     "text": "NVIDIA 的位置燈號從「相對高檔區」變成「中性」（位於52 週區間第 64 百分位 → 落在 25%～75% 之間）。"
+    },
+    {
+     "level": "down",
+     "id": "gspc",
+     "text": "S&P 500 指數 今天跌破 20 日均線（均線 7,733.46，現價 7,663.43）。"
+    },
+    {
+     "level": "down",
+     "id": "gspc",
+     "text": "S&P 500 指數 今天跌破 60 日均線（均線 7,697.38，現價 7,663.43）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 位於 52 週區間第 96 百分位，接近一年來的高點（區間 30.665 ～ 32.680）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 的 RSI(14) 為 79.9，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 位於 52 週區間第 98 百分位，接近一年來的高點（區間 4.321 ～ 4.911）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 的 RSI(14) 為 81.4，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    }
+   ]
+  }
+ ],
+ "quoteSnapshot": {
+  "gold_twd": 4279.0,
+  "gold_cny": 883.65,
+  "gold_intl": 4026.6,
+  "twii": 46041.43,
+  "tw2330": 2385.0,
+  "tw00646": 78.95,
+  "tw00679b": 26.01,
+  "nvda": 212.21,
+  "gspc": 7663.43,
+  "btc": 81606.57,
+  "wti": 100.4,
+  "fx_usd": 32.59,
+  "fx_cny": 4.901
+ },
+ "signalSnapshot": {
+  "gold_twd": "low",
+  "gold_cny": "low",
+  "gold_intl": "low",
+  "twii": "high",
+  "tw2330": "high",
+  "tw00646": "high",
+  "tw00679b": "mid",
+  "nvda": "mid",
+  "gspc": "high",
+  "btc": "high",
+  "wti": "high",
+  "fx_usd": "high",
+  "fx_cny": "high"
+ },
+ "disclaimer": "本報告是把公開市場數據依固定規則整理成白話句子，所有描述都是客觀指標的陳述，未經歷史回測驗證，不構成投資建議，也不保證未來走勢。",
+ "producedBy": {
+  "host": "github-actions",
+  "event": "workflow_dispatch",
+  "runId": "39906576708"
+ }
+}
