@@ -1,85 +1,98 @@
 {
- "generatedAt": "2026-10-23T15:30:53+08:00",
- "lastRun": "2026-10-23T15:30:53+08:00",
+ "generatedAt": "2026-10-26T15:30:54+08:00",
+ "lastRun": "2026-10-26T15:30:54+08:00",
  "slot": "review",
  "ok": true,
  "mode": "live",
  "errors": [],
- "warnings": [],
+ "warnings": [
+  "history-long usdcny 的週棒多半從 Sun 開始，不是星期一——跟其他標的的 ISO 週對齊會差幾天"
+ ],
  "produced": [
   "data/analysis/risk.json",
   "data/analysis/decompose.json",
   "data/analysis/cost.json",
   "data/analysis/fx.json"
  ],
- "requests": 1,
+ "requests": 14,
  "longHistory": {
   "gold_intl": {
-   "points": 1364,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1365,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1365 根",
+   "barsStartOn": "Mon"
   },
   "twii": {
-   "points": 1509,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1510,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 1510 根",
+   "barsStartOn": "Mon"
   },
   "tw2330": {
-   "points": 1398,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1399,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 1399 根",
+   "barsStartOn": "Mon"
   },
   "tw00646": {
-   "points": 567,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 568,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 568 根",
+   "barsStartOn": "Mon"
   },
   "tw00679b": {
-   "points": 510,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 511,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 511 根",
+   "barsStartOn": "Mon"
   },
   "nvda": {
-   "points": 1448,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1449,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 1449 根",
+   "barsStartOn": "Mon"
   },
   "gspc": {
-   "points": 2963,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 2964,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 2964 根",
+   "barsStartOn": "Mon"
   },
   "btc": {
-   "points": 631,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 632,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 632 根",
+   "barsStartOn": "Mon"
   },
   "wti": {
-   "points": 1365,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1366,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1366 根",
+   "barsStartOn": "Mon"
   },
   "fx_usd": {
-   "points": 1074,
-   "lastDate": "2026-10-16",
-   "action": "最後一根 2026-10-16 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1075,
+   "lastDate": "2026-10-23",
+   "action": "incremental：抓到 4 週，合併後 1075 週"
   },
   "fx_cny": {
-   "points": 713,
-   "lastDate": "2026-10-16",
-   "action": "最後一根 2026-10-16 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 714,
+   "lastDate": "2026-10-23",
+   "action": "incremental：抓到 4 週，合併後 714 週"
   },
   "sp500tr": {
-   "points": 2024,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 2025,
+   "lastDate": "2026-10-19",
+   "action": "incremental：抓到 5 根（略過進行中 0 根），合併後 2025 根",
+   "barsStartOn": "Mon"
   },
   "usdcny": {
-   "points": 1291,
-   "lastDate": "2026-10-12",
-   "action": "最後一根 2026-10-12 已是最近一個完成週（週一 2026-10-12），這週不必抓"
+   "points": 1296,
+   "lastDate": "2026-10-18",
+   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1296 根",
+   "barsStartOn": "Sun"
   }
  },
  "note": "分析只在 review（15:30）那一輪跑；出錯不影響行情與報告。錯誤訊息不含機器名與路徑。",
- "finishedAt": "2026-10-23T15:30:54+08:00"
+ "finishedAt": "2026-10-26T15:31:15+08:00"
 }

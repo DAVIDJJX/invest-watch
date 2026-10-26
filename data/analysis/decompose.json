@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-23T15:30:53+08:00",
+ "generatedAt": "2026-10-26T15:30:54+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -3971,14 +3971,14 @@
    "goldSell": 4279.0,
    "goldDate": "2026-10-22",
    "goldQuoteTime": "2026/10/22 19:49",
-   "gcPrice": 4026.5,
-   "gcDate": "2026-10-23",
-   "gcFetchedAt": "2026-10-23T15:30:37+08:00",
+   "gcPrice": 4018.9,
+   "gcDate": "2026-10-26",
+   "gcFetchedAt": "2026-10-26T15:30:37+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
-   "fxMid": 32.54,
-   "fxDate": "2026-10-22",
-   "implied": 4212.46,
-   "residualPct": 1.58,
+   "fxMid": 32.505,
+   "fxDate": "2026-10-23",
+   "implied": 4199.99,
+   "residualPct": 1.881,
    "label": "估算"
   },
   "inputs": {
@@ -3987,12 +3987,12 @@
     "lastDate": "2026-10-22"
    },
    "gold_intl": {
-    "points": 278,
-    "lastDate": "2026-10-23"
+    "points": 280,
+    "lastDate": "2026-10-26"
    },
    "fx_usd": {
     "points": 400,
-    "lastDate": "2026-10-22",
+    "lastDate": "2026-10-23",
     "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）"
    }
   }
@@ -5456,16 +5456,16 @@
   },
   "inputs": {
    "tw00646": {
-    "bars": 567,
-    "lastBar": "2026-10-12"
+    "bars": 568,
+    "lastBar": "2026-10-19"
    },
    "gspc": {
-    "bars": 2963,
-    "lastBar": "2026-10-12"
+    "bars": 2964,
+    "lastBar": "2026-10-19"
    },
    "fx_usd": {
-    "bars": 1074,
-    "lastBar": "2026-10-16"
+    "bars": 1075,
+    "lastBar": "2026-10-23"
    }
   }
  },
@@ -5484,9 +5484,9 @@
     "through": "2026-10-16",
     "rCnyTwdPct": 13.017,
     "rUsdTwdPct": 5.929,
-    "rUsdCnyPct": -6.126,
-    "combinedPct": 12.841,
-    "residualPct": 0.176
+    "rUsdCnyPct": -6.308,
+    "combinedPct": 13.06,
+    "residualPct": -0.043
    },
    "3y": {
     "weeks": 156,
@@ -5494,16 +5494,16 @@
     "through": "2026-10-16",
     "rCnyTwdPct": 9.685,
     "rUsdTwdPct": 0.388,
-    "rUsdCnyPct": -6.991,
-    "combinedPct": 7.933,
-    "residualPct": 1.751
+    "rUsdCnyPct": -7.171,
+    "combinedPct": 8.143,
+    "residualPct": 1.541
    }
   },
   "summary52": {
    "n": 52,
    "from": "2025-10-17",
    "through": "2026-10-16",
-   "medianPct": 0.004,
+   "medianPct": -0.006,
    "minPct": -0.496,
    "maxPct": 0.332
   },
@@ -5745,10 +5745,10 @@
     "cnyTwdMid": 4.749,
     "dUsd": "2026-09-18",
     "usdTwdMid": 31.805,
-    "dUsdCny": "2026-09-14",
-    "usdCny": 6.7074,
-    "implied": 4.7418,
-    "residualPct": 0.152
+    "dUsdCny": "2026-09-20",
+    "usdCny": 6.7111,
+    "implied": 4.7392,
+    "residualPct": 0.208
    },
    {
     "week": "2026-09-21",
@@ -5756,10 +5756,10 @@
     "cnyTwdMid": 4.733,
     "dUsd": "2026-09-24",
     "usdTwdMid": 31.78,
-    "dUsdCny": "2026-09-21",
-    "usdCny": 6.7111,
-    "implied": 4.7354,
-    "residualPct": -0.051
+    "dUsdCny": "2026-09-27",
+    "usdCny": 6.7045,
+    "implied": 4.7401,
+    "residualPct": -0.15
    },
    {
     "week": "2026-09-28",
@@ -5767,10 +5767,10 @@
     "cnyTwdMid": 4.751,
     "dUsd": "2026-10-02",
     "usdTwdMid": 31.845,
-    "dUsdCny": "2026-09-28",
-    "usdCny": 6.7045,
-    "implied": 4.7498,
-    "residualPct": 0.025
+    "dUsdCny": "2026-10-04",
+    "usdCny": 6.7021,
+    "implied": 4.7515,
+    "residualPct": -0.01
    },
    {
     "week": "2026-10-05",
@@ -5778,10 +5778,10 @@
     "cnyTwdMid": 4.758,
     "dUsd": "2026-10-08",
     "usdTwdMid": 31.9,
-    "dUsdCny": "2026-10-05",
-    "usdCny": 6.7021,
-    "implied": 4.7597,
-    "residualPct": -0.036
+    "dUsdCny": "2026-10-11",
+    "usdCny": 6.6909,
+    "implied": 4.7677,
+    "residualPct": -0.203
    },
    {
     "week": "2026-10-12",
@@ -5789,24 +5789,24 @@
     "cnyTwdMid": 4.836,
     "dUsd": "2026-10-16",
     "usdTwdMid": 32.34,
-    "dUsdCny": "2026-10-12",
-    "usdCny": 6.6909,
-    "implied": 4.8334,
-    "residualPct": 0.053
+    "dUsdCny": "2026-10-18",
+    "usdCny": 6.6779,
+    "implied": 4.8428,
+    "residualPct": -0.141
    }
   ],
   "inputs": {
    "fx_cny": {
-    "bars": 713,
-    "lastBar": "2026-10-16"
+    "bars": 714,
+    "lastBar": "2026-10-23"
    },
    "fx_usd": {
-    "bars": 1074,
-    "lastBar": "2026-10-16"
+    "bars": 1075,
+    "lastBar": "2026-10-23"
    },
    "usdcny": {
-    "bars": 1291,
-    "lastBar": "2026-10-12"
+    "bars": 1296,
+    "lastBar": "2026-10-18"
    }
   }
  }
