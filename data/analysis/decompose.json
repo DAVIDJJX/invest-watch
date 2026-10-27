@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-26T15:30:54+08:00",
+ "generatedAt": "2026-10-27T15:30:58+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -3933,24 +3933,24 @@
    },
    {
     "d": "2026-10-22",
-    "goldSell": 4279.0,
-    "goldBuy": 4228.0,
+    "goldSell": 4324.0,
+    "goldBuy": 4276.0,
     "fxDate": "2026-10-22",
     "fxMid": 32.54,
     "gcDate": "2026-10-22",
     "gc": 4060.399902,
     "impliedSameDay": 4247.93,
-    "residualSameDayPct": 0.731,
+    "residualSameDayPct": 1.791,
     "gcPrevDate": "2026-10-21",
     "gcPrev": 4150.0,
     "impliedPrevDay": 4341.67,
-    "residualPrevDayPct": -1.443
+    "residualPrevDayPct": -0.407
    }
   ],
   "summarySameDay": {
    "n": 60,
    "medianPct": -0.185,
-   "meanPct": -0.204,
+   "meanPct": -0.186,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
@@ -3960,7 +3960,7 @@
   "summaryPrevDay": {
    "n": 60,
    "medianPct": -0.308,
-   "meanPct": -0.226,
+   "meanPct": -0.208,
    "minPct": -1.477,
    "maxPct": 1.729,
    "window": "最近 60 個有資料的日子",
@@ -3968,27 +3968,27 @@
    "through": "2026-10-22"
   },
   "live": {
-   "goldSell": 4279.0,
-   "goldDate": "2026-10-22",
-   "goldQuoteTime": "2026/10/22 19:49",
-   "gcPrice": 4018.9,
-   "gcDate": "2026-10-26",
-   "gcFetchedAt": "2026-10-26T15:30:37+08:00",
+   "goldSell": 4207.0,
+   "goldDate": "2026-10-27",
+   "goldQuoteTime": "2026/10/27 14:54",
+   "gcPrice": 4016.7,
+   "gcDate": "2026-10-27",
+   "gcFetchedAt": "2026-10-27T15:30:40+08:00",
    "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
    "fxMid": 32.505,
    "fxDate": "2026-10-23",
-   "implied": 4199.99,
-   "residualPct": 1.881,
+   "implied": 4197.69,
+   "residualPct": 0.222,
    "label": "估算"
   },
   "inputs": {
    "gold_twd": {
-    "points": 279,
-    "lastDate": "2026-10-22"
+    "points": 280,
+    "lastDate": "2026-10-27"
    },
    "gold_intl": {
-    "points": 280,
-    "lastDate": "2026-10-26"
+    "points": 281,
+    "lastDate": "2026-10-27"
    },
    "fx_usd": {
     "points": 400,
