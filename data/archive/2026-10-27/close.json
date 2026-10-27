@@ -1,0 +1,267 @@
+{
+ "date": "2026-10-27",
+ "slot": "close",
+ "slotLabel": "收盤（台股收盤快報）",
+ "title": "收盤：台股收盤快報",
+ "generatedAt": "2026-10-27T13:35:43+08:00",
+ "generatedAtText": "2026-10-27 13:35",
+ "market": {
+  "date": "2026-10-27",
+  "twTradingDay": true,
+  "twPhase": "closed",
+  "twNote": null,
+  "goldQuoteTime": "2026/10/27 13:24",
+  "goldQuoteDate": "2026-10-27",
+  "goldFresh": true,
+  "fxDate": "2026-10-23",
+  "fxFresh": false,
+  "simplified": false
+ },
+ "dataStatus": {
+  "total": 14,
+  "ok": 14,
+  "error": 0,
+  "errorNames": []
+ },
+ "sections": [
+  {
+   "type": "quotes",
+   "id": "tw",
+   "title": "台股收盤快報",
+   "items": [
+    {
+     "id": "twii",
+     "name": "台股加權指數",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "點",
+     "priceLabel": "指數",
+     "price": 46096.23,
+     "priceText": "46,096.23",
+     "change": 54.8,
+     "changeText": "54.80",
+     "changePct": 0.119,
+     "changePctText": "+0.12%",
+     "dir": "up",
+     "date": "2026-10-27",
+     "text": "台股加權指數 46,096.23 上漲（+0.12%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:33:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 46361.54,
+      "beforeText": "46,361.54",
+      "diff": -265.3099999999977,
+      "diffText": "-265.31",
+      "diffPct": -0.572263130172116,
+      "diffPctText": "-0.57%",
+      "dir": "down",
+      "text": "與今早相比下跌 265.31（0.57%）"
+     }
+    },
+    {
+     "id": "tw2330",
+     "name": "台積電 2330",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 2400.0,
+     "priceText": "2,400",
+     "change": 15.0,
+     "changeText": "15",
+     "changePct": 0.6289,
+     "changePctText": "+0.63%",
+     "dir": "up",
+     "date": "2026-10-27",
+     "text": "台積電 2330 2,400 上漲（+0.63%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:30:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 2392.5,
+      "beforeText": "2,392",
+      "diff": 7.5,
+      "diffText": "8",
+      "diffPct": 0.3134796238244514,
+      "diffPctText": "+0.31%",
+      "dir": "up",
+      "text": "與今早相比上漲 8（0.31%）"
+     }
+    },
+    {
+     "id": "tw00646",
+     "name": "元大 S&P500 00646",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 78.75,
+     "priceText": "78.75",
+     "change": -0.2,
+     "changeText": "-0.20",
+     "changePct": -0.2533,
+     "changePctText": "-0.25%",
+     "dir": "down",
+     "date": "2026-10-27",
+     "text": "元大 S&P500 00646 78.75 下跌（-0.25%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "13:30:00"
+      }
+     ],
+     "compare": {
+      "label": "今早",
+      "before": 78.9,
+      "beforeText": "78.90",
+      "diff": -0.15000000000000568,
+      "diffText": "-0.15",
+      "diffPct": -0.19011406844107184,
+      "diffPctText": "-0.19%",
+      "dir": "down",
+      "text": "與今早相比下跌 0.15（0.19%）"
+     }
+    }
+   ],
+   "subtitle": "台股已收盤，以下是今日收盤價。　（已和今早的晨報做比較）"
+  },
+  {
+   "type": "notes",
+   "id": "observations",
+   "title": "收盤觀察",
+   "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
+   "items": [
+    {
+     "level": "down",
+     "id": "gold_twd",
+     "text": "黃金存摺（台幣） 今天下跌 2.36%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 位於 52 週區間第 0 百分位，接近一年來的低點（區間 864.85 ～ 1,248.45）。"
+    },
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 的 RSI(14) 為 25.8，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 今天下跌 2.13%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 位於 52 週區間第 4 百分位，接近一年來的低點（區間 3,960.50 ～ 5,318.40）。"
+    },
+    {
+     "level": "down",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 的 RSI(14) 為 27.7，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "twii",
+     "text": "台股加權指數 的 RSI(14) 為 19.8，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "tw2330",
+     "text": "台積電 2330 的 RSI(14) 為 15.7，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "up",
+     "id": "tw00646",
+     "text": "元大 S&P500 00646 位於 52 週區間第 96 百分位，接近一年來的高點（區間 63.30 ～ 79.35）。"
+    },
+    {
+     "level": "up",
+     "id": "tw00679b",
+     "text": "元大美債20年 00679B 的 RSI(14) 為 88.8，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 的 RSI(14) 為 28.7，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "up",
+     "id": "nvda",
+     "text": "NVIDIA 今天上漲 2.39%，變動幅度較大。"
+    },
+    {
+     "level": "up",
+     "id": "gspc",
+     "text": "S&P 500 指數 位於 52 週區間第 90 百分位，接近一年來的高點（區間 6,343.72 ～ 7,818.93）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 位於 52 週區間第 94 百分位，接近一年來的高點（區間 30.665 ～ 32.680）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 的 RSI(14) 為 78.2，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 位於 52 週區間第 98 百分位，接近一年來的高點（區間 4.321 ～ 4.911）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 的 RSI(14) 為 78.9，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    }
+   ]
+  }
+ ],
+ "quoteSnapshot": {
+  "gold_twd": 4222.0,
+  "gold_cny": 864.85,
+  "gold_intl": 4019.7,
+  "twii": 46096.23,
+  "tw2330": 2400.0,
+  "tw00646": 78.75,
+  "tw00679b": 26.37,
+  "nvda": 216.0,
+  "gspc": 7676.77,
+  "btc": 79706.69,
+  "wti": 100.68,
+  "fx_usd": 32.555,
+  "fx_cny": 4.897
+ },
+ "signalSnapshot": {
+  "gold_twd": "low",
+  "gold_cny": "low",
+  "gold_intl": "low",
+  "twii": "high",
+  "tw2330": "high",
+  "tw00646": "high",
+  "tw00679b": "mid",
+  "nvda": "mid",
+  "gspc": "high",
+  "btc": "high",
+  "wti": "high",
+  "fx_usd": "high",
+  "fx_cny": "high"
+ },
+ "disclaimer": "本報告是把公開市場數據依固定規則整理成白話句子，所有描述都是客觀指標的陳述，未經歷史回測驗證，不構成投資建議，也不保證未來走勢。",
+ "producedBy": {
+  "host": "github-actions",
+  "event": "workflow_dispatch",
+  "runId": "40456157101"
+ }
+}
