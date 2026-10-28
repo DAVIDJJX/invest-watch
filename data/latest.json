@@ -1,17 +1,17 @@
 {
- "updatedAt": "2026-10-28T13:35:39+08:00",
- "updatedAtText": "2026-10-28 13:35",
+ "updatedAt": "2026-10-28T13:40:35+08:00",
+ "updatedAtText": "2026-10-28 13:40",
  "timezone": "Asia/Taipei (UTC+8)",
- "slot": "close",
- "slotLabel": "收盤（台股收盤快報）",
- "mode": "full",
+ "slot": "light",
+ "slotLabel": "盤中更新（只更新現價）",
+ "mode": "light",
  "summary": {
   "total": 14,
   "ok": 14,
   "error": 0,
   "errorIds": []
  },
- "requests": 15,
+ "requests": 8,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -330,6 +330,8 @@
    "source": "cloud",
    "lastAttemptAt": "2026-10-28T13:35:21+08:00",
    "lastSuccessAt": "2026-10-28T13:35:21+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-10-28T13:35:00+08:00",
    "nextDueAt": "2026-10-28T15:30:00+08:00"
@@ -393,7 +395,7 @@
     46096.23,
     47035.58
    ],
-   "fetchedAt": "2026-10-28T13:35:22+08:00",
+   "fetchedAt": "2026-10-28T13:40:29+08:00",
    "error": null,
    "open": 46402.79,
    "high": 47060.46,
@@ -401,11 +403,11 @@
    "quoteTime": "13:33:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:22+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:22+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:29+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:29+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -466,7 +468,7 @@
     2400.0,
     2425.0
    ],
-   "fetchedAt": "2026-10-28T13:35:25+08:00",
+   "fetchedAt": "2026-10-28T13:40:29+08:00",
    "error": null,
    "open": 2420.0,
    "high": 2430.0,
@@ -474,11 +476,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:25+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:25+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:29+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:29+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -539,7 +541,7 @@
     78.75,
     79.0
    ],
-   "fetchedAt": "2026-10-28T13:35:29+08:00",
+   "fetchedAt": "2026-10-28T13:40:29+08:00",
    "error": null,
    "open": 78.8,
    "high": 79.0,
@@ -547,11 +549,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:29+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:29+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:29+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:29+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -612,7 +614,7 @@
     26.370001,
     26.17
    ],
-   "fetchedAt": "2026-10-28T13:35:29+08:00",
+   "fetchedAt": "2026-10-28T13:40:29+08:00",
    "error": null,
    "open": 26.22,
    "high": 26.23,
@@ -620,11 +622,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:29+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:29+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:29+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:29+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -685,14 +687,14 @@
     216.0,
     217.94
    ],
-   "fetchedAt": "2026-10-28T13:35:31+08:00",
+   "fetchedAt": "2026-10-28T13:40:29+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:31+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:31+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:29+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:29+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -753,14 +755,14 @@
     7676.77002,
     7722.6
    ],
-   "fetchedAt": "2026-10-28T13:35:33+08:00",
+   "fetchedAt": "2026-10-28T13:40:31+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:33+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:33+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:31+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:31+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "btc": {
    "id": "btc",
@@ -773,10 +775,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 80803.1,
+   "price": 80832.38,
    "prevClose": 80666.65,
-   "change": 136.45,
-   "changePct": 0.1692,
+   "change": 165.73,
+   "changePct": 0.2055,
    "date": "2026-10-28",
    "points": 400,
    "spark": [
@@ -819,16 +821,16 @@
     80024.007812,
     80006.65625,
     80666.65,
-    80803.1
+    80832.38
    ],
-   "fetchedAt": "2026-10-28T13:35:35+08:00",
+   "fetchedAt": "2026-10-28T13:40:33+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:35+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:35+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:33+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:33+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "wti": {
    "id": "wti",
@@ -841,10 +843,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 101.32,
+   "price": 101.43,
    "prevClose": 99.900002,
-   "change": 1.419998,
-   "changePct": 1.4214,
+   "change": 1.529998,
+   "changePct": 1.5315,
    "date": "2026-10-28",
    "points": 300,
    "spark": [
@@ -887,16 +889,16 @@
     100.87,
     101.760002,
     99.900002,
-    101.32
+    101.43
    ],
-   "fetchedAt": "2026-10-28T13:35:37+08:00",
+   "fetchedAt": "2026-10-28T13:40:35+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-10-28T13:35:37+08:00",
-   "lastSuccessAt": "2026-10-28T13:35:37+08:00",
+   "lastAttemptAt": "2026-10-28T13:40:35+08:00",
+   "lastSuccessAt": "2026-10-28T13:40:35+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T13:35:00+08:00",
-   "nextDueAt": "2026-10-28T13:40:00+08:00"
+   "lastDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -968,6 +970,8 @@
    "source": "cloud",
    "lastAttemptAt": "2026-10-28T13:35:38+08:00",
    "lastSuccessAt": "2026-10-28T13:35:38+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-10-28T13:35:00+08:00",
    "nextDueAt": "2026-10-28T15:30:00+08:00"
@@ -1042,6 +1046,8 @@
    "source": "cloud",
    "lastAttemptAt": "2026-10-28T13:35:39+08:00",
    "lastSuccessAt": "2026-10-28T13:35:39+08:00",
+   "carriedOver": true,
+   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
    "freshness": "fresh",
    "lastDueAt": "2026-10-28T13:35:00+08:00",
    "nextDueAt": "2026-10-28T15:30:00+08:00"
@@ -1049,14 +1055,14 @@
  },
  "sources": {
   "cloud": {
-   "runAt": "2026-10-28T13:35:39+08:00",
-   "slot": "close",
-   "mode": "full",
+   "runAt": "2026-10-28T13:40:35+08:00",
+   "slot": "light",
+   "mode": "light",
    "ok": 11,
    "error": 0,
-   "requests": 12,
+   "requests": 5,
    "ageMinutes": 0,
-   "nextDueAt": "2026-10-28T13:40:00+08:00",
+   "nextDueAt": "2026-10-28T14:10:00+08:00",
    "status": "ok"
   },
   "local": {
@@ -1066,7 +1072,7 @@
    "ok": 3,
    "error": 0,
    "requests": 3,
-   "ageMinutes": 5,
+   "ageMinutes": 10,
    "nextDueAt": "2026-10-28T14:00:00+08:00",
    "status": "ok"
   }
