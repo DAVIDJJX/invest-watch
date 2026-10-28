@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-10-28T15:40:43+08:00",
- "updatedAtText": "2026-10-28 15:40",
+ "updatedAt": "2026-10-28T16:00:27+08:00",
+ "updatedAtText": "2026-10-28 16:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -72,19 +72,19 @@
     4207.0,
     4235.0
    ],
-   "fetchedAt": "2026-10-28T15:30:19+08:00",
+   "fetchedAt": "2026-10-28T16:00:24+08:00",
    "error": null,
-   "buy": 4188.0,
+   "buy": 4184.0,
    "sell": 4235.0,
-   "quoteTime": "2026/10/28 15:19",
+   "quoteTime": "2026/10/28 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-28T15:30:19+08:00",
-   "lastSuccessAt": "2026-10-28T15:30:19+08:00",
+   "lastAttemptAt": "2026-10-28T16:00:24+08:00",
+   "lastSuccessAt": "2026-10-28T16:00:24+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T15:30:00+08:00",
-   "nextDueAt": "2026-10-28T16:00:00+08:00"
+   "lastDueAt": "2026-10-28T16:00:00+08:00",
+   "nextDueAt": "2026-10-28T16:30:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -145,19 +145,19 @@
     862.9,
     869.2
    ],
-   "fetchedAt": "2026-10-28T15:30:22+08:00",
+   "fetchedAt": "2026-10-28T16:00:26+08:00",
    "error": null,
    "buy": 859.85,
    "sell": 869.2,
-   "quoteTime": "2026/10/28 15:19",
+   "quoteTime": "2026/10/28 15:54",
    "quoteTimeError": null,
    "historyNote": null,
    "source": "local",
-   "lastAttemptAt": "2026-10-28T15:30:22+08:00",
-   "lastSuccessAt": "2026-10-28T15:30:22+08:00",
+   "lastAttemptAt": "2026-10-28T16:00:27+08:00",
+   "lastSuccessAt": "2026-10-28T16:00:27+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-10-28T15:30:00+08:00",
-   "nextDueAt": "2026-10-28T16:00:00+08:00"
+   "lastDueAt": "2026-10-28T16:00:00+08:00",
+   "nextDueAt": "2026-10-28T16:30:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -1061,19 +1061,19 @@
    "ok": 11,
    "error": 0,
    "requests": 5,
-   "ageMinutes": 0,
+   "ageMinutes": 19,
    "nextDueAt": "2026-10-28T16:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-10-28T15:30:22+08:00",
+   "runAt": "2026-10-28T16:00:27+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 3,
    "error": 0,
    "requests": 3,
-   "ageMinutes": 10,
-   "nextDueAt": "2026-10-28T16:00:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-10-28T16:30:00+08:00",
    "status": "ok"
   }
  }
