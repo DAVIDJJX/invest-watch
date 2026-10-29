@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-28T15:30:54+08:00",
+ "generatedAt": "2026-10-29T15:30:55+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -3960,40 +3960,45 @@
     "gcPrev": 4038.399902,
     "impliedPrevDay": 4213.88,
     "residualPrevDayPct": -0.163
+   },
+   {
+    "d": "2026-10-28",
+    "goldSell": 4255.0,
+    "goldBuy": 4204.0,
+    "fxDate": "2026-10-28",
+    "fxMid": 32.42,
+    "gcDate": "2026-10-28",
+    "gc": 4051.600098,
+    "impliedSameDay": 4223.09,
+    "residualSameDayPct": 0.756,
+    "gcPrevDate": "2026-10-27",
+    "gcPrev": 4074.600098,
+    "impliedPrevDay": 4247.06,
+    "residualPrevDayPct": 0.187
    }
   ],
   "summarySameDay": {
    "n": 60,
    "medianPct": -0.212,
-   "meanPct": -0.224,
+   "meanPct": -0.227,
    "minPct": -3.568,
    "maxPct": 2.163,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-07-28",
-   "through": "2026-10-27"
+   "from": "2026-07-29",
+   "through": "2026-10-28"
   },
   "summaryPrevDay": {
    "n": 60,
    "medianPct": -0.308,
-   "meanPct": -0.211,
+   "meanPct": -0.22,
    "minPct": -1.477,
    "maxPct": 1.729,
    "window": "最近 60 個有資料的日子",
-   "from": "2026-07-29",
-   "through": "2026-10-27"
+   "from": "2026-07-30",
+   "through": "2026-10-28"
   },
   "live": {
-   "goldSell": 4236.0,
-   "goldDate": "2026-10-28",
-   "goldQuoteTime": "2026/10/28 14:44",
-   "gcPrice": 4046.6,
-   "gcDate": "2026-10-28",
-   "gcFetchedAt": "2026-10-28T15:30:37+08:00",
-   "gcNote": "Yahoo 的最新價，可能是進行中的盤中價",
-   "fxMid": 32.455,
-   "fxDate": "2026-10-27",
-   "implied": 4222.43,
-   "residualPct": 0.321,
+   "reason": "latest.json 裡黃金存摺、國際金價、匯率有一項不是 ok，這一格不算",
    "label": "估算"
   },
   "inputs": {
@@ -4002,12 +4007,12 @@
     "lastDate": "2026-10-28"
    },
    "gold_intl": {
-    "points": 282,
-    "lastDate": "2026-10-28"
+    "points": 283,
+    "lastDate": "2026-10-29"
    },
    "fx_usd": {
     "points": 400,
-    "lastDate": "2026-10-27",
+    "lastDate": "2026-10-28",
     "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）"
    }
   }
