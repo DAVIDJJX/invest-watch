@@ -1,7 +1,7 @@
 {
  "source": "local",
- "runAt": "2026-10-29T16:30:25+08:00",
- "runAtText": "2026-10-29 16:30",
+ "runAt": "2026-10-29T17:00:25+08:00",
+ "runAtText": "2026-10-29 17:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -22,8 +22,8 @@
    "status": "error",
    "price": null,
    "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-10-29T16:30:25+08:00",
-   "fetchedAt": "2026-10-29T16:30:25+08:00",
+   "errorAt": "2026-10-29T17:00:25+08:00",
+   "fetchedAt": "2026-10-29T17:00:25+08:00",
    "lastGood": {
     "price": 4255.0,
     "bars": null,
@@ -31,7 +31,7 @@
     "fetchedAt": "2026-10-28T17:00:21+08:00"
    },
    "source": "local",
-   "lastAttemptAt": "2026-10-29T16:30:25+08:00",
+   "lastAttemptAt": "2026-10-29T17:00:25+08:00",
    "lastSuccessAt": "2026-10-28T17:00:21+08:00"
   },
   "gold_cny": {
@@ -47,8 +47,8 @@
    "status": "error",
    "price": null,
    "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-10-29T16:30:25+08:00",
-   "fetchedAt": "2026-10-29T16:30:25+08:00",
+   "errorAt": "2026-10-29T17:00:25+08:00",
+   "fetchedAt": "2026-10-29T17:00:25+08:00",
    "lastGood": {
     "price": 869.2,
     "bars": null,
@@ -56,7 +56,7 @@
     "fetchedAt": "2026-10-28T17:00:24+08:00"
    },
    "source": "local",
-   "lastAttemptAt": "2026-10-29T16:30:25+08:00",
+   "lastAttemptAt": "2026-10-29T17:00:25+08:00",
    "lastSuccessAt": "2026-10-28T17:00:24+08:00"
   },
   "gold_bar": {
@@ -72,8 +72,8 @@
    "status": "error",
    "price": null,
    "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-10-29T16:30:25+08:00",
-   "fetchedAt": "2026-10-29T16:30:25+08:00",
+   "errorAt": "2026-10-29T17:00:25+08:00",
+   "fetchedAt": "2026-10-29T17:00:25+08:00",
    "lastGood": {
     "price": null,
     "bars": [
@@ -122,7 +122,7 @@
     "fetchedAt": "2026-10-28T15:05:26+08:00"
    },
    "source": "local",
-   "lastAttemptAt": "2026-10-29T16:30:25+08:00",
+   "lastAttemptAt": "2026-10-29T17:00:25+08:00",
    "lastSuccessAt": "2026-10-28T15:05:26+08:00"
   }
  }
