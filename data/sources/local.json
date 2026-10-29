@@ -1,11 +1,11 @@
 {
  "source": "local",
- "runAt": "2026-10-29T10:00:29+08:00",
- "runAtText": "2026-10-29 10:00",
+ "runAt": "2026-10-29T10:05:25+08:00",
+ "runAtText": "2026-10-29 10:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
+ "mode": "full",
  "requests": 3,
  "count": 3,
  "assets": {
@@ -22,8 +22,8 @@
    "status": "error",
    "price": null,
    "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-10-29T10:00:29+08:00",
-   "fetchedAt": "2026-10-29T10:00:29+08:00",
+   "errorAt": "2026-10-29T10:05:25+08:00",
+   "fetchedAt": "2026-10-29T10:05:25+08:00",
    "lastGood": {
     "price": 4255.0,
     "bars": null,
@@ -31,7 +31,7 @@
     "fetchedAt": "2026-10-28T17:00:21+08:00"
    },
    "source": "local",
-   "lastAttemptAt": "2026-10-29T10:00:29+08:00",
+   "lastAttemptAt": "2026-10-29T10:05:25+08:00",
    "lastSuccessAt": "2026-10-28T17:00:21+08:00"
   },
   "gold_cny": {
@@ -47,8 +47,8 @@
    "status": "error",
    "price": null,
    "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-10-29T10:00:29+08:00",
-   "fetchedAt": "2026-10-29T10:00:29+08:00",
+   "errorAt": "2026-10-29T10:05:25+08:00",
+   "fetchedAt": "2026-10-29T10:05:25+08:00",
    "lastGood": {
     "price": 869.2,
     "bars": null,
@@ -56,7 +56,7 @@
     "fetchedAt": "2026-10-28T17:00:24+08:00"
    },
    "source": "local",
-   "lastAttemptAt": "2026-10-29T10:00:29+08:00",
+   "lastAttemptAt": "2026-10-29T10:05:25+08:00",
    "lastSuccessAt": "2026-10-28T17:00:24+08:00"
   },
   "gold_bar": {
@@ -69,99 +69,61 @@
    "unit": "元",
    "decimals": 0,
    "priceLabel": "本行賣出",
-   "status": "ok",
+   "status": "error",
    "price": null,
-   "bars": [
-    {
-     "spec": "1 公斤",
-     "sell": 4270570.0,
-     "buy": null,
-     "grams": 1000.0,
-     "perGram": 4270.57,
-     "premiumPct": 0.816
-    },
-    {
-     "spec": "500 公克",
-     "sell": 2138985.0,
-     "buy": null,
-     "grams": 500.0,
-     "perGram": 4277.97,
-     "premiumPct": 0.991
-    },
-    {
-     "spec": "250 公克",
-     "sell": 1071608.0,
-     "buy": null,
-     "grams": 250.0,
-     "perGram": 4286.43,
-     "premiumPct": 1.191
-    },
-    {
-     "spec": "100 公克",
-     "sell": 429939.0,
-     "buy": null,
-     "grams": 100.0,
-     "perGram": 4299.39,
-     "premiumPct": 1.496
-    },
-    {
-     "spec": "金鑽 1 台兩",
-     "sell": 161420.0,
-     "buy": 157088.0,
-     "grams": 37.5,
-     "perGram": 4304.53,
-     "premiumPct": 1.618
-    }
-   ],
-   "quoteTime": "2026/10/28 14:44",
-   "quoteTimeNote": "實體條塊的掛牌時間與黃金存摺不同，這是條塊自己的",
-   "quoteTimeError": null,
-   "hasHistory": true,
-   "historyFrom": "2026-08-31",
-   "points": 31,
-   "goldSell": 4236.0,
-   "spark": [
-    4592.501,
-    4569.963,
-    4483.634,
-    4583.723,
-    4604.07,
-    4520.983,
-    4520.555,
-    4493.449,
-    4549.91,
-    4466.001,
-    4469.902,
-    4441.2,
-    4305.599,
-    4350.466,
-    4353.492,
-    4348.017,
-    4297.741,
-    4285.773,
-    4285.574,
-    4295.887,
-    4361.675,
-    4395.13,
-    4343.96,
-    4365.833,
-    4421.147,
-    4435.946,
-    4385.407,
-    4357.37,
-    4358.427,
-    4241.089,
-    4270.57
-   ],
-   "date": "2026-10-28",
-   "historyNote": null,
-   "fetchedAt": "2026-10-28T15:05:26+08:00",
-   "error": null,
+   "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
+   "errorAt": "2026-10-29T10:05:25+08:00",
+   "fetchedAt": "2026-10-29T10:05:25+08:00",
+   "lastGood": {
+    "price": null,
+    "bars": [
+     {
+      "spec": "1 公斤",
+      "sell": 4270570.0,
+      "buy": null,
+      "grams": 1000.0,
+      "perGram": 4270.57,
+      "premiumPct": 0.816
+     },
+     {
+      "spec": "500 公克",
+      "sell": 2138985.0,
+      "buy": null,
+      "grams": 500.0,
+      "perGram": 4277.97,
+      "premiumPct": 0.991
+     },
+     {
+      "spec": "250 公克",
+      "sell": 1071608.0,
+      "buy": null,
+      "grams": 250.0,
+      "perGram": 4286.43,
+      "premiumPct": 1.191
+     },
+     {
+      "spec": "100 公克",
+      "sell": 429939.0,
+      "buy": null,
+      "grams": 100.0,
+      "perGram": 4299.39,
+      "premiumPct": 1.496
+     },
+     {
+      "spec": "金鑽 1 台兩",
+      "sell": 161420.0,
+      "buy": 157088.0,
+      "grams": 37.5,
+      "perGram": 4304.53,
+      "premiumPct": 1.618
+     }
+    ],
+    "date": "2026-10-28",
+    "fetchedAt": "2026-10-28T15:05:26+08:00"
+   },
    "source": "local",
-   "lastAttemptAt": "2026-10-28T15:05:26+08:00",
-   "lastSuccessAt": "2026-10-28T15:05:26+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-10-29T10:05:25+08:00",
+   "lastSuccessAt": "2026-10-28T15:05:26+08:00"
   }
  }
 }
