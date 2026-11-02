@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-10-30T15:30:53+08:00",
+ "generatedAt": "2026-11-02T15:30:53+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -26,11 +26,11 @@
      "fromWeek": "2025-10-20",
      "throughWeek": "2026-10-19",
      "r646Pct": 22.403,
-     "rBenchPct": 13.556,
+     "rBenchPct": 12.919,
      "rFxPct": 5.519,
-     "rBenchTwdPct": 19.822,
-     "diffPct": 2.581,
-     "annualizedDiffPct": 2.154
+     "rBenchTwdPct": 19.15,
+     "diffPct": 3.253,
+     "annualizedDiffPct": 2.73
     },
     "3y": {
      "weeks": 156,
@@ -39,11 +39,11 @@
      "fromWeek": "2023-10-23",
      "throughWeek": "2026-10-19",
      "r646Pct": 87.842,
-     "rBenchPct": 92.518,
+     "rBenchPct": 91.439,
      "rFxPct": 0.231,
-     "rBenchTwdPct": 92.964,
-     "diffPct": -5.122,
-     "annualizedDiffPct": -0.893
+     "rBenchTwdPct": 91.882,
+     "diffPct": -4.04,
+     "annualizedDiffPct": -0.707
     }
    },
    "notes": [
@@ -64,11 +64,11 @@
      "fromWeek": "2025-10-20",
      "throughWeek": "2026-10-19",
      "r646Pct": 22.403,
-     "rBenchPct": 12.25,
+     "rBenchPct": 11.608,
      "rFxPct": 5.519,
-     "rBenchTwdPct": 18.445,
-     "diffPct": 3.958,
-     "annualizedDiffPct": 3.342
+     "rBenchTwdPct": 17.767,
+     "diffPct": 4.636,
+     "annualizedDiffPct": 3.937
     },
     "3y": {
      "weeks": 156,
@@ -77,11 +77,11 @@
      "fromWeek": "2023-10-23",
      "throughWeek": "2026-10-19",
      "r646Pct": 87.842,
-     "rBenchPct": 85.159,
+     "rBenchPct": 84.1,
      "rFxPct": 0.231,
-     "rBenchTwdPct": 85.587,
-     "diffPct": 2.255,
-     "annualizedDiffPct": 0.403
+     "rBenchTwdPct": 84.526,
+     "diffPct": 3.316,
+     "annualizedDiffPct": 0.596
     }
    },
    "notes": [
@@ -99,51 +99,51 @@
    ],
    "status": "接了（每個交易日存一筆）",
    "today": {
-    "d": "2026-10-30",
+    "d": "2026-11-02",
     "time": "15:30:30",
-    "price": 78.6,
-    "estNav": 78.44,
-    "prevOfficialNav": 78.99
+    "price": 78.2,
+    "estNav": 77.82,
+    "prevOfficialNav": 77.69
    },
-   "rows": 25,
+   "rows": 26,
    "latest": [
     {
-     "d": "2026-10-30",
-     "price": 78.6,
-     "nav": 78.44,
-     "premiumPct": 0.204,
+     "d": "2026-11-02",
+     "price": 78.2,
+     "nav": 77.82,
+     "premiumPct": 0.488,
      "tag": "預估"
     },
     {
-     "d": "2026-10-29",
-     "price": 78.9,
-     "nav": 78.99,
-     "premiumPct": -0.114,
+     "d": "2026-10-30",
+     "price": 78.6,
+     "nav": 77.69,
+     "premiumPct": 1.171,
      "tag": "確定"
     }
    ],
    "estimated": {
-    "n": 22,
+    "n": 23,
     "from": "2026-09-24",
-    "through": "2026-10-30",
-    "medianPct": 0.219,
-    "meanPct": 0.276,
+    "through": "2026-11-02",
+    "medianPct": 0.234,
+    "meanPct": 0.286,
     "minPct": -0.405,
     "maxPct": 1.139,
-    "p25Pct": 0.092,
-    "p75Pct": 0.408,
+    "p25Pct": 0.108,
+    "p75Pct": 0.425,
     "label": "估算"
    },
    "official": {
-    "n": 22,
+    "n": 23,
     "from": "2026-09-23",
-    "through": "2026-10-29",
-    "medianPct": 0.077,
-    "meanPct": 0.222,
+    "through": "2026-10-30",
+    "medianPct": 0.078,
+    "meanPct": 0.264,
     "minPct": -0.963,
     "maxPct": 1.692,
-    "p25Pct": -0.146,
-    "p75Pct": 0.546,
+    "p25Pct": -0.141,
+    "p75Pct": 0.619,
     "label": "單一來源"
    },
    "label": "預估口徑「估算」；確定口徑「單一來源」"
@@ -157,51 +157,51 @@
    ],
    "status": "接了（每個交易日存一筆）",
    "today": {
-    "d": "2026-10-30",
+    "d": "2026-11-02",
     "time": "15:30:30",
-    "price": 26.46,
-    "estNav": 26.4664,
-    "prevOfficialNav": 26.3134
+    "price": 26.4,
+    "estNav": 26.4733,
+    "prevOfficialNav": 26.4757
    },
-   "rows": 25,
+   "rows": 26,
    "latest": [
     {
-     "d": "2026-10-30",
-     "price": 26.46,
-     "nav": 26.4664,
-     "premiumPct": -0.024,
+     "d": "2026-11-02",
+     "price": 26.4,
+     "nav": 26.4733,
+     "premiumPct": -0.277,
      "tag": "預估"
     },
     {
-     "d": "2026-10-29",
-     "price": 26.23,
-     "nav": 26.3134,
-     "premiumPct": -0.317,
+     "d": "2026-10-30",
+     "price": 26.459999,
+     "nav": 26.4757,
+     "premiumPct": -0.059,
      "tag": "確定"
     }
    ],
    "estimated": {
-    "n": 22,
+    "n": 23,
     "from": "2026-09-24",
-    "through": "2026-10-30",
-    "medianPct": -0.001,
-    "meanPct": 0.021,
+    "through": "2026-11-02",
+    "medianPct": -0.024,
+    "meanPct": 0.008,
     "minPct": -0.598,
     "maxPct": 1.312,
-    "p25Pct": -0.221,
-    "p75Pct": 0.14,
+    "p25Pct": -0.252,
+    "p75Pct": 0.137,
     "label": "估算"
    },
    "official": {
-    "n": 22,
+    "n": 23,
     "from": "2026-09-23",
-    "through": "2026-10-29",
-    "medianPct": -0.079,
-    "meanPct": 0.011,
+    "through": "2026-10-30",
+    "medianPct": -0.059,
+    "meanPct": 0.008,
     "minPct": -1.49,
     "maxPct": 1.746,
-    "p25Pct": -0.474,
-    "p75Pct": 0.577,
+    "p25Pct": -0.421,
+    "p75Pct": 0.521,
     "label": "單一來源"
    },
    "label": "預估口徑「估算」；確定口徑「單一來源」"
