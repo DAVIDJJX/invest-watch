@@ -1,7 +1,7 @@
 {
  "source": "cloud",
- "runAt": "2026-11-03T11:03:48+08:00",
- "runAtText": "2026-11-03 11:03",
+ "runAt": "2026-11-03T11:10:40+08:00",
+ "runAtText": "2026-11-03 11:10",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -87,10 +87,10 @@
    "decimals": 2,
    "priceLabel": "指數",
    "status": "ok",
-   "price": 44155.93,
+   "price": 44130.01,
    "prevClose": 44920.14,
-   "change": -764.21,
-   "changePct": -1.7013,
+   "change": -790.13,
+   "changePct": -1.759,
    "date": "2026-11-03",
    "points": 286,
    "spark": [
@@ -133,18 +133,18 @@
     46368.33,
     45211.83,
     44920.14,
-    44155.93
+    44130.01
    ],
-   "fetchedAt": "2026-11-03T11:03:42+08:00",
+   "fetchedAt": "2026-11-03T11:10:34+08:00",
    "error": null,
    "open": 44481.59,
    "high": 44614.64,
    "low": 44039.28,
-   "quoteTime": "11:03:10",
+   "quoteTime": "11:10:15",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:42+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:42+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:34+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:34+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -205,16 +205,16 @@
     2330.0,
     2315.0
    ],
-   "fetchedAt": "2026-11-03T11:03:42+08:00",
+   "fetchedAt": "2026-11-03T11:10:34+08:00",
    "error": null,
    "open": 2300.0,
    "high": 2335.0,
    "low": 2295.0,
-   "quoteTime": "11:03:00",
+   "quoteTime": "11:10:15",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:42+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:42+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:34+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:34+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -275,16 +275,16 @@
     78.2,
     77.65
    ],
-   "fetchedAt": "2026-11-03T11:03:42+08:00",
+   "fetchedAt": "2026-11-03T11:10:34+08:00",
    "error": null,
    "open": 77.8,
    "high": 77.8,
    "low": 77.5,
-   "quoteTime": "11:02:39",
+   "quoteTime": "11:09:56",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:42+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:42+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:34+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:34+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -345,16 +345,16 @@
     26.4,
     26.5
    ],
-   "fetchedAt": "2026-11-03T11:03:42+08:00",
+   "fetchedAt": "2026-11-03T11:10:34+08:00",
    "error": null,
    "open": 26.49,
    "high": 26.54,
    "low": 26.46,
-   "quoteTime": "11:01:59",
+   "quoteTime": "11:09:49",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:42+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:42+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:34+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:34+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -415,11 +415,11 @@
     204.639999,
     202.06
    ],
-   "fetchedAt": "2026-11-03T11:03:43+08:00",
+   "fetchedAt": "2026-11-03T11:10:35+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:43+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:43+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:35+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:35+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -480,11 +480,11 @@
     7580.069824,
     7541.4
    ],
-   "fetchedAt": "2026-11-03T11:03:44+08:00",
+   "fetchedAt": "2026-11-03T11:10:36+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:44+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:44+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:36+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:36+08:00"
   },
   "btc": {
    "id": "btc",
@@ -497,10 +497,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 76558.33,
+   "price": 76749.21,
    "prevClose": 76625.53,
-   "change": -67.2,
-   "changePct": -0.0877,
+   "change": 123.68,
+   "changePct": 0.1614,
    "date": "2026-11-03",
    "points": 400,
    "spark": [
@@ -543,13 +543,13 @@
     77434.75,
     78248.453125,
     76625.53,
-    76558.33
+    76749.21
    ],
-   "fetchedAt": "2026-11-03T11:03:46+08:00",
+   "fetchedAt": "2026-11-03T11:10:38+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:46+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:46+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:38+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:38+08:00"
   },
   "wti": {
    "id": "wti",
@@ -562,10 +562,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 96.65,
+   "price": 96.6,
    "prevClose": 100.67,
-   "change": -4.02,
-   "changePct": -3.9932,
+   "change": -4.07,
+   "changePct": -4.0429,
    "date": "2026-11-02",
    "points": 309,
    "spark": [
@@ -608,13 +608,13 @@
     104.120003,
     104.12,
     100.67,
-    96.65
+    96.459999
    ],
-   "fetchedAt": "2026-11-03T11:03:48+08:00",
+   "fetchedAt": "2026-11-03T11:10:40+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-03T11:03:48+08:00",
-   "lastSuccessAt": "2026-11-03T11:03:48+08:00"
+   "lastAttemptAt": "2026-11-03T11:10:40+08:00",
+   "lastSuccessAt": "2026-11-03T11:10:40+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
