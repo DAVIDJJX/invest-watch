@@ -52,10 +52,10 @@ invest-watch/
 ├─ settings.html         設定（Phase 3 / 4）
 ├─ analysis.html         分析分頁：總覽表（A1-7；每個標的一列、每個面向一格）、狀態、換匯助手（A1-6）、風險總表（可排序）、相關矩陣（色階）、成本、拆解、集中度、試算（A1-5）
 ├─ analysis-debug.html   舊網址，只做跳轉到 analysis.html
-├─ css/style.css         深色系樣式，手機優先 RWD
+├─ css/style.css         樣式，手機優先 RWD；預設柔和淺色，深色在設定頁切換（A1-4；顏色都是 CSS 變數）
 ├─ js/
 │   ├─ indicators.js     指標計算（MA / RSI / 百分位…），純函式；「滿幾個交易日才叫 52 週」的門檻只寫在這裡（A1-6）
-│   ├─ charts.js         畫圖（迷你走勢線 + Chart.js 大圖）
+│   ├─ charts.js         畫圖（迷你走勢線 + Chart.js 大圖；顏色從 CSS 變數讀、換主題就重畫，A1-4）
 │   ├─ app.js            儀表板頁面邏輯（A1-7：每張卡的面向圖示列；白話層、名詞解釋與三個分析檔等首屏畫完才載入）
 │   ├─ report.js         把報告 JSON 畫成畫面
 │   ├─ history.js        歷史頁邏輯
@@ -77,7 +77,7 @@ invest-watch/
 │   ├─ history/<id>.json 各標的日線歷史（最多 400 點）
 │   ├─ archive/          每天的報告與行情快照（歷史頁讀這裡）
 │   ├─ history-long/     各標的的週線全歷史（分析系列；只由雲端 15:30 那一輪維護、一週補一次；含追蹤差的基準序列 sp500tr.json、人民幣拆解用的 usdcny.json）
-│   ├─ analysis/         分析輸出：status.json（上次算的狀態與錯誤）、risk.json、decompose.json、cost.json、fx.json（匯率的位置、換匯成本、分批規則表、歷史模擬；A1-6）、static-costs.json（手抄的官方費用表）、nav/<id>.json（折溢價每日累積）
+│   ├─ analysis/         分析輸出：status.json（上次算的狀態與錯誤）、risk.json、decompose.json、cost.json、fx.json（匯率的位置、換匯成本、分批規則表、歷史模擬；A1-6）、static-costs.json（手抄的官方費用表）、nav/<id>.json（折溢價每日累積）、nav/tw00646.backfill.json（00646 官方淨值的一次回補；A1-4）
 │   └─ report-latest.json 最新一份報告（首頁入口用）
 ├─ scripts/
 │   ├─ fetch_data.py     抓資料腳本（只用 requests）
@@ -90,8 +90,11 @@ invest-watch/
 │   ├─ analyze.py        分析系列：週線長歷史、風險、拆解、成本（只在 15:30 review 那一輪跑；出錯不卡行情與報告）；`--adhoc` 是 A1-3 的試算入口，只在私人倉庫的 Actions 用、結果只寫到倉庫外
 │   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
 │   ├─ backfill_fx_history.py  匯率日線一次性回補到 400 個營業日（A1-6；只增不改、重疊區逐日比對、差超過 0.3% 就停）
+│   ├─ backfill_nav.py   00646 官方淨值一次性回補三年（A1-4；證交所 ETF e添富＋Yahoo 收盤；寫新檔，analyze.py 每天只增不改地併進去）
+│   ├─ mutations_pending/a14_mutations.py  A1-4 的突變定義（自動駕駛期間動不得 scripts/mutations/，下一個一般模式的階段併過去）
 │   ├─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
 │   ├─ test_aspects_js.py／test_dashboard_requests_js.py  A1-7：卡片面向的離線測試；真的開瀏覽器量儀表板請求數（自己起一個只聽本機的小伺服器，不連外網）
+│   ├─ test_backfill_nav.py／test_premium_year_js.py／test_theme.py  A1-4：回補（離線、假回應）、成本圖示看近一年、配色與主題切換
 │   ├─ autopilot_install.py  自動駕駛（P1）的安裝與檢查：裝「推送前的檢查」（git 的 pre-push）、設定事後偵測的起點；換電腦時跑一次
 │   └─ test_autopilot_guard.py／_prepush.py／_flow.py／_shell.py／_config.py  自動駕駛的離線測試（繞過寫法、推送前的檢查、通行證與整個流程、指令解析、設定一致性與隱私掃描）
 ├─ docs/ANALYSIS.md      分析方法（公開版）：五個面向、方法證據★、資料標籤、assetClass 對應、已實作的定義
@@ -877,7 +880,12 @@ K 線（2026-09-05 實際發生過，已修正並清掉 4 筆假點）。
   - **Codex 不能用時**：David 手打「免外部審查 <階段>」（一次性、綁 commit、24 小時）；只免外部審查，信與紀錄會寫「本階段未經外部審查（David 親手免除）」。原本規格的 GitHub Models 備援做不成（2026-07-30 退役）
   - 突變清單搬進倉庫（`scripts/mutations/`）；PR 的寫入只有 `iw_notify.py pr` 一道門；分支出現不是自己推的 commit 就擋並暫停
   - 排程、雲端的更新流程、資料檔、前端一個字沒改；改動、驗證與退回方式見 `docs/CHANGELOG.md`；標籤 `stopP2`
-- [ ] 分析系列 A1-4 — 00646 官方淨值回補（小停點；預定用「自動駕駛：A1-4」跑）
+- [ ] **分析系列 A1-4 — 00646 官方淨值回補＋U1 柔和配色**（2026-11-05 自動駕駛跑完，等驗收與放行）
+  - **回補**：`scripts/backfill_nav.py` 一次從證交所 ETF e添富取 00646 三年的官方每日淨值（3 個請求、台銀 0），配同一天的收盤價，寫到新檔 `data/analysis/nav/tw00646.backfill.json`（700 列）；
+    每天 15:30 那一輪只增不改地併進 `tw00646.json`（上限 400 → 800 列）。重疊的日子逐日比對：收盤價 285 天、官方淨值 23 天，全部一樣
+  - **成本那一格看近一年**：折溢價多一組 `officialYear`（最後 252 個有確定折溢價的交易日）；卡片與總覽表的成本圖示看這一組，可用的全部並列在細節裡
+  - **柔和配色**：預設改成淺色，原本的深色一個值都沒改、在設定頁「外觀」切換（存在這台裝置的瀏覽器）；圖表的顏色跟著主題；文字對比都在 4.5 以上
+  - 首屏請求數不變、既有畫面的元素一個都沒少；改動、驗證（含把程式改壞的對照組）與退回方式見 `docs/CHANGELOG.md`；標籤 `stopA1-4`
 - [ ] 分析系列 A2～A4 — 趨勢與情緒、估值與基本面、各面向狀態的快照紀錄與回顧（各面向獨立表態；不做任何加總）
 - [ ] Phase 4 — 財經知識庫 + 換匯助手 + PWA
 
