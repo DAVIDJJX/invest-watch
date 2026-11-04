@@ -1,6 +1,6 @@
 {
- "generatedAt": "2026-11-03T15:30:55+08:00",
- "lastRun": "2026-11-03T15:30:55+08:00",
+ "generatedAt": "2026-11-04T15:31:05+08:00",
+ "lastRun": "2026-11-04T15:31:05+08:00",
  "slot": "review",
  "ok": true,
  "mode": "live",
@@ -49,13 +49,13 @@
   "nvda": {
    "points": 1454,
    "lastDate": "2026-10-25",
-   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 1454 根",
+   "action": "incremental：抓到 5 根（略過進行中 2 根），合併後 1454 根",
    "barsStartOn": "Sun"
   },
   "gspc": {
    "points": 2969,
    "lastDate": "2026-10-25",
-   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 2969 根",
+   "action": "incremental：抓到 5 根（略過進行中 2 根），合併後 2969 根",
    "barsStartOn": "Sun"
   },
   "btc": {
@@ -82,7 +82,7 @@
   "sp500tr": {
    "points": 2030,
    "lastDate": "2026-10-25",
-   "action": "incremental：抓到 5 根（略過進行中 1 根），合併後 2030 根",
+   "action": "incremental：抓到 5 根（略過進行中 2 根），合併後 2030 根",
    "barsStartOn": "Sun"
   },
   "usdcny": {
@@ -92,5 +92,5 @@
   }
  },
  "note": "分析只在 review（15:30）那一輪跑；出錯不影響行情與報告。錯誤訊息不含機器名與路徑。",
- "finishedAt": "2026-11-03T15:31:04+08:00"
+ "finishedAt": "2026-11-04T15:31:17+08:00"
 }
