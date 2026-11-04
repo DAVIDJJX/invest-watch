@@ -284,7 +284,26 @@
     $('#btn-wipe').addEventListener('click', wipeLocal);
   }
 
+  /* ---------------------------------------------------------- 外觀（U1，A1-4）
+   * 淺色／深色，存在 localStorage 的 iw-theme；套用的那一份寫在每一頁 head 的那一小段腳本（window.IwTheme），這裡只負責兩個單選。
+   * 配色不是私人資料，不等密碼鎖。換了之後發 iw:theme，這一頁若有圖表會重畫。 */
+  function themeToggle() {
+    var T = window.IwTheme;
+    var light = document.getElementById('theme-light'), dark = document.getElementById('theme-dark');
+    if (!T || !light || !dark) return;
+    var cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    (cur === 'dark' ? dark : light).checked = true;
+    function choose(t) {
+      try { window.localStorage.setItem(T.KEY, t); } catch (e) { /* 存不了（私密瀏覽）：只換這一次 */ }
+      T.apply(t);
+      try { document.dispatchEvent(new Event('iw:theme')); } catch (x) { /* 舊瀏覽器：不重畫 */ }
+    }
+    light.addEventListener('change', function () { if (light.checked) choose('light'); });
+    dark.addEventListener('change', function () { if (dark.checked) choose('dark'); });
+  }
+
   function start() {
+    themeToggle();
     window.Lock.resume().then(function () {
       window.Lock.gate(function () { window.Storage.init().then(boot); });
     });
