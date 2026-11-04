@@ -122,7 +122,9 @@ ALL_ETF_URL = "https://mis.twse.com.tw/stock/data/all_etf.txt"
 ALL_ETF_HEADERS = {"Accept": "application/json, text/plain, */*", "Referer": "https://mis.twse.com.tw/stock/index.jsp"}
 NAV_ASSETS = (("tw00646", "00646"), ("tw00679b", "00679B"))      # (assets.json 的 id, 證交所代號)
 NAV_MIN_DAYS = 20                                                # 累積滿 20 個交易日才顯示中位數
-NAV_MAX_ROWS = 400
+NAV_MAX_ROWS = 800                                               # A1-4：回補三年（約 730 個交易日）之後還放得下；docs/ANALYSIS.md 5.5 寫的是同一個數字（有測試釘住）
+NAV_BACKFILL_SUFFIX = ".backfill.json"                           # A1-4：回補的列放在 nav/<id>.backfill.json，每天這一輪只增不改地併進 nav/<id>.json
+LABEL_BACKFILL = "回補"                                          # 回補的那些列的 officialLabel（scripts/backfill_nav.py 用同一個）
 # 櫃買 30 日（all_etf 被擋時 00679B 的退路；只回最近 30 個交易日、日期沒有年份）
 TPEX_URL = "https://info.tpex.org.tw/api/etfProduct?lang=zh-tw&query=00679B"
 TPEX_HEADERS = {"Accept": "application/json, text/plain, */*", "Referer": "https://info.tpex.org.tw/ETF/zh/detail.html?query=00679B",
@@ -1070,7 +1072,50 @@ def load_nav(aid, paths=None):
         return []
 
 
-def save_nav(aid, symbol, rows, paths=None):
+def nav_backfill_path(aid, paths=None):
+    return os.path.join((paths or default_paths())["analysis"], "nav", aid + NAV_BACKFILL_SUFFIX)
+
+
+def load_nav_head_backfill(aid, paths=None):
+    """nav/<id>.json 檔頭的 backfill（A1-4：記這個檔併進了哪一份回補）。沒有就 None。"""
+    p = nav_path(aid, paths)
+    try:
+        with open(p, encoding="utf-8") as fh:
+            v = (json.load(fh) or {}).get("backfill")
+        return v if isinstance(v, dict) else None
+    except Exception:
+        return None
+
+
+def load_nav_backfill(aid, paths=None):
+    """nav/<id>.backfill.json（A1-4 的一次性回補，scripts/backfill_nav.py 寫的）→ (列, 檔頭的出處)。沒有這個檔或讀不懂就 ([], None)：照舊只用每天累積的列。"""
+    p = nav_backfill_path(aid, paths)
+    if not os.path.exists(p):
+        return [], None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            j = json.load(fh) or {}
+    except Exception:
+        return [], None
+    rows = [r for r in (j.get("rows") or []) if isinstance(r, dict) and r.get("d") and r.get("officialTag") == "確定"
+            and r.get("officialLabel") == LABEL_BACKFILL]
+    info = {"file": "data/analysis/nav/%s%s" % (aid, NAV_BACKFILL_SUFFIX), "backfilledOn": j.get("backfilledOn"),
+            "rows": len(rows), "firstDate": rows[0]["d"] if rows else None, "lastDate": rows[-1]["d"] if rows else None}
+    return rows, info
+
+
+def merge_backfill(rows, backfill_rows):
+    """只增不改：回補的列只補 rows 裡沒有的日期，rows 既有的列一個欄位都不動。照日期排好、最多留 NAV_MAX_ROWS 列（留最新的）。
+    同一份回補併兩次，結果跟併一次一樣。"""
+    by_d = dict((r["d"], r) for r in rows if r.get("d"))
+    for r in backfill_rows:
+        d = r.get("d")
+        if d and d not in by_d:
+            by_d[d] = dict(r)
+    return [by_d[k] for k in sorted(by_d)][-NAV_MAX_ROWS:]
+
+
+def save_nav(aid, symbol, rows, paths=None, backfill=None):
     paths = paths or default_paths()
     p = nav_path(aid, paths)
     assert_write_allowed(p)
@@ -1080,6 +1125,8 @@ def save_nav(aid, symbol, rows, paths=None):
                     "折溢價＝(價格 − 淨值) ÷ 淨值。最多留 %d 列。" % NAV_MAX_ROWS,
             "count": len(rows), "firstDate": rows[0]["d"] if rows else None, "lastDate": rows[-1]["d"] if rows else None,
             "updatedAt": iso(now_tpe())}
+    if backfill:                                                 # A1-4：併進過回補就記下出處；之後每天重寫檔頭時照樣保留
+        head["backfill"] = backfill
     lines = ["{"]
     for k, v in head.items():
         lines.append("  %s: %s," % (json.dumps(k, ensure_ascii=False), json.dumps(v, ensure_ascii=False)))
@@ -1120,8 +1167,11 @@ def update_nav_rows(rows, rec, closes):
     return [by_d[k] for k in sorted(by_d)][-NAV_MAX_ROWS:]
 
 
-def premium_summary(rows, key):
+def premium_summary(rows, key, window=None):
+    """window：只取最後這麼多列（A1-4 的近一年＝FX_DAILY_WINDOW，跟匯率價差的「自己一年」同一個常數）；None＝可用的全部。"""
     vals = [(r["d"], r[key]) for r in rows if isinstance(r.get(key), (int, float))]
+    if window:
+        vals = vals[-window:]
     n = len(vals)
     if n < NAV_MIN_DAYS:
         return {"n": n, "reason": "累積不到 %d 個交易日（目前 %d），先不顯示中位數" % (NAV_MIN_DAYS, n)}
@@ -1205,9 +1255,20 @@ def build_premium(f, offline, paths, problems, now):
             problems.append("折溢價：all_etf.txt 抓不到（%s）" % err)
     for aid, sym in NAV_ASSETS:
         rows = load_nav(aid, paths)
+        bf_rows, bf_info = load_nav_backfill(aid, paths)
+        backfill = load_nav_head_backfill(aid, paths)
+        if bf_rows:                                              # A1-4：回補的列只補沒有的日期；離線也併（只是不寫檔）
+            rows = merge_backfill(rows, bf_rows)
+            backfill = backfill or bf_info
         entry = {"file": "data/analysis/nav/%s.json" % aid, "symbol": sym,
                  "notes": ["預估口徑＝(all_etf.txt 那一筆的成交價 − 投信盤中預估淨值) ÷ 預估淨值，檔內的日期與時間照抄，標「預估」；確定口徑＝(前一營業日收盤 − 官方淨值) ÷ 官方淨值，官方淨值隔天才拿得到、回填到那一天，標「確定」。",
                            "累積滿 %d 個交易日才顯示中位數。" % NAV_MIN_DAYS]}
+        n_bf = sum(1 for r in rows if r.get("officialLabel") == LABEL_BACKFILL)
+        if n_bf:
+            entry["notes"].append("確定口徑裡有 %d 列是 %s 從證交所 ETF e添富回補的官方淨值（同一天的收盤價對官方淨值；%s）。"
+                                  % (n_bf, (backfill or {}).get("backfilledOn") or "?", (backfill or {}).get("file") or ""))
+        if backfill:
+            entry["backfill"] = backfill
         if offline:
             entry["status"] = "offline：沒有連網，只列既有累積"
         elif fetched is None:
@@ -1227,13 +1288,16 @@ def build_premium(f, offline, paths, problems, now):
         else:
             rec = fetched[sym]
             rows = update_nav_rows(rows, rec, load_history_daily(aid, paths))
-            save_nav(aid, sym, rows, paths)
+            save_nav(aid, sym, rows, paths, backfill=backfill)
             entry["status"] = "接了（每個交易日存一筆）"
             entry["today"] = {"d": rec["d"], "time": rec["time"], "price": rec["price"], "estNav": rec["estNav"], "prevOfficialNav": rec["prevOfficialNav"]}
         entry["rows"] = len(rows)
         entry["latest"] = latest_premium_rows(rows)
         entry["estimated"] = dict(premium_summary(rows, "estPremiumPct"), label=LABEL_ESTIMATE)
         entry["official"] = dict(premium_summary(rows, "officialPremiumPct"), label=LABEL_SINGLE)
+        # A1-4：近一年＝最後 FX_DAILY_WINDOW 列「確定」（跟匯率價差的「自己一年」同一個常數）；頁面的成本圖示看這一組，上面那組（可用的全部）並列在細節
+        entry["officialYear"] = dict(premium_summary(rows, "officialPremiumPct", window=FX_DAILY_WINDOW), label=LABEL_SINGLE,
+                                     window=FX_DAILY_WINDOW)
         entry["label"] = "預估口徑「估算」；確定口徑「單一來源」"
         out[aid] = entry
     return out

@@ -117,10 +117,10 @@
     var p = cost.premium && cost.premium[id];
     if (p && p.latest && p.latest.length) {
       p.latest.forEach(function (l) {
-        var s = (l.tag === '預估' ? p.estimated : p.official) || {};
+        var s = (l.tag === '預估' ? p.estimated : (p.officialYear || p.official)) || {};       // A1-4：確定口徑看近一年那一組
         var acc = '';
         if (typeof s.n === 'number' && s.n < PREMIUM_MIN_DAYS) acc = '累積中 ' + s.n + '/' + PREMIUM_MIN_DAYS;
-        else if (typeof s.medianPct === 'number') acc = s.n + ' 個交易日中位數 ' + pctText(s.medianPct);
+        else if (typeof s.medianPct === 'number') acc = (l.tag !== '預估' && p.officialYear ? '近一年 ' : '') + s.n + ' 個交易日中位數 ' + pctText(s.medianPct);
         items.push({ key: 'premium-' + l.tag, name: '折溢價（' + l.tag + '）', valueText: pctText(l.premiumPct),
                      label: l.tag === '預估' ? '估算' : '單一來源', date: l.d, note: acc, plain: ['premium', { pct: l.premiumPct }] });
       });
@@ -448,17 +448,29 @@
       return out;
     }
     var off = latest.filter(function (l) { return l.tag === COST_PREMIUM_TAG; })[0];
-    var s = p.official || {};
+    // A1-4：狀態看近一年那一組（officialYear，最後 window 個有確定折溢價的交易日）；舊的分析檔沒有它就照舊看 official。可用的全部並列在下面
+    var year = p.officialYear || null;
+    var all = p.official || {};
+    var s = year || all;
     out.state = Pl.premiumState({ pct: off && off.premiumPct, p25: s.p25Pct, p75: s.p75Pct, n: s.n, min: COST_MIN_DAYS, tag: COST_PREMIUM_TAG,
+                                  window: year ? year.window : null, from: s.from, through: s.through,
                                   reason: !off ? '還沒有「確定」口徑的折溢價'
                                         : (!isNum(s.n) ? '這一檔還沒有自己累積的折溢價歷史' : '分析檔裡沒有第 25／75 百分位') });
     latest.forEach(function (l) {
       out.facts.push({ term: '折溢價', k: '折溢價（' + l.tag + '）', v: pctText(l.premiumPct), label: l.tag === '預估' ? '估算' : '單一來源', date: l.d,
                        note: '成交 ' + num(l.price, 2) + '、淨值 ' + num(l.nav, 4), plain: Pl.sentence('premium', { pct: l.premiumPct }) });
     });
-    out.facts.push({ k: '自己的歷史（' + COST_PREMIUM_TAG + '）', v: isNum(s.n) ? s.n + ' 個交易日' : '資料不足', label: s.label || '單一來源',
-                     date: s.through || (off && off.d) || '', note: isNum(s.p25Pct) && isNum(s.p75Pct) ? '第 25 百分位 ' + pctText(s.p25Pct) + '、第 75 百分位 ' + pctText(s.p75Pct) : '',
+    out.facts.push({ k: '自己的歷史（' + COST_PREMIUM_TAG + (year ? '，近一年' : '') + '）', v: isNum(s.n) ? s.n + ' 個交易日' : '資料不足', label: s.label || '單一來源',
+                     date: s.through || (off && off.d) || '',
+                     note: (year && s.from ? s.from + '～' + s.through + '；' : '') +
+                           (isNum(s.p25Pct) && isNum(s.p75Pct) ? '第 25 百分位 ' + pctText(s.p25Pct) + '、第 75 百分位 ' + pctText(s.p75Pct) : ''),
                      plain: Pl.sentence('premiumRank', { pct: off && off.premiumPct, p25: s.p25Pct, p75: s.p75Pct, n: s.n, min: COST_MIN_DAYS }) });
+    if (year && isNum(all.n)) {
+      out.facts.push({ k: '自己的歷史（' + COST_PREMIUM_TAG + '，可用的全部）', v: all.n + ' 個交易日', label: all.label || '單一來源', date: all.through || '',
+                       note: (all.from ? all.from + '～' + all.through + '；' : '') +
+                             (isNum(all.p25Pct) && isNum(all.p75Pct) ? '第 25 百分位 ' + pctText(all.p25Pct) + '、第 75 百分位 ' + pctText(all.p75Pct) + '；' : '') + '不參與上面的狀態',
+                       plain: Pl.sentence('premiumRank', { pct: off && off.premiumPct, p25: all.p25Pct, p75: all.p75Pct, n: all.n, min: COST_MIN_DAYS }) });
+    }
     var td = cost.trackingDifference && cost.trackingDifference.primary;
     var w = asset.id === 'tw00646' && td && td.available && (td.windows || {})['3y'];
     if (w && isNum(w.annualizedDiffPct)) {

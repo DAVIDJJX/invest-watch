@@ -346,10 +346,12 @@
                 tdRaw(esc(pctText(r.premiumPct)) + plain('premium', { pct: r.premiumPct })), td(r.tag)];
       }));
     }
-    ['estimated', 'official', 'short'].forEach(function (k) {
+    // A1-4：確定口徑多一組「近一年」（最後 window 列，成本圖示看這一組）；officialYear 不在的舊檔照舊只有三組
+    ['estimated', 'officialYear', 'official', 'short'].forEach(function (k) {
       var s = p[k];
       if (!s) return;
-      var title = k === 'estimated' ? '預估口徑' : k === 'official' ? '確定口徑' : s.title || '短期';
+      var title = k === 'estimated' ? '預估口徑' : k === 'officialYear' ? '確定口徑（近一年：最後 ' + (s.window || '—') + ' 個交易日，成本圖示看這一組）'
+                : k === 'official' ? (p.officialYear ? '確定口徑（可用的全部）' : '確定口徑') : s.title || '短期';
       if (typeof s.medianPct === 'number') {
         h += '<p>' + esc(title) + '：' + s.n + ' 個交易日（' + dateSpan(s.from) + '～' + dateSpan(s.through) + '），中位數 ' + pctText(s.medianPct) +
           '、最小 ' + pctText(s.minPct) + '、最大 ' + pctText(s.maxPct) + '</p>' + plain('premium', { pct: s.medianPct, lead: '一般的情況（中位數）' });

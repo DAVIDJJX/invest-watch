@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <title>折溢價看近一年（A1-4）離線測試頁</title>
+</head>
+<body>
+  <!-- 分析系列 A1-4：cost.json 的確定口徑多一組 officialYear（近一年＝最後 252 個有確定折溢價的交易日）。
+       這一頁不連網、不讀資料檔：把假的 cost 餵給 js/card-analysis.js，檢查成本圖示看近一年、細節並列可用的全部、規則寫出視窗、摺疊區寫近一年。
+       結果以 JSON 放在 id 叫 result 的區塊，給 scripts/test_premium_year_js.py 讀。假資料的數字一看就是假的。 -->
+  <div id="mount"></div>
+  <pre id="result"></pre>
+  <script src="../js/indicators.js"></script>
+  <script src="../js/plain.js"></script>
+  <script src="../js/glossary.js"></script>
+  <script src="../js/card-analysis.js"></script>
+  <script>
+    (function () {
+      var results = [];
+      function check(name, fn) {
+        var problems = [];
+        try { fn(problems); } catch (e) { problems.push('例外：' + (e && e.message)); }
+        results.push({ name: name, ok: problems.length === 0, problems: problems });
+      }
+      function same(p, what, got, want) { if (got !== want) p.push(what + '：應為「' + want + '」，得到「' + got + '」'); }
+      function clone(x) { return JSON.parse(JSON.stringify(x)); }
+      function asset(id) { return { id: id, name: '測試 ' + id, type: 'twse_stock', status: 'ok', price: 100, decimals: 2, date: '2026-09-30', group: '測試', currency: 'TWD' }; }
+      var COST = { premium: {
+        tw00679b: { status: '接了（每個交易日存一筆）',
+                    latest: [ { d: '2026-09-30', price: 25, nav: 25.1, premiumPct: -0.4, tag: '預估' }, { d: '2026-09-29', price: 25, nav: 25.09, premiumPct: -0.35, tag: '確定' } ],
+                    estimated: { n: 30, medianPct: -0.2, label: '估算' },
+                    official: { n: 30, from: '2026-08-18', through: '2026-09-29', medianPct: -0.2, minPct: -0.5, maxPct: 0.1, p25Pct: -0.3, p75Pct: -0.1, label: '單一來源' } },
+        tw00646: { status: '接了（每個交易日存一筆）',
+                   latest: [ { d: '2026-09-30', price: 77, nav: 76.9, premiumPct: 0.13, tag: '預估' }, { d: '2026-09-29', price: 76, nav: 75.6, premiumPct: 0.53, tag: '確定' } ],
+                   estimated: { n: 1, reason: '累積不到 20 個交易日（目前 1），先不顯示中位數', label: '估算' },
+                   official: { n: 700, from: '2023-11-06', through: '2026-09-29', medianPct: 0.3, minPct: -1, maxPct: 2, p25Pct: 0.1, p75Pct: 0.5, label: '單一來源' },
+                   officialYear: { n: 252, window: 252, from: '2025-09-29', through: '2026-09-29', medianPct: 0.6, minPct: -0.5, maxPct: 1.5, p25Pct: 0.4, p75Pct: 0.8, label: '單一來源' } } } };
+      function ctx(cost) { return { points: [], historyFailed: false, risk: null, cost: cost, fx: null }; }
+      function costOf(id, cost) { return window.CardAnalysis.aspects(asset(id), ctx(cost)).filter(function (a) { return a.aspect === 'cost'; })[0]; }
+
+      var loaded = !!(window.CardAnalysis && window.CardAnalysis.aspects && window.Plain && window.Glossary && window.Indicators);
+      if (loaded) {
+        var CA = window.CardAnalysis;
+
+        check('the_icon_looks_at_the_last_year', function (p) {
+          /* 對照組：圖示改回看可用的全部 → 這一條會紅。00646 確定 0.53：在可用的全部（0.1／0.5）裡算偏貴，在近一年（0.4／0.8）裡算正常。 */
+          var a = costOf('tw00646', COST);
+          same(p, '看近一年', a.state.word, '正常');
+          var c = clone(COST); delete c.premium.tw00646.officialYear;
+          same(p, '沒有近一年那一組時照舊看可用的全部', costOf('tw00646', c).state.word, '偏貴');
+        });
+
+        check('the_rule_and_the_number_name_the_window', function (p) {
+          var a = costOf('tw00646', COST);
+          same(p, '規則寫出視窗', a.state.rule, '規則：跟自己最近 252 個交易日（確定口徑）的歷史比——低於第 25 百分位＝便宜、25–75＝正常、高於第 75＝偏貴');
+          same(p, '這次的數字寫出視窗與起訖', a.state.because,
+               '折溢價（確定） 0.53%，自己最近 252 個交易日（2025-09-29～2026-09-29）的第 25 百分位 0.40%、第 75 百分位 0.80% → 正常');
+          same(p, '沒有近一年那一組時規則照舊', costOf('tw00679b', COST).state.rule, window.Plain.PREMIUM_RULE);
+          same(p, '常數一致', window.Plain.premiumRule(0), window.Plain.PREMIUM_RULE);
+        });
+
+        check('the_detail_lists_both_groups_and_only_the_year_decides', function (p) {
+          var a = costOf('tw00646', COST);
+          var ks = a.facts.map(function (f) { return f.k; });
+          var year = a.facts[ks.indexOf('自己的歷史（確定，近一年）')], all = a.facts[ks.indexOf('自己的歷史（確定，可用的全部）')];
+          if (!year) { p.push('細節沒有近一年那一列：' + ks.join('、')); return; }
+          if (!all) { p.push('細節沒有可用的全部那一列：' + ks.join('、')); return; }
+          same(p, '近一年那一列', year.v + '／' + year.note, '252 個交易日／2025-09-29～2026-09-29；第 25 百分位 0.40%、第 75 百分位 0.80%');
+          same(p, '可用的全部那一列', all.v + '／' + all.note, '700 個交易日／2023-11-06～2026-09-29；第 25 百分位 0.10%、第 75 百分位 0.50%；不參與上面的狀態');
+          if (ks.indexOf('自己的歷史（確定）') >= 0) p.push('有近一年那一組時，不再有沒寫視窗的那一列');
+          var b = costOf('tw00679b', COST);
+          same(p, '沒有近一年那一組時細節照舊', b.facts.map(function (f) { return f.k; }).join('、'), '折溢價（預估）、折溢價（確定）、自己的歷史（確定）');
+        });
+
+        check('the_year_waits_for_twenty_rows', function (p) {
+          var c = clone(COST);
+          c.premium.tw00646.officialYear = { n: 19, window: 252, reason: '累積不到 20 個交易日（目前 19），先不顯示中位數', label: '單一來源' };
+          var s = costOf('tw00646', c).state;
+          same(p, '不到 20 列', s.key + '／' + s.note, 'na／累積中 19/20');
+        });
+
+        check('the_fold_shows_the_last_year', function (p) {
+          /* 對照組：摺疊區改回看可用的全部 → 這一條會紅。 */
+          var d = document.createElement('div');
+          d.innerHTML = CA.render(CA.facts(asset('tw00646'), null, COST));
+          document.getElementById('mount').appendChild(d);
+          var text = d.textContent;
+          if (text.indexOf('近一年 252 個交易日中位數 0.60%') < 0) p.push('確定口徑要寫近一年那一組：' + text.slice(0, 300));
+          if (text.indexOf('700 個交易日中位數') >= 0) p.push('摺疊區不寫可用的全部那一組');
+          if (text.indexOf('累積中 1/20') < 0) p.push('預估口徑照舊（1 天，累積中）');
+        });
+      }
+      document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });
+    })();
+  </script>
+</body>
+</html>

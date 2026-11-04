@@ -47,6 +47,8 @@ CORE_FILES = [
     # A1-7：小白呈現框架的新檔，以及這次多了圖示列與延後載入的儀表板程式
     "scripts/test_aspects.html", "scripts/test_aspects_js.py", "scripts/test_dashboard_live.html", "scripts/test_dashboard_requests_js.py",
     "js/app.js",
+    # A1-4：00646 官方淨值回補與「近一年」的新檔
+    "scripts/backfill_nav.py", "scripts/test_backfill_nav.py", "scripts/test_premium_year.html", "scripts/test_premium_year_js.py",
 ]
 # js/app.js 是分析系列之前就有的檔，A1-7 才納入掃描。它沒有任何豁免：條塊卡上說明「比存摺貴」跟哪個牌價比的那個詞，
 # 驗收時裁決改成台銀牌價欄位的寫法（本行＋賣＋出價），不為它開豁免——豁免清單不可以開始累積。
