@@ -11,6 +11,7 @@ test_dashboard_requests_js.py — 分析系列 A1-7：真的開瀏覽器量儀�
 
 釘住的事（對照組見 docs/CHANGELOG.md A1-7）：
   1. 首屏畫完之前的請求＝7 個靜態檔＋行情、報告各 1 個＋每個標的 1 個日線檔（現在 14 個標的，所以是 23 個）；一個都不多。
+     某個標的這一輪抓不到（例如台銀擋下連線、沒有日線）時少幾個就是幾個，照 data/latest.json 算；永遠不超過上限（A1-4）。
   2. 首屏畫完之後最多再 5 個：js/plain.js、js/glossary.js、data/analysis 的 risk／cost／fx。點開卡片、展開「分析」不會再多抓。
   3. 每張卡在標題列與展開區之間有一條圖示列（不在標題列裡面）；每個圖示有圖示、面向名稱、狀態詞、文字替代，規則與數字在點開的細節裡。
   4. 位置的狀態詞跟卡片名稱旁邊的燈號一字不差；條塊沒有燈號就是「資料不足」。卡片上不畫「不適用」。
@@ -163,9 +164,12 @@ class TestDashboardRequests(unittest.TestCase):
         tags = self.report["staticTags"]                                             # 量的時候圖示列已經補完：原本 7 個標籤，後來才多出兩支
         self.assertEqual([t for t in tags if t in STATIC], STATIC)
         self.assertEqual(sorted(tags), sorted(STATIC + DEFERRED[:2]))
-        if len(self.latest["assets"]) == 14:                                         # 現在的監控清單：14 個標的、14 個日線檔
-            self.assertEqual(len(self.history_ids), 14)
-            self.assertEqual(len(before), 23, "首屏畫完之前應該剛好 23 個請求")
+        ceiling = len(STATIC) + 2 + len(self.latest["assets"])                      # 規則的上限：每個標的都有日線檔的時候
+        self.assertLessEqual(len(before), ceiling, "首屏畫完之前超過「靜態檔＋行情、報告＋每個標的 1 個日線檔」")
+        if len(self.latest["assets"]) == 14:                                         # 現在的監控清單：14 個標的
+            self.assertEqual(ceiling, 23)
+            if len(self.history_ids) == 14:                                          # 台銀擋住的那天少幾個日線檔，照資料算（上面兩條）；全部抓得到才要剛好 23
+                self.assertEqual(len(before), 23, "首屏畫完之前應該剛好 23 個請求")
 
     def test_at_most_five_more_requests_after_the_first_screen(self):
         """對照組：首屏之後超過上限（多抓一個 decompose.json）→ 這一條會紅。"""

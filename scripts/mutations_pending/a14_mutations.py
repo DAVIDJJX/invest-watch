@@ -16,6 +16,7 @@ a14_mutations.py — 分析系列 A1-4 的突變對照（00646 官方淨值回�
 BACKFILL = ["scripts/test_backfill_nav.py"]
 YEAR = ["scripts/test_premium_year_js.py"]
 THEME = ["scripts/test_theme.py"]
+DASH = ["scripts/test_dashboard_requests_js.py"]
 
 M = [
     # ---- 甲：00646 官方淨值回補（scripts/backfill_nav.py）與 analyze.py 每天只增不改地併進去
@@ -76,7 +77,11 @@ M = [
      "    if (t === 'never') root.setAttribute('data-theme', 'dark'); else root.removeAttribute('data-theme');", THEME),
     ("U23", "主題腳本：別的分頁換了主題，這一頁不跟著換", "index.html",
      "    if (e.key !== KEY) return;\n    apply(e.newValue);", "    if (e.key !== KEY) return;\n    return;", THEME),
+    # ---- 首屏請求數那條既有測試（A1-4 的裁決：台銀擋住的那天照資料算，不再寫死 14 個都抓得到）
+    ("U25", "首屏：這一輪抓不到的標的（例如台銀擋住）也去抓日線檔，首屏多出請求", "js/app.js",
+     "      if (a.status !== 'ok') return;\n      if (!(a.points > 1) && !(isBar && a.points >= 1)) return;",
+     "      if (a.status === 'ok' && !(a.points > 1) && !(isBar && a.points >= 1)) return;", DASH),
 ]
 
 MUTATIONS = M
-BASELINES = [("backfill", BACKFILL), ("year", YEAR), ("theme", THEME)]
+BASELINES = [("backfill", BACKFILL), ("year", YEAR), ("theme", THEME), ("dashboard", DASH)]
