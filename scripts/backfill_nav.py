@@ -20,7 +20,8 @@ backfill_nav.py — 00646 的官方淨值一次回補三年（分析系列 A1-4�
 
 規則：
     1. 只增不改：只寫 tw00646.json 沒有的日期；既有的列一個欄位都不動（這支程式根本不寫 tw00646.json）。
-    2. 收盤價重疊：data/history 與 Yahoo 同一天都有的，差超過 0.3% 就停、什麼都不寫（結束碼 1）。
+    2. 收盤價重疊：data/history 與 Yahoo 同一天都有的，差超過門檻就停、什麼都不寫（結束碼 1）。
+       門檻是 CLOSE_THRESHOLD_PCT，就是匯率回補（backfill_fx_history.py）的 THRESHOLD_PCT 那一個常數。
     3. 官方淨值重疊：tw00646.json 既有列的 officialNav 與 e添富同一天的淨值，四捨五入到小數第二位要一樣；不一樣就停、什麼都不寫（結束碼 1）。
        另外列出兩類給人看：既有列有官方淨值、e添富沒有那一天的；既有列沒有官方淨值、e添富有的。
     4. 配對：淨值日期與收盤日期要同一天。收盤價先找 data/history，沒有才找 Yahoo；兩邊都沒有、或淨值是 0 或解析不出來，略過並計數。
@@ -52,6 +53,8 @@ import analyze as az                                   # noqa: E402  NAV_MAX_ROW
 import fetch_data as fd                                # noqa: E402  Yahoo 的解析（日期用交易所當地日期）
 import net_policy                                      # noqa: E402  台銀的禁止判斷與專案的白名單
 from probe_analysis_sources import twse_blocked        # noqa: E402  「安全性考量」頁的判斷跟探測同一份
+# 收盤價：data/history 與 Yahoo 同一天差超過這個百分比就停。跟匯率回補是同一個門檻，所以只有一份常數，從那裡拿（A1-4 Codex 第 2 輪）。
+from backfill_fx_history import THRESHOLD_PCT as CLOSE_THRESHOLD_PCT   # noqa: E402
 
 try:
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -60,7 +63,6 @@ except Exception:                                      # noqa: B902
 
 TPE = timezone(timedelta(hours=8))
 AID, SYMBOL, YAHOO_SYMBOL = "tw00646", "00646", "00646.TW"
-CLOSE_THRESHOLD_PCT = 0.3              # 收盤價：data/history 與 Yahoo 同一天差超過這個百分比就停（跟 backfill_fx_history 同一個門檻）
 NAV_DECIMALS = 2                       # 官方淨值：兩邊四捨五入到小數第幾位要一樣
 YEARS, EXTRA_DAYS = 3, 30              # 往回抓三年，Yahoo 那一邊再多 30 天
 GAP_SECONDS = 3.0                      # 請求之間固定等這麼久（同站禮貌間隔）

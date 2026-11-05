@@ -248,6 +248,15 @@ class TestPlan(unittest.TestCase):
         self.assertEqual(by, {"2025-12-29": "yahoo", "2025-12-30": "data/history", "2025-12-31": "data/history:official"})
         self.assertEqual(set(r["dateSource"]["officialNav"] for r in rows), {"twse-etfortune"})
 
+    def test_the_close_threshold_is_the_one_constant_shared_with_the_fx_backfill(self):
+        """同一個門檻只有一份常數：收盤價 0.3% 就是匯率回補的 THRESHOLD_PCT 那一個（不是另外寫一個一樣的數字）；
+        docs/ANALYSIS.md 回補那一段寫的也是它。對照組：在 backfill_nav.py 另外宣告一份、或文件寫成別的數字 → 這一條會紅（A1-4 Codex 第 2 輪）。"""
+        import backfill_fx_history as FX
+        self.assertIs(B.CLOSE_THRESHOLD_PCT, FX.THRESHOLD_PCT)
+        with io.open(os.path.join(ROOT, "docs", "ANALYSIS.md"), encoding="utf-8") as fh:
+            doc = fh.read()
+        self.assertIn("差超過 %g%% 就不寫" % B.CLOSE_THRESHOLD_PCT, doc)
+
     def test_close_overlap_over_three_tenths_of_a_percent_stops(self):
         """收盤價重疊：data/history 與 Yahoo 同一天差超過 0.3% 就停。對照組：比對關掉 → 這一條會紅。"""
         self.assertEqual(B.CLOSE_THRESHOLD_PCT, 0.3)

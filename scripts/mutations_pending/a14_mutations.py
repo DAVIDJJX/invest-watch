@@ -61,6 +61,11 @@ M = [
      "        return [], None, \"讀不懂（%s）\" % e.__class__.__name__", "        return [], None, None", BACKFILL),
     ("U29", "analyze.py：回補檔讀不到不記進這一輪的問題清單", "scripts/analyze.py",
      "            problems.append(\"折溢價 %s：回補檔 %s %s，這一輪沒有併回補的列\" % (aid, where, bf_err))\n", "", BACKFILL),
+    # ---- Codex 第 2 輪（P1）：同一個門檻只有一份常數
+    ("U30", "回補：收盤價的門檻另外宣告一份（數字一樣，但不是匯率回補那一個常數）", "scripts/backfill_nav.py",
+     "from backfill_fx_history import THRESHOLD_PCT as CLOSE_THRESHOLD_PCT   # noqa: E402\n", "CLOSE_THRESHOLD_PCT = 0.3\n", BACKFILL),
+    ("U31", "文件的收盤價門檻跟程式不一樣（docs/ANALYSIS.md 寫成 0.5%）", "docs/ANALYSIS.md",
+     "差超過 0.3% 就不寫", "差超過 0.5% 就不寫", BACKFILL + ["-k", "threshold"]),
     # ---- 頁面：成本圖示看近一年
     ("U14", "成本圖示改回看可用的全部（不看近一年）", "js/card-analysis.js",
      "    var s = year || all;", "    var s = all;", YEAR),
