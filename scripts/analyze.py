@@ -1088,20 +1088,26 @@ def load_nav_head_backfill(aid, paths=None):
 
 
 def load_nav_backfill(aid, paths=None):
-    """nav/<id>.backfill.json（A1-4 的一次性回補，scripts/backfill_nav.py 寫的）→ (列, 檔頭的出處)。沒有這個檔或讀不懂就 ([], None)：照舊只用每天累積的列。"""
+    """nav/<id>.backfill.json（A1-4 的一次性回補，scripts/backfill_nav.py 寫的）→ (列, 檔頭的出處, 讀不到的原因)。
+    沒有這個檔：([], None, None)，照舊只用每天累積的列。
+    檔在、但讀不到、讀不懂或格式不對：([], None, 原因)。這是第三種狀態，跟「沒有這個檔」分開：呼叫的那一邊要記成錯誤（A1-4 Codex 第 1 輪）。"""
     p = nav_backfill_path(aid, paths)
     if not os.path.exists(p):
-        return [], None
+        return [], None, None
     try:
         with open(p, encoding="utf-8") as fh:
-            j = json.load(fh) or {}
-    except Exception:
-        return [], None
-    rows = [r for r in (j.get("rows") or []) if isinstance(r, dict) and r.get("d") and r.get("officialTag") == "確定"
+            j = json.load(fh)
+    except Exception as e:                                       # noqa: B902
+        return [], None, "讀不懂（%s）" % e.__class__.__name__
+    if not isinstance(j, dict) or not isinstance(j.get("rows"), list):
+        return [], None, "格式不對（沒有 rows 清單）"
+    rows = [r for r in j["rows"] if isinstance(r, dict) and r.get("d") and r.get("officialTag") == "確定"
             and r.get("officialLabel") == LABEL_BACKFILL]
+    if j["rows"] and not rows:
+        return [], None, "格式不對（%d 列裡沒有一列是確定口徑的回補列）" % len(j["rows"])
     info = {"file": "data/analysis/nav/%s%s" % (aid, NAV_BACKFILL_SUFFIX), "backfilledOn": j.get("backfilledOn"),
             "rows": len(rows), "firstDate": rows[0]["d"] if rows else None, "lastDate": rows[-1]["d"] if rows else None}
-    return rows, info
+    return rows, info, None
 
 
 def merge_backfill(rows, backfill_rows):
@@ -1255,7 +1261,7 @@ def build_premium(f, offline, paths, problems, now):
             problems.append("折溢價：all_etf.txt 抓不到（%s）" % err)
     for aid, sym in NAV_ASSETS:
         rows = load_nav(aid, paths)
-        bf_rows, bf_info = load_nav_backfill(aid, paths)
+        bf_rows, bf_info, bf_err = load_nav_backfill(aid, paths)
         backfill = load_nav_head_backfill(aid, paths)
         if bf_rows:                                              # A1-4：回補的列只補沒有的日期；離線也併（只是不寫檔）
             rows = merge_backfill(rows, bf_rows)
@@ -1269,6 +1275,11 @@ def build_premium(f, offline, paths, problems, now):
                                   % (n_bf, (backfill or {}).get("backfilledOn") or "?", (backfill or {}).get("file") or ""))
         if backfill:
             entry["backfill"] = backfill
+        if bf_err:                                               # 回補檔在、卻讀不到：不是「沒有回補」，照實記成錯誤；這一輪只用既有的列
+            where = "data/analysis/nav/%s%s" % (aid, NAV_BACKFILL_SUFFIX)
+            entry["backfillError"] = "%s %s" % (where, bf_err)
+            entry["notes"].append("回補檔 %s %s，這一輪沒有併回補的列，只用既有的列。" % (where, bf_err))
+            problems.append("折溢價 %s：回補檔 %s %s，這一輪沒有併回補的列" % (aid, where, bf_err))
         if offline:
             entry["status"] = "offline：沒有連網，只列既有累積"
         elif fetched is None:

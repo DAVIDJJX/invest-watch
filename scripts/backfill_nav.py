@@ -12,6 +12,7 @@ backfill_nav.py — 00646 的官方淨值一次回補三年（分析系列 A1-4�
     2. POST https://www.twse.com.tw/zh/ETFortune/ajaxEtfInfoChart       同一個 session 取三年官方淨值（type=fundPric）
     3. GET  https://query1.finance.yahoo.com/v8/finance/chart/00646.TW  三年日線收盤價（data/history 沒有的日期才用）
     第 1 個拿不到（含「安全性考量」頁）就不發第 2 個。只准連這兩個主機；台銀一律擋（scripts/net_policy.py 的判斷）。
+    不自動跟著轉址：回轉址就停（結束碼 2），要轉去的主機一個請求都不發。
 
 寫到哪裡：
     data/analysis/nav/tw00646.backfill.json（新檔）。tw00646.json 一個字都不動：scripts/analyze.py 每天 15:30 那一輪
@@ -41,6 +42,7 @@ import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urljoin, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -63,6 +65,7 @@ NAV_DECIMALS = 2                       # 官方淨值：兩邊四捨五入到小
 YEARS, EXTRA_DAYS = 3, 30              # 往回抓三年，Yahoo 那一邊再多 30 天
 GAP_SECONDS = 3.0                      # 請求之間固定等這麼久（同站禮貌間隔）
 HOSTS = ("www.twse.com.tw", "query1.finance.yahoo.com")      # 這支腳本只准連這兩個主機
+REDIRECT_STATUSES = (301, 302, 303, 307, 308)                 # 回這些就是轉址：不跟過去，當成來源有問題（結束碼 2）
 PAGE_URL = "https://www.twse.com.tw/zh/ETFortune/etfInfo/00646"
 CHART_URL = "https://www.twse.com.tw/zh/ETFortune/ajaxEtfInfoChart"
 YAHOO_URL = "https://query1.finance.yahoo.com/v8/finance/chart/%s?period1=%d&period2=%d&interval=1d"
@@ -86,9 +89,17 @@ def check_host(url):
     return host
 
 
+def redirect_host(url, location):
+    """轉址要去的主機（只拿來寫進錯誤訊息）；看不出來就「?」。"""
+    try:
+        return urlparse(urljoin(url, location or "")).hostname or "?"
+    except ValueError:
+        return "?"
+
+
 class OneShot(object):
-    """同一個 session 發請求：送出前查主機、轉址的每一跳也查；不自動重試；每一個請求都記下來（方法、主機、路徑、狀態）。
-    send：測試換成假的；預設用 requests。"""
+    """同一個 session 發請求：送出前查主機；不自動跟著轉址（回轉址就停，要去的那個主機一個請求都不發）；不自動重試；
+    每一個請求都記下來（方法、主機、路徑、狀態）。send：測試換成假的；預設用 requests，而且 allow_redirects=False。"""
 
     def __init__(self, send=None, sleep=time.sleep):
         self.log = []
@@ -97,14 +108,11 @@ class OneShot(object):
         if send is None:
             import requests
             self.session = requests.Session()
-            self.session.hooks["response"].append(self._check_hop)
 
             def send(method, url, headers, data):
-                return self.session.request(method, url, headers=headers, data=data, timeout=30)
+                # requests 預設會自動跟著轉址，下一跳要等送出之後才查得到主機（A1-4 Codex 第 1 輪）。關掉；轉址由 request() 當成來源有問題。
+                return self.session.request(method, url, headers=headers, data=data, timeout=30, allow_redirects=False)
         self._send = send
-
-    def _check_hop(self, response, *args, **kwargs):
-        check_host(response.url)
 
     def request(self, method, url, headers=None, data=None):
         host = check_host(url)
@@ -117,6 +125,9 @@ class OneShot(object):
         self.log.append(rec)
         r = self._send(method, url, dict(fd.BROWSER_HEADERS, **(headers or {})), data)
         rec["status"] = getattr(r, "status_code", None)
+        if rec["status"] in REDIRECT_STATUSES:
+            where = redirect_host(url, (getattr(r, "headers", None) or {}).get("Location"))
+            raise SourceError("%s 回轉址（HTTP %s，要轉到 %s）；不跟過去，那裡一個請求都沒有發" % (host, rec["status"], where))
         return r
 
 

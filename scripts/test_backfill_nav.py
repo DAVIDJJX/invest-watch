@@ -46,8 +46,8 @@ def yahoo_json(closes):
 
 
 class Resp(object):
-    def __init__(self, text, status=200, url=None):
-        self.text, self.status_code, self.url = text, status, url
+    def __init__(self, text, status=200, url=None, headers=None):
+        self.text, self.status_code, self.url, self.headers = text, status, url, headers or {}
 
 
 class FakeNet(object):
@@ -150,6 +150,40 @@ class TestSourceAndNetwork(unittest.TestCase):
             with self.assertRaises(B.SourceError):
                 B.fetch_all(B.OneShot(send=fake, sleep=lambda s: None), NOW.date())
             self.assertEqual([x["method"] for x in fake.sent], ["GET"], page)
+
+    def test_a_redirect_stops_and_nothing_is_sent_to_where_it_points(self):
+        """回轉址就停：不跟過去（白名單外的不跟，白名單內的也不跟），要轉去的主機一個請求都不發。
+        對照組：拿掉轉址的檢查 → 這一條會紅（A1-4 Codex 第 1 輪）。"""
+        for status, where in ((302, "https://evil.example/x"), (301, "https://rate.bot.com.tw/gold"), (307, "/zh/somewhere-else")):
+            sent = []
+
+            def fake(method, url, headers, data, status=status, where=where):
+                sent.append(url)
+                return Resp("", status, url, {"Location": where})
+            net = B.OneShot(send=fake, sleep=lambda s: None)
+            with self.assertRaises(B.SourceError) as cm:
+                net.request("GET", B.PAGE_URL)
+            self.assertEqual(sent, [B.PAGE_URL], where)
+            self.assertIn("轉址", str(cm.exception))
+            self.assertIn(B.redirect_host(B.PAGE_URL, where), str(cm.exception))
+            self.assertEqual([x["status"] for x in net.log], [status])
+        self.assertEqual(B.redirect_host(B.PAGE_URL, "/zh/somewhere-else"), "www.twse.com.tw")
+        self.assertEqual(B.redirect_host(B.PAGE_URL, None), "www.twse.com.tw")
+
+    def test_the_real_session_never_follows_redirects_by_itself(self):
+        """預設的連線（requests）一律 allow_redirects=False：轉址的下一跳要送出之後才查得到主機，所以根本不讓它自動送。
+        不連網：把 session 的 request 換成假的，只看帶了什麼參數。對照組：改回自動跟著轉址 → 這一條會紅。"""
+        net = B.OneShot(sleep=lambda s: None)
+        seen = []
+
+        def fake_request(method, url, **kw):
+            seen.append(kw)
+            return Resp("<html>00646 ETF</html>", 200, url)
+        net.session.request = fake_request
+        net.request("GET", B.PAGE_URL)
+        self.assertEqual(len(seen), 1)
+        self.assertIs(seen[0].get("allow_redirects"), False)
+        self.assertEqual(seen[0].get("timeout"), 30)
 
     def test_parse_chart_skips_zero_and_bad_rows_and_rejects_bad_formats(self):
         navs, prem, skipped = B.parse_chart(json.dumps({"netPrice": [{"date": "2026/01/05", "count": "20.30"}, {"date": "2026/01/06", "count": 0},
@@ -394,13 +428,38 @@ class TestAnalyzeMergesTheBackfill(unittest.TestCase):
         self.assertEqual(j2["backfill"], j["backfill"])
         self.assertEqual([r["d"] for r in j2["rows"]][:2], ["2025-12-30", "2025-12-31"])
 
-    def test_a_broken_backfill_file_is_ignored(self):
-        with io.open(A.nav_backfill_path("tw00646", self.sb.paths), "w", encoding="utf-8") as fh:
-            fh.write("{ 壞掉的")
+    def test_no_backfill_file_is_not_an_error(self):
+        """沒有回補檔＝本來就沒有（例如 00679B）：照舊只用每天累積的列，不算錯。"""
         self.sb.write_nav(copy.deepcopy(EXISTING))
-        out = A.build_premium(None, True, self.sb.paths, [], NOW)["tw00646"]
+        problems = []
+        out = A.build_premium(None, True, self.sb.paths, problems, NOW)["tw00646"]
         self.assertEqual(out["official"]["n"], 1)
         self.assertNotIn("backfill", out)
+        self.assertNotIn("backfillError", out)
+        self.assertEqual(problems, [])
+        self.assertEqual(A.load_nav_backfill("tw00646", self.sb.paths), ([], None, None))
+
+    def test_a_broken_backfill_file_is_reported_not_silently_ignored(self):
+        """回補檔在、卻讀不到或格式不對：跟「沒有回補檔」分開，記成錯誤（這一輪的問題清單、這一檔的 backfillError 與說明）；
+        只用既有的列，不硬算。對照組：讀不懂就當成沒有這個檔、或不記進問題清單 → 這一條會紅（A1-4 Codex 第 1 輪）。"""
+        self.sb.write_nav(copy.deepcopy(EXISTING))
+        bad_rows = json.dumps({"id": "tw00646", "rows": [{"d": "2026-01-02", "officialTag": "預估"}]}, ensure_ascii=False)
+        for text, why in (("{ 壞掉的", "讀不懂"), (json.dumps([1, 2]), "格式不對"), (json.dumps({"id": "tw00646"}), "格式不對"),
+                          (bad_rows, "格式不對")):
+            with io.open(A.nav_backfill_path("tw00646", self.sb.paths), "w", encoding="utf-8") as fh:
+                fh.write(text)
+            rows, info, err = A.load_nav_backfill("tw00646", self.sb.paths)
+            self.assertEqual((rows, info), ([], None), text)
+            self.assertIn(why, err or "", text)
+            problems = []
+            out = A.build_premium(None, True, self.sb.paths, problems, NOW)["tw00646"]
+            self.assertEqual(out["official"]["n"], 1, text)
+            self.assertNotIn("backfill", out, text)
+            self.assertIn(why, out.get("backfillError") or "", text)
+            self.assertIn("tw00646.backfill.json", out["backfillError"], text)
+            self.assertTrue(any("回補檔" in n and why in n for n in out["notes"]), text)
+            self.assertEqual(len(problems), 1, text)
+            self.assertIn("回補檔", problems[0])
 
     def test_docs_say_the_same_numbers_as_the_code(self):
         """docs/ANALYSIS.md 寫的上限與近一年的列數，跟程式的常數一樣（同一個門檻只有一份；文件有測試釘住）。"""

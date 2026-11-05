@@ -52,6 +52,15 @@ M = [
      "最多留 800 列（", "最多留 400 列（", BACKFILL + ["-k", "docs"]),
     ("U24", "回補：收盤價的來源一律寫 yahoo（取自 data/history、那一點記的是證交所的也照寫 yahoo）", "scripts/backfill_nav.py",
      "\"officialClose\": close_source(d, hist_closes, hist_sources)}", "\"officialClose\": CLOSE_SOURCE}", BACKFILL),
+    # ---- Codex 第 1 輪的兩條（P1）
+    ("U26", "回補：預設的連線改回自動跟著轉址（下一跳送出之後才查得到主機）", "scripts/backfill_nav.py",
+     "timeout=30, allow_redirects=False)", "timeout=30, allow_redirects=True)", BACKFILL),
+    ("U27", "回補：回轉址也照樣往下走（不當成來源有問題）", "scripts/backfill_nav.py",
+     "        if rec[\"status\"] in REDIRECT_STATUSES:\n", "        if False:\n", BACKFILL),
+    ("U28", "analyze.py：回補檔讀不懂就當成沒有這個檔", "scripts/analyze.py",
+     "        return [], None, \"讀不懂（%s）\" % e.__class__.__name__", "        return [], None, None", BACKFILL),
+    ("U29", "analyze.py：回補檔讀不到不記進這一輪的問題清單", "scripts/analyze.py",
+     "            problems.append(\"折溢價 %s：回補檔 %s %s，這一輪沒有併回補的列\" % (aid, where, bf_err))\n", "", BACKFILL),
     # ---- 頁面：成本圖示看近一年
     ("U14", "成本圖示改回看可用的全部（不看近一年）", "js/card-analysis.js",
      "    var s = year || all;", "    var s = all;", YEAR),
