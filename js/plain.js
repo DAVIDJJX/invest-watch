@@ -51,6 +51,10 @@
   };
   /* 折溢價不跟中位數比，跟自己歷史的第 25／75 百分位比（折溢價會是負的，「高一成」這種比法不適用） */
   var PREMIUM_RULE = '規則：跟自己的歷史比——低於第 25 百分位＝便宜、25–75＝正常、高於第 75＝偏貴';
+  /* A1-4：看的是一段有長度的視窗（近一年＝最後 n 個有確定折溢價的交易日）時，規則那一行寫出視窗 */
+  function premiumRule(win) {
+    return win ? '規則：跟自己最近 ' + win + ' 個交易日（確定口徑）的歷史比——低於第 25 百分位＝便宜、25–75＝正常、高於第 75＝偏貴' : PREMIUM_RULE;
+  }
 
   /* 圖示：晴、多雲、雨（風險、成本、匯率位置）；色點（位置）；資料不足是一個虛線空圈。顏色跟著文字色，不靠紅綠分辨。 */
   var ICONS = {
@@ -105,11 +109,13 @@
   /* 成本（折溢價）：跟自己歷史的第 25／75 百分位比；d.n 不到 d.min 個交易日就是資料不足（累積中 n/min） */
   function premiumState(d) {
     d = d || {};
-    if (isNum(d.n) && isNum(d.min) && d.n < d.min) return accumulating('cost', d.n, d.min, PREMIUM_RULE, '折溢價的歷史還在累積，滿 ' + d.min + ' 個交易日才跟自己比');
-    if (!isNum(d.pct) || !isNum(d.p25) || !isNum(d.p75)) return make('cost', 'na', '', { rule: PREMIUM_RULE, reason: d.reason || '' });
+    var rule = premiumRule(d.window);
+    if (isNum(d.n) && isNum(d.min) && d.n < d.min) return accumulating('cost', d.n, d.min, rule, '折溢價的歷史還在累積，滿 ' + d.min + ' 個交易日才跟自己比');
+    if (!isNum(d.pct) || !isNum(d.p25) || !isNum(d.p75)) return make('cost', 'na', '', { rule: rule, reason: d.reason || '' });
+    var base = d.window ? '自己最近 ' + (isNum(d.n) ? d.n : '—') + ' 個交易日' + (d.from && d.through ? '（' + d.from + '～' + d.through + '）' : '') : '自己歷史';
     return make('cost', d.pct < d.p25 ? 'low' : (d.pct > d.p75 ? 'high' : 'mid'),
-                '折溢價' + (d.tag ? '（' + d.tag + '）' : '') + ' ' + n(d.pct, 2) + '%，自己歷史的第 25 百分位 ' + n(d.p25, 2) + '%、第 75 百分位 ' + n(d.p75, 2) + '%',
-                { rule: PREMIUM_RULE });
+                '折溢價' + (d.tag ? '（' + d.tag + '）' : '') + ' ' + n(d.pct, 2) + '%，' + base + '的第 25 百分位 ' + n(d.p25, 2) + '%、第 75 百分位 ' + n(d.p75, 2) + '%',
+                { rule: rule });
   }
   function riskState(vol1y, vol5y, reason) {
     if (!isNum(vol1y) || !isNum(vol5y) || vol5y <= 0) return make('risk', 'na', '', { reason: reason || '' });
@@ -367,7 +373,7 @@
 
   global.Plain = {
     NA: NA, NOT_APPLICABLE: NOT_APPLICABLE, UNAVAILABLE: UNAVAILABLE, UNAVAILABLE_NOTE: UNAVAILABLE_NOTE,
-    ASPECTS: ASPECTS, ICONS: ICONS, PREMIUM_RULE: PREMIUM_RULE, KINDS: Object.keys(SENTENCES),
+    ASPECTS: ASPECTS, ICONS: ICONS, PREMIUM_RULE: PREMIUM_RULE, premiumRule: premiumRule, KINDS: Object.keys(SENTENCES),
     lampState: lampState, fxPositionState: fxPositionState, costState: costState, premiumState: premiumState, riskState: riskState,
     accumulating: accumulating, insufficient: insufficient, notApplicable: notApplicable, unavailable: unavailable,
     badge: badge, iconHtml: iconHtml, sentence: sentence, line: line

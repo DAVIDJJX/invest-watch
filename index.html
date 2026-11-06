@@ -3,10 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0e1420">
+<meta name="theme-color" content="#f1f5f8">
+<script>/* U1：畫面畫出來之前套上主題（localStorage 的 iw-theme，dark＝深色，其他或讀不到＝淺色）；別的分頁換了主題，這一頁跟著換並發 iw:theme 讓圖表重畫 */
+(function () {
+  var KEY = 'iw-theme', root = document.documentElement;
+  function apply(t) {
+    if (t === 'dark') root.setAttribute('data-theme', 'dark'); else root.removeAttribute('data-theme');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.setAttribute('content', t === 'dark' ? '#0e1420' : '#f1f5f8');
+  }
+  var t = null;
+  try { t = window.localStorage.getItem(KEY); } catch (e) { t = null; }
+  apply(t);
+  window.IwTheme = { KEY: KEY, apply: apply };   /* 設定頁的切換用同一份 */
+  window.addEventListener('storage', function (e) {
+    if (e.key !== KEY) return;
+    apply(e.newValue);
+    try { document.dispatchEvent(new Event('iw:theme')); } catch (x) { /* 舊瀏覽器沒有 Event 建構子：不重畫，重新整理就好 */ }
+  });
+}());
+</script>
 <meta name="description" content="個人理財監控儀表板：黃金、台股、美股、匯率的每日行情與量化指標整理。">
 <title>InvestWatch 儀表板</title>
-<link rel="stylesheet" href="css/style.css?v=20261001-1">
+<link rel="stylesheet" href="css/style.css?v=20261105-1">
 </head>
 <body>
 
@@ -62,10 +81,10 @@
 </main>
 
 <script src="lib/chart.umd.min.js"></script>
-<script src="js/indicators.js?v=20261001-1"></script>
-<script src="js/charts.js?v=20261001-1"></script>
-<script src="js/freshness.js?v=20261001-1"></script>
-<script src="js/card-analysis.js?v=20261001-1"></script>
-<script src="js/app.js?v=20261001-1"></script>
+<script src="js/indicators.js?v=20261105-1"></script>
+<script src="js/charts.js?v=20261105-1"></script>
+<script src="js/freshness.js?v=20261105-1"></script>
+<script src="js/card-analysis.js?v=20261105-1"></script>
+<script src="js/app.js?v=20261105-1"></script>
 </body>
 </html>
