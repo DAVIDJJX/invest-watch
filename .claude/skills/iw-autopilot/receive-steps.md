@@ -4,14 +4,14 @@ David 第一行手打「接收：<階段>」、下面貼那一段的規格（Cow
 
 模型是設定檔的 receiveModel／receiveEffort（Sonnet 5.5／High）；審查代理照舊。時鐘：從最後一次接受包起 8 小時後只准等包、驗包、套包、寫狀態、寄信、唯讀查看（等包不計時）；從「接收：」或 David 最後一次「繼續」起 7 天是絕對上限。
 
-下面的指令都用主目錄那一支：`py -3.12 .claude/hooks/iw_notify.py …`（寫成 `iw_notify.py`）。
+下面的指令都用主目錄那一支：`py -3.12 .claude/hooks/iw_notify.py …`（寫成 `iw_notify.py`），在主目錄下、路徑相對於主目錄。只有全套測試在 worktree 裡跑；那時寫報告資料夾要用**主目錄的完整路徑**（寫成 `<主目錄>/.autopilot/runs/<階段>/…`）——在 worktree 裡寫相對路徑，會寫進 worktree 自己的 `.autopilot/`，守門會擋。
 
 ## 一輪的順序
 
 1. **等包**：`iw_notify.py wait-inbox --stage <階段>`，用背景執行跑（完成會通知你）。逾時（預設 240 分鐘）就再跑一次同一個指令；它會寫 status.json。
 2. **驗包**：`iw_notify.py receive --check .autopilot/runs/<階段>/inbox/<NN>`。八條全部由程式判定。不過＝程式寫 `rejected.md`、寫 status.json、寄一封小事的短信、這個號碼算用掉；你**不寄信、不停**，回到第 1 步（修正由雲端做成下一個號碼的包）。
 3. **套包**：`iw_notify.py receive --apply .autopilot/runs/<階段>/inbox/<NN>`。只套剛驗過、雜湊沒變的那一包；第一包會自己建 worktree `.claude/worktrees/stop<階段>`（分支 `feat/stop<階段>`）。
-4. **本機全套**：在那個 worktree 裡先 `git log -1 --format="commit %H" > .autopilot/runs/<階段>/tests.txt`，再跑 SKILL.md 寫死的全套指令、輸出接 `>>` 到同一個檔。
+4. **本機全套**：在那個 worktree 裡先 `git log -1 --format="commit %H" > <主目錄>/.autopilot/runs/<階段>/tests.txt`，再跑 SKILL.md 寫死的全套指令、輸出接 `>> <主目錄>/.autopilot/runs/<階段>/tests.txt`（兩處都是主目錄的完整路徑）。
 5. **跑完的檢查**：`iw_notify.py receive --tested --stage <階段>`。程式核對 tests.txt 的第一行與全綠，並檢查主目錄生效中的保護檔與推送前的檢查沒被動過（雲端寫的測試在筆電上執行）；動到了就暫停、寄「要你決定」。過了才准推。tests.txt 只防「忘了重跑」，測試的證據以驗收機為準。
 6. **動到 tier2 的檔**（驗包時會列出來）：寄 `--kind tier2`，停下等 David「繼續」。同一份 diff 看過一次就好（程式比 diff 的指紋）。
 7. **推**：在 worktree 裡 `git push origin feat/stop<階段>`；第一次推之後 `git tag stop<階段>`（打在套上的那個 commit）、`git push origin stop<階段>`。之後的包都是標籤之後的 commit，標籤不動。

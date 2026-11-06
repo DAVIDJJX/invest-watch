@@ -2210,6 +2210,43 @@ def _curl(p, argv, ctx, auto):
 
 # ---------------------------------------------------------------- 自動駕駛：程式清單與寫入位置
 
+def _evidence_container(k, ctx):
+    """這個路徑本身不是證據檔，但包住了證據檔（報告資料夾的根與它的上層、某個階段的資料夾、收件匣）：刪掉、搬走或整個蓋掉，
+    status.json、usage.json、收件匣就跟著沒了或被換掉。"""
+    if k is None:
+        return False
+    runs = ctx.main_key + "/" + ctx.cfg["runsDir"].strip("/").lower()
+    if C.is_under(runs, k):
+        return True
+    return C.is_under(k, runs) and len(C.rel_to(k, runs).split("/")) == 1
+
+
+def _evidence_by_directory(p, argv, args, cwd, ctx):
+    """Codex 對 P3 的第一次審查（P1）：只看 cp 的最後一個參數，「cp <報告資料夾>/草稿/status.json <報告資料夾>/」就漏掉了實際被覆寫的
+    status.json；遞迴複製可以整個蓋掉收件匣；rm -r 整個階段資料夾會連證據一起刪掉。自動駕駛期間（兩種模式）：
+      * rm／rmdir／mv 的對象不可以是包住證據檔的資料夾；
+      * cp／mv 的目的地在報告資料夾（或包住它的資料夾）時，只准「一個檔 → 一個檔」：不准資料夾目的地（結尾是斜線、點、或已經是資料夾）、
+        不准多個來源、不准遞迴——這樣目的地就是實際被寫的那個檔，前面那一道看的就是它。"""
+    if p in ("rm", "rmdir", "mv"):
+        for w in args:
+            if not w.opaque and _evidence_container(C.key(w.text, cwd), ctx):
+                raise Block("「%s」的對象（%s）包住了 status.json、用量紀錄或收件匣（只准程式寫的證據），不允許。" % (p, w.text), 3)
+    if p not in ("cp", "mv") or not args:
+        return
+    dest = args[-1]
+    dk = None if dest.opaque else C.key(dest.text, cwd)
+    runs = ctx.main_key + "/" + ctx.cfg["runsDir"].strip("/").lower()
+    if dk is None or not (C.is_under(dk, runs) or _evidence_container(dk, ctx)):
+        return
+    recursive = any(a in ("--recursive", "--archive") or (a.startswith("-") and not a.startswith("--") and any(ch in a[1:] for ch in "rRa"))
+                    for a in argv[1:])
+    tail = dest.text.replace("\\", "/")
+    real = C.norm(dest.text, cwd)
+    if recursive or len(args) != 2 or tail.endswith("/") or tail.rsplit("/", 1)[-1] in (".", "..") or (real and os.path.isdir(real)):
+        raise Block("「%s」的目的地在報告資料夾（%s）時，只准寫成「一個檔 → 一個檔」：不用資料夾當目的地、不用多個來源、不用遞迴"
+                    "（不然實際被寫的檔看不出來，可能是 status.json 或收件匣）。" % (p, dest.text), 3)
+
+
 def _target_dir_option(argv):
     """cp／mv 的 -t 目的地（P3 審查時找到的）：「cp -t <資料夾> <檔>」的目的地在選項裡，只看最後一個參數就看錯了位置。"""
     for a in argv[1:]:
@@ -2239,6 +2276,7 @@ def _autopilot_program(p, words, c, cwd, ctx, shell):
         targets = args[1:] if len(args) > 1 else args
     for w in targets:
         _write_target(w, cwd, ctx, "「%s」要動" % p)
+    _evidence_by_directory(p, argv, args, cwd, ctx)
     if p == "git":
         sub = _git_sub(argv)[0]
         if sub in ("init",):

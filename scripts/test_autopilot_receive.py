@@ -176,6 +176,27 @@ class TestReceiveGateCommands(GuardCase):
                     "git fetch origin feat/other:refs/heads/feat/stopX1"):
             self.blocked(self.bash(cmd), code=8, msg=cmd)
 
+    def test_evidence_cannot_be_reached_through_a_directory_destination(self):
+        """Codex 對 P3 的第一次審查（P1，留言 4494611256）：cp 到報告資料夾這個「資料夾」，實際被覆寫的是 status.json；遞迴複製可以整個蓋掉收件匣；
+        rm -r 整個階段資料夾會連證據一起刪掉。兩種模式都擋；一個檔 → 一個檔照樣可以。"""
+        bad = ("cp " + RUNS + "/draft/status.json " + RUNS + "/", "cp " + RUNS + "/draft/status.json " + RUNS + "/.",
+               "cp -r " + RUNS + "/draft/inbox " + RUNS + "/", "cp -R " + RUNS + "/draft " + RUNS + "/sub", "cp -a " + RUNS + "/draft " + RUNS + "/sub",
+               "cp " + RUNS + "/a.md " + RUNS + "/b.md " + RUNS + "/c", "mv " + RUNS + "/draft/status.json " + RUNS + "/",
+               "rm -r " + RUNS, "rm -rf " + MAIN + "/.autopilot/runs", "rm -rf " + MAIN + "/.autopilot", "mv " + RUNS + " " + MAIN + "/.autopilot/runs/Y1",
+               "rmdir " + RUNS + "/inbox", "rm -r " + RUNS + "/inbox/01")
+        for mode in ("receive", "build"):
+            for cmd in bad:
+                self.blocked(self.bash(cmd, state=self.state(mode=mode)), code=3, msg="%s %s" % (mode, cmd))
+            for cmd in ("cp " + RUNS + "/draft/notes.md " + RUNS + "/notes.md", "rm " + RUNS + "/draft/x.md", "mv " + RUNS + "/a.md " + RUNS + "/b.md",
+                        "rm -r " + RUNS + "/draft"):
+                self.allowed(self.bash(cmd, state=self.state(mode=mode)), msg="%s %s" % (mode, cmd))
+        self.allowed(self.bash("cp -r " + WT + "/js " + WT + "/js2", state=self.state(mode="build")))     # 目的地不在報告資料夾：照舊
+
+    def test_the_test_record_must_use_the_main_folder(self):
+        """在 worktree 裡寫相對路徑的 .autopilot/… 是 worktree 自己的資料夾：擋（文件要寫主目錄的完整路徑）。"""
+        self.blocked(self.bash("git log -1 --format=\"commit %H\" > .autopilot/runs/X1/tests.txt", cwd=WT), code=8)
+        self.allowed(self.bash("git log -1 --format=\"commit %H\" > " + RUNS + "/tests.txt", cwd=WT))
+
     def test_copy_with_a_target_directory_option_is_blocked_in_both_modes(self):
         """cp／mv -t：目的地寫在選項裡，只看最後一個參數會看錯位置（P3 審查時找到；施工模式原本也有這個洞）。"""
         for mode in ("receive", "build"):
@@ -183,7 +204,6 @@ class TestReceiveGateCommands(GuardCase):
                         "mv -t " + MAIN + "/js " + RUNS + "/x.js", "cp -rt " + WT + "/js " + RUNS + "/d"):
                 self.blocked(self.bash(cmd, state=self.state(mode=mode)), code=8, msg="%s %s" % (mode, cmd))
         self.allowed(self.bash("cp " + RUNS + "/a.md " + RUNS + "/b.md"))
-        self.allowed(self.bash("cp -r " + RUNS + "/a " + RUNS + "/b"))
 
     def test_readonly_git_still_works(self):
         for cmd in ("git status -sb", "git log --oneline -5", "git diff --stat origin/main...HEAD", "git show --stat HEAD", "git rev-parse HEAD",
@@ -436,7 +456,7 @@ class Cloud(object):
         bundle = os.path.join(d, "bundle.git")
         run_git(["bundle", "create", "-q", bundle, "%s..%s" % (base, branch)] + list(extra_refs), self.dir)
         head = run_git(["rev-parse", branch], self.dir)[1]
-        shas = run_git(["rev-list", "--reverse", "%s..%s" % (base, head)], self.dir)[1].split()
+        shas = run_git(["rev-list", "--reverse", "--topo-order", "%s..%s" % (base, head)], self.dir)[1].split()
         files, commits = set(), []
         for s in shas:
             files |= set(x for x in run_git(["diff-tree", "--no-commit-id", "-r", "--no-renames", "--name-only", s + "^", s], self.dir)[1].split("\n") if x)
@@ -481,10 +501,12 @@ class ReceiveBase(unittest.TestCase):
     def check(self, d):
         return RC.check_package(self.sb.main, self.sb.sd, CFG, "R1", d)
 
-    def rejected(self, d, rule):
+    def rejected(self, d, rule, has=None):
         with self.assertRaises(RC.Reject) as cm:
             self.check(d)
         self.assertEqual(cm.exception.rule, rule, cm.exception.reason)
+        if has:                                                                               # 被拒的是這一個原因（不是同一條裡的別的原因）
+            self.assertIn(has, cm.exception.reason)
         return cm.exception
 
     def receive_cmd(self, *args):
@@ -527,10 +549,10 @@ class TestPackageRules(ReceiveBase):
     def test_rule2_hash_refs_and_prerequisites(self):
         self.cloud.commit({"js/app.js": "// v3\n"})
         d, _m = self.cloud.package(self.base, 1, bundle_sha256="0" * 64)
-        self.rejected(d, 2)
+        self.rejected(d, 2, has="SHA-256")
         run_git(["branch", "extra"], self.cloud.dir)
         d, _m = self.cloud.package(self.base, 1, extra_refs=["extra"])
-        self.rejected(d, 2)
+        self.rejected(d, 2, has="只有一個 ref")
 
     def test_rule3_base(self):
         """規格 4 第 3 項：base 錯的包被拒。裁決 2：第一包的 base 可以比正式版舊，只要之後只有排程的資料 commit。"""
@@ -547,7 +569,7 @@ class TestPackageRules(ReceiveBase):
         self.sb.write("js/app.js", "// main changed\n")
         tip2 = self.sb.commit("feat: 正式版改了程式")
         self.sb.land(tip2)
-        self.rejected(d, 3)
+        self.rejected(d, 3, has="base 太舊")
 
     def test_rule3_second_package_must_start_at_the_branch_head(self):
         self.cloud.commit({"js/app.js": "// v3\n"})
@@ -557,7 +579,7 @@ class TestPackageRules(ReceiveBase):
         run_git(["checkout", "-q", "-B", "feat/stopR1", self.base], self.cloud.dir)             # 雲端從舊的 base 重做
         self.cloud.commit({"js/app.js": "// v3b\n"})
         d2, _m = self.cloud.package(self.base, 2)
-        self.rejected(d2, 3)
+        self.rejected(d2, 3, has="不是分支")
 
     def test_rule4_author_committer_message(self):
         """規格 4 第 4 項：作者錯的包被拒；提交者錯、訊息有本機路徑、標題像資料更新也拒。"""
@@ -577,7 +599,7 @@ class TestPackageRules(ReceiveBase):
         run_git(["checkout", "-q", "feat/stopR1"], self.cloud.dir)
         run_git(["merge", "-q", "--no-ff", "-m", "merge side", "side"], self.cloud.dir, env=self.cloud.who())
         d, _m = self.cloud.package(self.base, 1)
-        self.rejected(d, 4)
+        self.rejected(d, 4, has="不是單一 parent")
 
     def test_rule4_manifest_commits_must_match(self):
         self.cloud.commit({"js/app.js": "// v3\n"})
@@ -1012,8 +1034,11 @@ class TestDocs(unittest.TestCase):
         steps = self.read(".claude/skills/iw-autopilot/receive-steps.md")
         self.assertLess(len(steps), 6000)
         for must in ("iw_notify.py wait-inbox", "receive --check", "receive --apply", "receive --tested", "不改任何程式", "replies.md",
-                     "03_第三方審查.md", "不貼進 PR", "不跑腳本", "git tag stop<階段>", "REVIEW-KIND: acceptance", "背景"):
+                     "03_第三方審查.md", "不貼進 PR", "不跑腳本", "git tag stop<階段>", "REVIEW-KIND: acceptance", "背景",
+                     "> <主目錄>/.autopilot/runs/<階段>/tests.txt", ">> <主目錄>/.autopilot/runs/<階段>/tests.txt", "主目錄的完整路徑"):
             self.assertIn(must, steps, must)
+        # Codex 對 P3 的第一次審查（P1，留言 4494611266）：在 worktree 裡寫相對路徑的 .autopilot/… 會寫進 worktree 自己的資料夾，守門擋——文件不可以這樣寫
+        self.assertNotRegex(steps, r"> \.autopilot/runs/")
         skill = self.read(".claude/skills/iw-autopilot/SKILL.md")
         self.assertLess(len(skill), 6500)
         self.assertIn("[receive-steps.md](receive-steps.md)", skill)
