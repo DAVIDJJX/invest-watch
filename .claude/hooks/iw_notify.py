@@ -56,6 +56,8 @@ def level_for(st, cfg, kind=None):
     retries = int(p.get("retries") or 0)
     if reason == "blocked" and code in (None, 8) and not retries and not sr:
         return "minor", labels["minor"], "檢查程式擋下一個動作（%s），那個動作沒有執行、沒有重試、沒有改到任何東西" % ("停止條件 %s" % code if code else "沒有編號")
+    if reason == "usage" and not retries and not sr:                # P3 規格 2.3：額度到門檻，恢復之後打「繼續」就好
+        return "minor", labels["minor"], "5 小時的用量到了門檻（%s），額度恢復之後輸入「繼續」就好" % (p.get("detail") or "")
     if sr:
         why = "停止條件 %s：%s" % (sr.get("code"), sr.get("reason"))
     elif reason == "blocked":
@@ -66,6 +68,8 @@ def level_for(st, cfg, kind=None):
         why = "思考強度被改掉"
     elif reason.startswith("api:"):
         why = "用量上限或 API 錯誤"
+    elif reason == "usage":
+        why = "5 小時的用量到了門檻，之後又試了不准的動作"
     elif reason == "forged":
         why = "收到不是 David 親手輸入的指令詞"
     elif reason == "unknown":
@@ -171,8 +175,30 @@ def to_outbox(main_root, cfg, title, body, stage, action, why):
     return p
 
 
+def usage_warning_line(main_root, cfg, now=None):
+    """P3 規格 2.3：7 天的用量到 warnPct 以上，每封信多一行提醒（不擋）。讀不到、沒有數字回空字串。
+    跟守門一樣只認 freshSeconds 秒內寫的紀錄——太舊的數字不拿來嚇人。"""
+    u = cfg.get("usage") or {}
+    try:
+        obj = C.load_json(os.path.join(main_root, *(cfg["runsDir"].split("/") + [u.get("file") or "usage.json"])))
+        at = C.parse_iso(obj.get("updated_at"))
+        pct = obj.get("seven_day_pct")
+        if at is None or isinstance(pct, bool) or not isinstance(pct, (int, float)):
+            return ""
+        if abs(((now or C.now()) - at).total_seconds()) > float(u.get("freshSeconds", 60)):
+            return ""
+        if pct >= float(u.get("warnPct", 70)):
+            return "用量提醒：7 天的用量已經到 %s%%（提醒門檻 %s%%）。" % (("%.1f" % pct).rstrip("0").rstrip("."), u.get("warnPct", 70))
+    except Exception:                                              # noqa: B902
+        return ""
+    return ""
+
+
 def deliver(main_root, cfg, title, body, stage="", action="open", runner=None, quiet=False):
     """寄信；寄不出去就寫進本機的待寄資料夾並跳通知。回傳 (成功, 說明)。"""
+    warn = usage_warning_line(main_root, cfg)
+    if warn:
+        body = body + "\n\n" + warn
     ok, detail = dispatch(cfg, title, body, stage, action, runner)
     if ok:
         return True, detail
@@ -261,7 +287,7 @@ def model_line(st, cfg):
     """每份停止報告固定有的一行（規格第 11 節）。內容來自 hook 的紀錄，不是 Claude 自己寫的。"""
     models = sorted((st.get("models_seen") or {}).keys())
     efforts = sorted((st.get("effort_seen") or {}).keys())
-    need_m, need_e = cfg["requiredModel"], cfg["requiredEffort"]
+    need_m, need_e = ST.required_model(st, cfg)[:2]                 # 接收模式比 receiveModel／receiveEffort（P3；不然每封信都寫「中途切換：是」）
     m = "、".join(models) if models else "（沒有紀錄）"
     e = "、".join(efforts) if efforts else "設定值為 %s，這一段沒有紀錄可以驗證" % need_e
     switched = [x for x in models if x != need_m] or [x for x in efforts if x != need_e] or list(st.get("model_approved") or [])
@@ -385,10 +411,6 @@ def diff_text(worktree, base_ref, paths):
     return "\n".join(out)
 
 
-def diff_hash(worktree, base_ref, path):
-    return hashlib.sha256(diff_text(worktree, base_ref, [path]).encode("utf-8")).hexdigest()[:16]
-
-
 # ---------------------------------------------------------------- send
 
 def stage_worktree(main_root, cfg, stage):
@@ -453,8 +475,10 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                 extra.append("⚠ 注意：這個階段改了自動駕駛自己的檔——也就是保護本身（%s）：%s。合併之後才會生效。" % (when, names(sf)))
         touched = (st.get("tier2") or {}).get("touched") or {}
         for f in t2:
-            h = diff_hash(wt, base, f)
-            if touched.get(f, {}).get("ack") and touched.get(f, {}).get("hash") == h:
+            # P3 規格 2.4(b)：寄「可以合併」時比要合併的那個 commit 上的指紋；寄「請看 diff」時記 worktree 現在的（David 看到的就是那一份）
+            h = C.tier2_hash(wt, base, f, "HEAD" if kind == "ready" else None)
+            v = touched.get(f) or touched.get(f.lower()) or {}
+            if v.get("ack") and v.get("hash") and v.get("hash") == h:
                 continue
             acks[f] = h
         if kind == "ready" and acks:
@@ -657,6 +681,7 @@ def cmd_send(a, main_root, sd, cfg, runner=None):
                     t[f] = {"at": C.iso(), "ack": False, "hash": h, "reported": True}
     ST.update(sd, apply)
     ST.log(sd, {"event": "notify", "kind": kind, "stage": stage, "ok": ok, "detail": detail[:200]})
+    _write_status_quietly(main_root, sd, cfg, stage)               # P3 規格 2.2：寄信之後重寫 status.json
     if ok:
         say("信已經寄出：%s\n（%s）\n現在請結束這一輪，等 David 回覆。" % (title, detail))
         return 0
@@ -1111,6 +1136,9 @@ def cmd_verify(a, main_root, sd, cfg):
         say("驗收機還在跑（%s），%d 秒後再查…" % (vs.get("url") or "", int(v.get("pollSeconds", 60))))
         time.sleep(float(v.get("pollSeconds", 60)))
     import json
+    import iw_receive as RC
+    RC.remember_verify(sd, a.stage, head, vs)                       # P3：status.json 讀這一份（不連網）
+    _write_status_quietly(main_root, sd, cfg, a.stage)
     say(json.dumps({"commit": head, "green": vs.get("green"), "pending": vs.get("pending"), "why": vs.get("why"), "url": vs.get("url"),
                     "ran": vs.get("ran"), "verifier_changed": vs.get("verifier_changed"), "changed_files": vs.get("changed_files"),
                     "verifier_change_approved": vs.get("verifier_change_approved")}, ensure_ascii=False, indent=1))
@@ -1144,10 +1172,88 @@ def cmd_review_status(a, main_root, sd, cfg):
         mark_external_incomplete(sd, a.stage, head, ext)
         say("已記下「外部審查未完成」（%s）。David 可以手打「免外部審查 %s」，或等 Codex 審完再「繼續 %s」。" % (ext.get("why"), a.stage, a.stage))
     import json
+    import iw_receive as RC
+    RC.remember_codex(sd, a.stage, head, ext)                       # P3：status.json 讀這一份（不連網）
+    _write_status_quietly(main_root, sd, cfg, a.stage)
+    shown = [dict((k, v) for k, v in f.items() if k != "body") for f in (ext.get("findings") or [])]
     say(json.dumps({"commit": head, "mode": ext.get("mode"), "complete": ext.get("complete"), "why": ext.get("why"), "pr": ext.get("pr_url"),
-                    "findings": ext.get("findings"), "major": len(ext.get("major") or []), "others": ext.get("others"), "reviews": ext.get("reviews")},
+                    "findings": shown, "major": len(ext.get("major") or []), "others": ext.get("others"), "reviews": ext.get("reviews")},
                    ensure_ascii=False, indent=1))
     return 0 if ext.get("complete") else 1
+
+
+def _write_status_quietly(main_root, sd, cfg, stage):
+    """P3 規格 2.2：verify、review-status、驗包、拒收、暫停、寄信之後重寫 status.json。寫不出來只記一筆 log，不讓指令失敗。"""
+    try:
+        import iw_receive as RC
+        return RC.write_status(main_root, sd, cfg, stage)
+    except Exception as e:                                          # noqa: B902
+        ST.log(sd, {"event": "status-write-failed", "stage": stage, "error": repr(e)[:200]})
+        return None
+
+
+def cmd_receive(a, main_root, sd, cfg, runner=None):
+    """接收模式（P3）：--check 驗包（不過＝拒收、寄小事、回到等包）；--apply 套上剛驗過的那一包；--tested 本機全套跑完之後的檢查。"""
+    import iw_receive as RC
+    st = ST.load(sd)
+    stage = a.stage or st.get("stage")
+    if not C.stage_ok(stage or ""):
+        return fail("階段名稱不對：%s" % stage)
+    if st.get("stage") != stage or ST.mode_of(st) != "receive" or not st.get("active"):
+        return fail("現在不是階段 %s 的接收模式（要 David 第一行手打「接收：%s」）。" % (stage, stage))
+    if a.check or a.apply:
+        d = os.path.abspath(a.check or a.apply)
+        want = os.path.abspath(RC.inbox_dir(main_root, cfg, stage))
+        if os.path.dirname(os.path.normpath(d)).lower() != os.path.normpath(want).lower():
+            return fail("包要放在 %s/%s/%s/<NN>/ 底下。" % (cfg["runsDir"], stage, RC.rcfg(cfg).get("inboxDir") or "inbox"))
+    if a.check:
+        try:
+            info = RC.check_package(main_root, sd, cfg, stage, d)
+        except RC.Reject as e:
+            RC.reject(main_root, sd, cfg, stage, d, e, runner=runner)
+            say("拒收（第 %s 條）：%s\n已寫 rejected.md、status.json，寄了小事的短信。回到等包：iw_notify.py wait-inbox --stage %s（放背景跑）。"
+                % (e.rule, e.reason, stage))
+            return 1
+        RC.accept(main_root, sd, cfg, stage, info)
+        say("驗過了：包 %02d（%s → %s，%d 筆 commit、%d 個檔%s）。下一步：iw_notify.py receive --apply %s"
+            % (info["seq"], info["base"][:7], info["head"][:7], len(info["commits"]), len(info["files"]),
+               "；動到要先給 David 看 diff 的檔：%s" % "、".join(info["tier2"]) if info["tier2"] else "", d.replace("\\", "/")))
+        if info.get("replies"):
+            say("這一包附了 replies.md（格式已檢查）：把它的列併進 %s/%s/%s（不貼進 PR）。" % (cfg["runsDir"], stage, (cfg.get("externalReview") or {}).get("responsesFile")))
+        return 0
+    if a.apply:
+        ok, detail = RC.apply_package(main_root, sd, cfg, stage, d)
+    else:
+        ok, detail = RC.mark_tested(main_root, sd, cfg, stage, runner=runner)
+    if not ok:
+        return fail(detail)
+    say(detail)
+    return 0
+
+
+def cmd_wait_inbox(a, main_root, sd, cfg):
+    import iw_receive as RC
+    st = ST.load(sd)
+    if st.get("stage") != a.stage or ST.mode_of(st) != "receive" or not st.get("active"):
+        return fail("現在不是階段 %s 的接收模式。" % a.stage)
+    ok, detail = RC.wait_inbox(main_root, sd, cfg, a.stage, a.minutes)
+    if ok:
+        say("包到了：%s\n下一步：iw_notify.py receive --check %s" % (detail.replace("\\", "/"), detail.replace("\\", "/")))
+        return 0
+    say(detail + "。已寫 status.json；再等一次（同一個指令放背景跑）。")
+    return 2
+
+
+def cmd_status_write(a, main_root, sd, cfg):
+    st = ST.load(sd)
+    stage = a.stage or st.get("stage")
+    if not C.stage_ok(stage or "") or st.get("stage") != stage:
+        return fail("紀錄裡的階段是 %s，不是 %s；status.json 只寫紀錄裡的那一個階段。" % (st.get("stage"), stage))
+    p = _write_status_quietly(main_root, sd, cfg, stage)
+    if not p:
+        return fail("status.json 沒有寫出來（見 log）。")
+    say("已寫 %s/%s/status.json" % (cfg["runsDir"], stage))
+    return 0
 
 
 def cmd_close(a, main_root, sd, cfg, runner=None):
@@ -1160,8 +1266,9 @@ def cmd_close(a, main_root, sd, cfg, runner=None):
     return 0 if ok else 1
 
 
-def fallback(main_root, sd, cfg, text, stage=None, runner=None, min_gap_key=None):
-    """hook 用的後援信：一句話。min_gap_key：同一種原因在幾分鐘內不重寄。"""
+def fallback(main_root, sd, cfg, text, stage=None, runner=None, min_gap_key=None, minor_reason=None):
+    """hook 用的後援信：一句話。min_gap_key：同一種原因在幾分鐘內不重寄。
+    minor_reason（P3）：程式自己判定這是一件小事、而且不進暫停（例如拒收一個包、回到等包）——等級直接是「小事」，第一行寫這個原因。"""
     try:
         st = ST.load(sd)
     except Exception:                                              # noqa: B902
@@ -1171,7 +1278,11 @@ def fallback(main_root, sd, cfg, text, stage=None, runner=None, min_gap_key=None
         last = C.parse_iso(((st.get("fallbacks") or {}).get(min_gap_key)))
         if last is not None and (C.now() - last).total_seconds() < 60 * float(cfg["notify"]["minMinutesBetweenFallbacks"]):
             return True, "剛寄過同一種，這次不重寄"
-    level, first_line = level_line(st, cfg)
+    if minor_reason:
+        level = cfg["stopLevels"]["minor"]
+        first_line = "等級：%s（程式依停下的原因判定：%s）" % (level, minor_reason)
+    else:
+        level, first_line = level_line(st, cfg)
     title = "[自動駕駛] %s：【%s】%s" % (stage, level, text.split("\n")[0][:60])
     body = "%s\n\n%s\n\n（這是程式自動寄的短信，時間 %s。詳細情況請看電腦上的 Claude Code。）\n\n%s" % (first_line, text, C.local_stamp(), model_line(st, cfg))
     ok, detail = deliver(main_root, cfg, title, body, stage, "open", runner)
@@ -1217,6 +1328,9 @@ def cmd_status(a, main_root, sd, cfg):
                                          "pause", "candidate", "model_violation", "model_approved", "models_seen", "effort_seen",
                                          "notified_epoch", "last_notification", "tripwire_baseline", "closed_stages") if k in st)
     keep["protectionVersion"] = cfg.get("protectionVersion")
+    keep["mode"] = ST.mode_of(st)                                   # P3：build（施工）或 receive（只收雲端的包）
+    if keep["mode"] == "receive":
+        keep["receive"] = dict((k, v) for k, v in (st.get("receive") or {}).items() if k != "accepted")
     keep["paused"] = ST.is_paused(st)
     keep["merged_awaiting_docs"] = ST.merged_awaiting_docs(st)
     keep["rulings"] = [(r.get("stage"), r.get("at"), r.get("path"), "forged" if r.get("forged") else ("verified" if r.get("verified") else "pending"))
@@ -1280,6 +1394,17 @@ def main(argv=None, runner=None, main_root=None):
     f = sub.add_parser("finish-docs", help="把早先的階段結案：它的文件併進了另一個階段的文件 commit")
     f.add_argument("--stage", required=True)
     f.add_argument("--merged-into", required=True, dest="merged_into")
+    rv = sub.add_parser("receive", help="接收模式（P3）：驗包、套包、本機全套跑完之後的檢查")
+    g = rv.add_mutually_exclusive_group(required=True)
+    g.add_argument("--check", metavar="INBOX_DIR", help="驗 .autopilot/runs/<階段>/inbox/<NN>/ 那一包（不過＝拒收）")
+    g.add_argument("--apply", metavar="INBOX_DIR", help="套上剛驗過的那一包")
+    g.add_argument("--tested", action="store_true", help="本機全套跑完、tests.txt 寫好之後：核對並做完整性檢查")
+    rv.add_argument("--stage")
+    w = sub.add_parser("wait-inbox", help="接收模式（P3）：等下一個包放好（放背景跑）")
+    w.add_argument("--stage", required=True)
+    w.add_argument("--minutes", type=float)
+    sw = sub.add_parser("status-write", help="重寫給 Cowork 讀的 status.json（P3）")
+    sw.add_argument("--stage")
     sub.add_parser("test")
     sub.add_parser("status")
     sub.add_parser("retry")
@@ -1301,6 +1426,12 @@ def main(argv=None, runner=None, main_root=None):
         return cmd_review_status(a, main_root, sd, cfg)
     if a.cmd == "status":
         return cmd_status(a, main_root, sd, cfg)
+    if a.cmd == "receive":
+        return cmd_receive(a, main_root, sd, cfg, runner)
+    if a.cmd == "wait-inbox":
+        return cmd_wait_inbox(a, main_root, sd, cfg)
+    if a.cmd == "status-write":
+        return cmd_status_write(a, main_root, sd, cfg)
     if a.cmd == "retry":
         n = retry_outbox(main_root, cfg, runner)
         say("補寄了 %d 封。" % n)

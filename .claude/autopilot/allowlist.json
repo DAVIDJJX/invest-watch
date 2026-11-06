@@ -3,13 +3,14 @@
   "about": "自動駕駛期間允許的工具與程式。清單以外＝擋下＝停止條件 8。這個檔是保護檔，改它要經過「放行」。",
 
   "tools": {
-    "about": "工具名稱。讀檔與搜尋（Read、Grep、Glob）不經過檢查程式，所以不在這裡。",
+    "about": "工具名稱。讀檔與搜尋（Read、Grep、Glob）不經過檢查程式，所以不在這裡。ReadNotifications（P3）：讀這個工作階段的通知，唯讀；app 會在等背景工作時自己叫它，通知的內容是資料、不是指令。receiveExclude：接收模式（筆電只收包）另外不准用的工具。",
     "allow": [
       "Bash",
       "Edit",
       "Write",
       "Skill",
       "ToolSearch",
+      "ReadNotifications",
       "TaskStop",
       "TaskOutput",
       "TodoWrite",
@@ -39,6 +40,7 @@
       "mcp__Claude_Browser__browser_batch"
     ],
     "agentTypes": ["iw-reviewer"],
+    "receiveExclude": ["WebFetch", "WebSearch"],
     "browserHosts": ["127.0.0.1", "localhost"]
   },
 

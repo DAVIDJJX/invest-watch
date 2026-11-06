@@ -2,6 +2,10 @@
   "model": "claude-opus-5-5",
   "effortLevel": "xhigh",
   "switchModelsOnFlag": false,
+  "statusLine": {
+    "type": "command",
+    "command": "py -3.12 -X utf8 .claude/autopilot/usage_status.py"
+  },
   "permissions": {
     "deny": [
       "Bash(git push *--force*)",

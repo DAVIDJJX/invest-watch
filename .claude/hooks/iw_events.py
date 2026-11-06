@@ -96,7 +96,7 @@ def pretool(inp, env):
     locked_before = ST.is_paused(st) or st.get("status") == "awaiting_approval"
     ctx = G.Ctx(env.main_root, st, env.cfg, env.allow, env.git, inp, home=env.home, now=env.t())
     block, effects = G.decide(inp, ctx)
-    if block is not None and is_mine and not locked_before and not any(e[0] in ("deactivate", "pause", "stop_required", "model_violation") for e in effects):
+    if block is not None and is_mine and not locked_before and not any(e[0] in ("deactivate", "pause", "stop_required", "model_violation", "usage_pause") for e in effects):
         # 結構性暫停（P1-1 第 1 節）：自動駕駛期間任何一個動作被守門擋下，hook 就記成暫停；下一個不相關的動作也會被擋，
         # 直到 David 手打「繼續」。不靠 Claude 自己決定要不要停。一般模式（不是自動駕駛、或別的工作階段）被擋只回訊息、不寫 pause。
         effects = list(effects) + [("pause", "blocked", block.reason[:200], block.code, False)]
@@ -194,6 +194,18 @@ def pause_record(reason, detail, code, now):
     return {"reason": reason, "detail": detail, "code": code, "at": now, "retries": 0}
 
 
+def _status_refresh(env, stage):
+    """P3 規格 2.2：狀態有變（暫停、啟動、繼續、放行、結束）就重寫 .autopilot/runs/<階段>/status.json 給 Cowork 讀。
+    只用狀態檔與本機已存的結果、不連網；寫不出來不可以讓 hook 壞掉（只記一筆 log）。"""
+    if not stage or not C.stage_ok(stage):
+        return
+    try:
+        import iw_receive as RC                                     # 用到才載入
+        RC.write_status(env.main_root, env.sd, env.cfg, stage, now=env.t())
+    except Exception as e:                                          # noqa: B902
+        ST.log(env.sd, {"event": "status-write-failed", "stage": stage, "error": repr(e)[:200]})
+
+
 def apply_effects(env, effects, inp):
     mails = []
     now = C.iso(env.t())
@@ -246,21 +258,31 @@ def apply_effects(env, effects, inp):
                     st["stop_required"] = {"code": e[1], "reason": e[2], "at": now}
                 set_pause(st, "stop", e[2], e[1])
             elif k == "tier2":
+                # P3 規格 2.4(b)：只記「動過」，不清掉已讀。已讀綁著 David「繼續」時那一份 diff 的指紋；推送與寄「可以合併」時
+                # 程式再算一次指紋，一樣就算看過、不一樣才要他再看（原本這裡每動一次就清掉已讀，A1-4 同一份 diff 寄了四次）。
                 t = st.setdefault("tier2", {}).setdefault("touched", {})
-                cur = t.get(e[1])
-                if not cur or cur.get("ack"):
+                if not t.get(e[1]):
                     t[e[1]] = {"at": now, "ack": False}
+                else:
+                    t[e[1]]["touched_at"] = now
+            elif k == "usage_pause":                                # P3 規格 2.3：5 小時的用量到門檻
+                if not st.get("pause"):
+                    st["pause"] = pause_record("usage", "5 小時的用量到了 %s%%（門檻 %s%%）" % (G._pct(e[1]), G._pct(e[2])), 9, now)
+                    mails.append(("額度到 %s%%（5 小時的用量，門檻 %s%%），自動駕駛已暫停。額度恢復後請在 Claude Code 輸入「繼續 %s」。"
+                                  % (G._pct(e[1]), G._pct(e[2]), st.get("stage")), "usage"))
             elif k == "review_begin":
                 st["review_pending"] = dict(e[1], at=now, tool_use_id=inp.get("tool_use_id"), epoch=st.get("epoch"))
             elif k == "verify_rerun":                               # 守門放行了一次「重跑驗收」：記下來（哪個 commit、哪一次執行、第幾次重跑）
                 st.setdefault("verify_reruns", []).append(dict(e[1], at=now))
                 st["verify_reruns"] = st["verify_reruns"][-20:]
-    ST.update(env.sd, fn)
+    st_after = ST.update(env.sd, fn)
     for e in effects:
         if e[0] == "verify_rerun":
             ST.log(env.sd, dict(e[1], event="verify_rerun"))
     for text, key in mails:
         send_fallback(env, text, key)
+    if any(e[0] in ("pause", "stop_required", "model_violation", "usage_pause", "deactivate", "activate") for e in effects):
+        _status_refresh(env, st_after.get("stage"))
 
 
 def reconcile_pushes(env):
@@ -565,7 +587,8 @@ def prompt(inp, env):
     if stage is not None and not C.stage_ok(stage):
         return _out(system="（自動駕駛）階段名稱「%s」不合規則：只能用英數、點、底線、連字號，英數開頭。" % stage)
 
-    if kind == "start":
+    if kind in ("start", "receive"):
+        receiving = kind == "receive"                               # P3：「接收：<階段>」＝筆電只收雲端的包（mode=receive）；「自動駕駛：」＝施工（mode=build）
         if inp.get("permission_mode") == "bypassPermissions":
             return _out(system="（自動駕駛）沒有啟動：現在是「略過權限（Bypass）」模式。請在輸入框旁的模式選單改成 Auto、Accept edits 或 Manual，再輸入一次。",
                         context="自動駕駛沒有啟動（權限模式是 bypassPermissions）。請告訴 David 怎麼切換模式；不要開始做這個階段。")
@@ -587,14 +610,17 @@ def prompt(inp, env):
             try:                                                    # 給人看的副本；審查代理以 .git/iw-autopilot/specs/ 那一份為準
                 runs = os.path.join(env.main_root, *(cfg["runsDir"].split("/") + [stage]))
                 os.makedirs(runs, exist_ok=True)
-                with io.open(os.path.join(runs, "00_規格.md"), "w", encoding="utf-8", newline="\n") as fh:
-                    fh.write(spec)
+                copy = os.path.join(runs, "00_規格.md")
+                if not (receiving and os.path.exists(copy)):        # 接收模式：Cowork 先放的那一份規格不蓋掉（P3 裁決 9；David 貼的是同一份）
+                    with io.open(copy, "w", encoding="utf-8", newline="\n") as fh:
+                        fh.write(spec)
             except Exception:                                       # noqa: B902
                 pass
 
         def fn(s):
             keep = dict((k, s.get(k)) for k in ("reviews", "candidate", "tier2", "tripwire_baseline", "tripwire_findings", "models_seen",
-                                                "effort_seen", "fallbacks", "external_review", "external_waiver", "pull_requests") if same and k in s)
+                                                "effort_seen", "fallbacks", "external_review", "external_waiver", "pull_requests",
+                                                "receive") if same and k in s)
             # 跨階段的紀錄：結案過的階段、裁決；P2 加：免過外部審查的階段（連續兩次要提醒）、流程檔的快照（下一封信跟它比）、自己推過的分支頭
             keep_always = dict((k, s.get(k)) for k in ("closed_stages", "rulings", "waived_stages", "workflow_snapshot", "branch_pushes") if s.get(k))
             epoch = int(s.get("epoch") or 0) + 1 if same else 1
@@ -609,12 +635,32 @@ def prompt(inp, env):
                 s["tripwire_baseline"] = base
             s.update(keep_always)
             s.update(keep)
+            s["mode"] = "receive" if receiving else "build"
+            if receiving:
+                r = s.get("receive") if (same and isinstance(s.get("receive"), dict)) else {}
+                r["started_at"] = now                               # 7 天的上限從這裡（或最後一次「繼續」）起算
+                s["receive"] = r
+            else:
+                s.pop("receive", None)
             if s.get("candidate") and same:
                 s["status_hint"] = "這個階段之前已經做到「登記要合併的 commit」；重新啟動後要重新驗收再寄信"
                 s["candidate"] = None
         ST.update(env.sd, fn)
         remember()
-        ST.log(env.sd, {"event": "start", "stage": stage, "session": inp.get("session_id"), "spec_chars": len(spec)})
+        ST.log(env.sd, {"event": "start", "stage": stage, "mode": "receive" if receiving else "build", "session": inp.get("session_id"),
+                        "spec_chars": len(spec)})
+        if receiving:
+            _status_refresh(env, stage)
+            need_m, need_e, label_m, label_e = ST.required_model({"mode": "receive"}, cfg)
+            return _out(system="接收模式已啟動：%s（保護版本 %s）。筆電只收雲端的包、測、推、開 PR、合併，不改程式。規定的模型是 %s、思考強度 %s，"
+                               "第一個動作時檢查，不對會馬上告訴你。%s"
+                               % (stage, cfg.get("protectionVersion") or "?", label_m, label_e, "" if spec.strip() else "這次沒有貼規格（審查代理驗收時只能看 diff）。"),
+                        context=("David 親手啟動了接收模式：階段 %s。請用 Skill 工具載入 iw-autopilot，照同資料夾的 receive-steps.md 做"
+                                 "（等包 → 驗包 → 套包 → 本機全套 → receive --tested → 推 → 驗收機 → PR → Codex → 審查代理 → ready）。"
+                                 "你不能改任何程式檔；程式要改，由雲端做成下一個包。\n規格（審查代理驗收時看這一份）：%s\n"
+                                 "模型必須是 %s、思考強度必須是 %s。從最後一次接受包起 %s 小時後只准等包與收包相關的動作；%s 天是絕對上限。"
+                                 % (stage, spec_path or "這次沒有貼", need_m, need_e, cfg["maxHours"], cfg.get("receiveMaxDays", 7)))
+                        + tests_env_note(cfg))
         hours = cfg["maxHours"]
         note = ""
         if pre:
@@ -646,6 +692,7 @@ def prompt(inp, env):
                 s["credential"]["revoked"] = "David 結束了自動駕駛"
         ST.update(env.sd, fn)
         remember()
+        _status_refresh(env, st.get("stage"))
         return _out(system="自動駕駛已結束（階段 %s）。永遠有效的那幾條保護不受影響：合併進 main 仍然要你輸入「放行 <階段>」。" % st.get("stage"),
                     context="David 結束了自動駕駛。之後照一般的方式工作（他在場、照他說的做）；合併進 main 仍然需要他輸入「放行 <階段>」。")
 
@@ -658,7 +705,7 @@ def prompt(inp, env):
         e_ok = bool(ev) and ev.get("effort") in list(cfg.get("approvableEfforts") or [])
         if ev and not e_ok and not mv:
             return _out(system="（自動駕駛）思考強度「%s」不能放行（可以臨時放行的只有：%s）。請用思考強度選單改回 %s，再輸入「繼續 %s」。"
-                               % (ev.get("effort"), "、".join(cfg.get("approvableEfforts") or []) or "沒有", cfg.get("requiredEffortLabel") or cfg["requiredEffort"],
+                               % (ev.get("effort"), "、".join(cfg.get("approvableEfforts") or []) or "沒有", ST.required_model(st, cfg)[3],
                                   st.get("stage")),
                         context="David 輸入了「放行模型」，但現在的暫停是思考強度被改成 %s，這個強度不能放行；狀態沒變。請告訴他改回規定的強度再輸入「繼續」。" % ev.get("effort"))
 
@@ -799,7 +846,7 @@ def prompt(inp, env):
         hashes = {}
         for f in ((st.get("tier2") or {}).get("touched") or {}).keys():
             try:
-                hashes[f] = N.diff_hash(wt, base, f)
+                hashes[f] = C.tier2_hash(wt, base, f)               # P3：跟 worktree 現在的內容比（不分 commit 了沒）；推送時算 commit 上的，同一份內容一樣
             except Exception:                                       # noqa: B902
                 hashes[f] = None
 
@@ -819,11 +866,14 @@ def prompt(inp, env):
             for f, v in ((s.get("tier2") or {}).get("touched") or {}).items():
                 if v.get("reported"):
                     v["ack"] = True
-                    v["hash"] = hashes.get(f) or v.get("hash")
+                    v["hash"] = hashes.get(f)                       # 算不出指紋就不留舊的：沒有指紋的已讀不算數（寧可再看一次）
                     v["acked_at"] = now
+            if ST.mode_of(s) == "receive":
+                s.setdefault("receive", {})["last_resume_at"] = now  # 接收模式 7 天的上限從最後一次「繼續」重新起算（P3 裁決 8）
         ST.update(env.sd, fn)
         remember()
         ST.log(env.sd, {"event": "resume", "stage": stage})
+        _status_refresh(env, stage)
         return _out(system="自動駕駛繼續：%s（重新計時，上限 %s 小時）。" % (stage, cfg["maxHours"]),
                     context="David 親手輸入了「繼續 %s」。請從上次停下的地方接著做（先看 .autopilot/runs/%s/ 與 python .claude/hooks/iw_notify.py status）。"
                             "如果上一次是請他看 diff，他這句話就是看過了。" % (stage, stage) + tests_env_note(cfg))
@@ -896,6 +946,7 @@ def prompt(inp, env):
         new = ST.update(env.sd, fn)
         remember(candidate=sha, tag_sha=tag_sha)
         ST.log(env.sd, {"event": "approve", "stage": stage, "candidate": sha, "reopen": reopen})
+        _status_refresh(env, stage)
         hours = cfg["credentialHours"]
         if reopen:
             merge_sha = ((new.get("credential") or {}).get("merge") or {}).get("sha") or ""
@@ -1027,7 +1078,7 @@ def modelswitch(inp, env):
     ST.log(env.sd, {"event": "modelswitch", "from": inp.get("from_model"), "to": to, "source": inp.get("source"), "hook": inp.get("hook_event_name")})
     if inp.get("hook_event_name") != "PostModelSwitch" or not to:
         return 0
-    need = env.cfg["requiredModel"]
+    need = ST.required_model(st, env.cfg)[0]                        # 施工看 requiredModel、接收看 receiveModel（P3）
     if to != need and to not in (st.get("model_approved") or []):
         apply_effects(env, [("model_violation", to)], inp)
     return 0
@@ -1053,7 +1104,7 @@ def sessionstart(inp, env):
             ctx.append("注意：另一個工作階段正在自動駕駛（階段 %s，狀態 %s）。這個工作階段不受自動駕駛的清單限制，但「合併進 main 要 David 放行」等保護仍然有效；"
                        "不要動那個階段的 worktree。" % (st.get("stage"), st.get("status")))
     m = ST.norm_model(inp.get("model"))
-    if m and mine(st, inp) and m != env.cfg["requiredModel"] and m not in (st.get("model_approved") or []):
+    if m and mine(st, inp) and m != ST.required_model(st, env.cfg)[0] and m not in (st.get("model_approved") or []):
         apply_effects(env, [("model_violation", m)], inp)
     if msgs or ctx:
         obj = {}

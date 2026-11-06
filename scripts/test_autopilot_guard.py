@@ -68,6 +68,7 @@ class FakeGit(object):
         self.asked = []
         self.verify_runs = []                # GitHub 上驗收機對某個 commit 的執行紀錄（None＝查不到）
         self.asked_runs = []
+        self.t2hash = {}                     # P3：tier2 那個檔在要推的 commit 上的 diff 指紋（沒指定＝"h-<路徑>"）
 
     def info(self, cdir):
         k = C.key(cdir) if cdir else None
@@ -133,6 +134,9 @@ class FakeGit(object):
     def gh_verify_runs(self, cfg, sha):
         self.asked_runs.append(sha)
         return None if self.verify_runs is None else [dict(r) for r in self.verify_runs]
+
+    def tier2_hash(self, cdir, path):
+        return self.t2hash.get(path, "h-" + path)
 
 
 class Base(unittest.TestCase):
@@ -902,7 +906,8 @@ class TestAutopilotOnly(Base):
         self.assertIn(("tier2", "scripts/fetch_data.py"), effects)
         self.git.changed = ["js/app.js", "scripts/fetch_data.py"]
         self.blocked(self.bash("git push origin feat/stopX1", state=st), code=3, has="diff")
-        st2 = self.state(tier2={"touched": {"scripts/fetch_data.py": {"ack": True}}})
+        # P3 規格 2.4(b)：已讀綁著 David「繼續」時那一份 diff 的指紋，跟要推的 commit 上算出來的一樣才算看過（原本只看 ack 旗標）
+        st2 = self.state(tier2={"touched": {"scripts/fetch_data.py": {"ack": True, "hash": "h-scripts/fetch_data.py"}}})
         self.allowed(self.bash("git push origin feat/stopX1", state=st2))
         self.git.changed = ["js/app.js", ".github/workflows/update-data.yml"]
         self.blocked(self.bash("git push origin feat/stopX1", state=st), code=3)
