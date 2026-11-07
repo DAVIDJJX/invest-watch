@@ -820,7 +820,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 
 **怎麼退回**
 
-- 合併之後：主目錄 `git revert -m 1 <合併 commit> && git push --no-verify`。純前端、沒有資料格式變更、沒有新檔被其他程式依賴；`scripts/mutations_pending/` 留著無害。
+- 退回：主目錄 `git revert -m 1 <合併 commit>` 再推（不改寫歷史、不刪標籤）。資料格式：risk.json 多一個頂層 `trend` 鍵，舊前端會忽略；退回後下一輪 15:30 不再寫入，留著無害。`mutations_pending/` 留著無害。
 
 ## 2026-11-06～ · 停點 P3 接收模式＋status.json＋用量記錄器＋三個誤擋修正（標籤 `stopP3`；一般模式，2026-11-07 合併 fd6ca2d）
 
