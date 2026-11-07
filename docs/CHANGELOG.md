@@ -785,6 +785,34 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-11-07 · 分析系列 A2a 趨勢面事實顯示（200 日均線＋12 個月報酬）（雲端施工、接收模式；合併編號（合併後補））
+
+每張卡的圖示列多第四格「趨勢」，分析分頁的總覽表自動多一欄。**只顯示事實**：不加總、不打分、不改任何資金規則；純前端，用首屏已載入的日線，不新增任何請求。雲端施工（Opus 5.5）打包，筆電接收模式收包。
+
+**改了什麼**
+
+- `js/plain.js`：趨勢的門檻與規則句各只有一份（`TREND_MA_DAYS = 200`、`TREND_RET_DAYS = 252`、`TREND_RULE`）；`trendNumbers`（均線與報酬用 `js/indicators.js` 現成的 `ma`、`changeOver`）、`trendState`（現價高於 200 日均線且 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平）、兩個數字的白話（`SENTENCES` 的 `trendMa`、`trendReturn`，跟其他模板一樣有逐字的測試表）；`ASPECTS.trend` 的規則從「A2 起才有」換成正式規則、圖示用色點（向下不等於壞，不配天氣）。這次的數字：「現價比 200 日均線高 3.2%、近 12 個月 +8.1%（不含息，資料到 2026-11-06） → 向上」，一位小數、正負號。不到 200 點（均線）或 253 點（12 個月報酬）就是「資料不足：只有 N 天（…）」。
+- `js/card-analysis.js`：`ASPECT_ORDER` 加 `'trend'`（排最後，既有三個不動）、`BUILDERS.trend`＝`trendAspect`（純函式）。細節列兩個數字（200 日均線＋現價相對 %、12 個月報酬＋起算日、不含息），各一行白話、資料標籤「日線」，兩個名詞可以點。條塊照位置的做法固定資料不足；這一輪更新失敗但日線已載入（分析分頁）時用日線最後一天算、日期照實寫並多一行交代；儀表板不替更新失敗的標的抓日線，所以卡片上是資料不足。
+- `js/glossary.js`：新詞「200 日均線」「12 個月報酬」；RSI 那一條加「本站只拿它描述最近漲跌，不作為判斷依據。」（RSI 的顯示與小字不動）。
+- `js/app.js`：圖示列的佔位字改成「位置、風險、成本、趨勢：讀取中…」，其他不動。
+- 五個頁面的 css/js 版本號 `20261105-1` → `20261107-1`（`scripts/bump_assets.py`）；`scripts/test_theme.py` 釘住的字串同步。
+- 測試：`scripts/test_aspects.html`＋`test_aspects_js.py`（新增 11 題趨勢＋1 條接線檢查）、`scripts/test_plain.html`＋`test_plain_js.py`（兩個趨勢模板的測試表、1 題常數與四捨五入、3 條原始碼檢查）、`scripts/test_analysis_page.html`（總覽表多一欄）、`scripts/test_dashboard_requests_js.py`（tier2：VOCAB 加 trend，其餘一字不動）。
+- `scripts/mutations_pending/a2a_mutations.py`（新）：W01～W15。接收模式不收 `scripts/mutations/` 的改動，先放這裡；驗收機不跑它。**待辦**：下一個一般模式的階段併進 `scripts/mutations/autopilot_mutations.py`（內容一字不改）。
+- 文件：`docs/ANALYSIS.md` 面向 2 補「A2a 已做」、面向 3 補 RSI 定位、第 4 節 bond_etf 加趨勢、新的 5.12、第 6 節表格的趨勢列、下一步。
+- **既有測試的改動**（理由逐條）：(1)(2) `test_aspects.html` 面向的順序與個數（三個 → 四個）——規格把趨勢排在最後；(3)(4) 同一檔「不適用成本的卡片只畫兩個圖示」改成三個（位置、風險、趨勢）——卡片多了趨勢那一格，成本照舊不畫；(5) `test_aspects_js.py` 測試頁的題數 16 → 27；(6)～(8) `test_analysis_page.html` 表頭多「趨勢」、每列 6 → 7 格、細節跨 6 → 7 欄、「三個面向各一塊」→ 四個；(9) `test_theme.py` 版本字串；(10) `test_dashboard_requests_js.py` 的 VOCAB 加 trend；(11) `test_plain.html` 的模板測試表加 `trendMa`、`trendReturn` 兩列並多一題、`test_plain_js.py` 的題數 12 → 13——趨勢的白話放進 `SENTENCES`（Cowork 裁決），既有規則「每個模板都有測試表」要守住。其他既有測試一條都沒改，既有突變一個都沒動。
+
+**怎麼驗的**
+
+- 全套 `python -m unittest discover -s scripts -p "test_*.py"`（雲端 Python 3.13、chrome-headless-shell）：施工前 1115 條 → 施工後 1131 條，全綠（沒有鹽的 3 條跳過）。
+- 新的趨勢測試（假數字 10／20／30）：向上（252 個 10＋現價 20：高 99.0%、+100.0%）、向下、持平（均線之上但一年報酬為負、均線之下但為正、剛好等於均線且報酬 0）、199／200 點、252／253 點、條塊與更新失敗、這次的數字的格式（24 組）、規則句以「規則：」開頭且細節與總覽表都印、名詞解釋與 RSI 定位、白話資料不足、禁用詞與計數；`test_plain.html` 兩個趨勢模板各四組（正常、極端、0、資料不足）逐字比對。
+- 突變（`run_mutations.py --defs scripts/mutations_pending/a2a_mutations.py`）：W01～W15 共 15 個，**全部紅**（基準 test_aspects_js 33 條、test_plain_js 21 條先全綠）：門檻 200→199（紅 13 條）、253→252（10）、三態反向（5）、持平條件（2）、資料不足硬算（2）、順序少 trend（14）、色點改天氣（5）、名詞解釋少「200 日均線」（2）、條塊不固定資料不足（1）、這次的數字不寫不含息（5）、RSI 少定位句（2）、規則句不以「規則：」開頭（6）、佔位字沒加趨勢（1）、白話不寫不含配息（6）、更新失敗拿錯日期（1）。
+- 首屏請求數：`test_dashboard_requests_js.py` 全綠（首屏 7 個靜態檔＋行情與報告＋日線檔，之後最多 5 個，沒有變）。
+- DOM 只增不減：施工前後各用 headless Chrome `--dump-dom` 抓 `index.html`、`analysis.html`（本機 127.0.0.1 的伺服器、等圖示列與總覽表畫完），每個標籤一行逐行比（版本號與走勢小圖的亂數 id 先換成固定字）。index.html：舊的每一行都原樣還在，多 531 行；analysis.html：多 617 行，舊的有 29 行不再原樣出現，全部是「同一個元素多東西」——14 列多了 `data-s-trend` 屬性、14 個細節列的跨欄 6 → 7、說明句多列一個「趨勢」欄名。沒有任何元素或文字少掉。
+
+**怎麼退回**
+
+- 合併之後：主目錄 `git revert -m 1 <合併 commit> && git push --no-verify`。純前端、沒有資料格式變更、沒有新檔被其他程式依賴；`scripts/mutations_pending/` 留著無害。
+
 ## 2026-11-06～ · 停點 P3 接收模式＋status.json＋用量記錄器＋三個誤擋修正（標籤 `stopP3`；一般模式，2026-11-07 合併 fd6ca2d）
 
 **合併紀錄（2026-11-07）**
