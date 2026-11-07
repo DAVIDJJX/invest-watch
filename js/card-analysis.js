@@ -10,6 +10,7 @@
  *       strip() 畫收合時就看得到的圖示列，detail() 畫點開後的數字、規則、白話。儀表板的卡片與分析分頁的總覽表用同一份。
  *       狀態的門檻與白話模板在 js/plain.js、位置的燈號在 js/indicators.js；這一支只負責「哪張卡的哪個面向看哪個數字」。
  *       摺疊區的每一列下面也多一行白話（plain.js 載入之後才有；沒載入就跟以前一樣只有數字）。
+ * A2a：第四個面向「趨勢」——用已載入的日線算 200 日均線位置與 12 個月價格報酬（門檻與規則在 js/plain.js），只顯示事實。
  *
  * 純函式：facts(asset, risk, cost) 回一個物件；render(facts) 回 HTML 字串。不 fetch、不碰 DOM。
  * 抓檔與掛進卡片的事在 js/app.js（首屏畫完之後才抓）。
@@ -248,9 +249,9 @@
    *        risk／cost／fx 是 data/analysis 的三個檔，null 表示那一檔讀不到（顯示「分析資料暫時讀不到」，不是資料不足）。
    * 三種「沒有狀態」要分清楚：資料不足＝之後會有（虛線圓圈＋原因）；不適用＝這一類標的沒有這個面向（卡片不畫、總覽表寫灰字）；
    * 暫時讀不到＝檔案沒抓到。幾個面向各看各的：這裡沒有任何把它們加起來或數一數的函式。
-   * 之後 A2／A3 要加趨勢、情緒、估值：在 ASPECT_ORDER 加一個名字、在 BUILDERS 加一個函式，卡片與總覽表就會自己多一格。
+   * 之後 A3 要加情緒、估值：在 ASPECT_ORDER 加一個名字、在 BUILDERS 加一個函式，卡片與總覽表就會自己多一格（A2a 的趨勢就是這樣加的，排最後）。
    */
-  var ASPECT_ORDER = ['position', 'risk', 'cost'];
+  var ASPECT_ORDER = ['position', 'risk', 'cost', 'trend'];
   var COST_MIN_DAYS = PREMIUM_MIN_DAYS;          // 折溢價與條塊溢價：自己的歷史滿幾個交易日才跟自己比
   var COST_PREMIUM_TAG = '確定';                 // 折溢價的狀態看哪一個口徑：確定（收盤對官方淨值，資料標籤「單一來源」）；預估口徑並列在細節裡
   /* 這幾類標的沒有「比平常貴或便宜」可比的成本 → 成本這個面向不適用 */
@@ -500,7 +501,54 @@
     return out;
   }
 
-  var BUILDERS = { position: positionAspect, risk: riskAspect, cost: costAspect };
+  /* ---- 趨勢（A2a）：200 日均線＋12 個月價格報酬（不含息）。只描述狀態，不是判斷；門檻、規則句、白話都在 js/plain.js。
+     用的是卡片已經載入的日線（ctx.points），跟位置一樣把現價當成序列的最後一點；不另外抓任何檔。 */
+  function signedPct(x) {                       // 一位小數、帶正負號；四捨五入是 0 的印 0.0%
+    var v = Math.round(x * 10) / 10;
+    return (v > 0 ? '+' : (v < 0 ? '-' : '')) + num(Math.abs(v), 1) + '%';
+  }
+  function trendAspect(asset, ctx) {
+    var Pl = global.Plain, I = global.Indicators;
+    var out = { aspect: 'trend', facts: [], extra: [], dates: '' };
+    var points = ctx.points || [];
+    if (asset.type === 'bot_gold_bar') {
+      out.state = Pl.insufficient('trend', '台銀不公布條塊的歷史牌價；本站自己累積的只有 ' + points.length + ' 個交易日，不夠算 ' +
+                                           Pl.TREND_MA_DAYS + ' 日均線與 12 個月報酬');
+      return out;
+    }
+    if (ctx.historyFailed || !I) {
+      out.state = Pl.insufficient('trend', '歷史資料讀取失敗，無法計算趨勢');
+      return out;
+    }
+    // 這一輪更新失敗（例如台銀擋下連線）：沒有現價，但已經載入的日線還在——用日線最後一天的收盤算，日期照實寫那一天；
+    // 連日線都沒有（儀表板不替更新失敗的標的抓日線）就是資料不足。
+    var stale = asset.status !== 'ok';
+    var dated = points.filter(function (p) { return p && isNum(p.c); });
+    if (stale && !dated.length) {
+      out.state = Pl.insufficient('trend', '這一項這一輪更新失敗，也沒有載入日線，算不出趨勢');
+      return out;
+    }
+    var series = I.closes(points);
+    var price = !stale && isNum(asset.price) ? asset.price : series[series.length - 1];
+    if (series.length && isNum(price)) series[series.length - 1] = price;
+    var through = (!stale && asset.date) || (dated.length ? dated[dated.length - 1].d : '') || '';
+    out.state = Pl.trendState(series, price, through);
+    var t = Pl.trendNumbers(series, price);
+    if (!t.ok) return out;
+    if (stale) out.extra.push({ text: '這一項這一輪更新失敗：用日線最後一天（' + through + '）的收盤算' });
+    var nd = asset.decimals || 0;
+    var from200 = I.windowStart(points, Pl.TREND_MA_DAYS), from12 = I.windowStart(points, Pl.TREND_RET_DAYS + 1);
+    out.facts.push({ term: Pl.TREND_MA_DAYS + ' 日均線', k: Pl.TREND_MA_DAYS + ' 日均線', v: num(t.ma200, nd), label: '日線', date: through,
+                     note: '現價相對 ' + signedPct(t.dist200Pct) + '；最近 ' + Pl.TREND_MA_DAYS + ' 個交易日（' + (from200 || '—') + '～' + (through || '—') + '）的收盤平均',
+                     plain: Pl.sentence('trendMa', { pct: t.dist200Pct }) });
+    out.facts.push({ term: '12 個月報酬', k: '12 個月報酬（不含息）', v: signedPct(t.ret12mPct), label: '日線', date: through,
+                     note: '起算日 ' + (from12 || '—') + '（' + Pl.TREND_RET_DAYS + ' 個交易日前的收盤）；只算價格，不含配息',
+                     plain: Pl.sentence('trendReturn', { pct: t.ret12mPct, from: from12 }) });
+    out.dates = '趨勢的資料日期：' + (through || '—') + '（日線）。';
+    return out;
+  }
+
+  var BUILDERS = { position: positionAspect, risk: riskAspect, cost: costAspect, trend: trendAspect };
 
   function aspects(asset, ctx) {
     if (!global.Plain || !asset) return null;                     // 白話層沒載入就什麼都不畫（由呼叫的人顯示「分析資料暫時讀不到」）
