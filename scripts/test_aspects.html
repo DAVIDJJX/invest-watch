@@ -625,6 +625,13 @@
           same(p, 'risk.json 讀不到', gone.state.key + '／' + gone.state.word + '／' + gone.state.because, 'error／暫時讀不到／分析資料暫時讀不到');
           var strip = box(CA.strip(asset('t', 'yahoo'), [gone]));
           if (!strip.querySelector('.asp-missing')) p.push('讀不到時圖示列下面要寫「分析資料暫時讀不到」');
+          // Codex 第 3 輪：日線檔讀不到時 analyze.py 寫 error → 暫時讀不到，不是資料不足
+          var broken = trendOf({ maDays: 200, retDays: 252, days: null, through: null, ma200: null, dist200Pct: null, above: null, ret12mPct: null,
+                                 label: '單一來源', error: '日線檔 data/history/t.json 讀不懂（JSONDecodeError），這一輪算不出趨勢' });
+          same(p, '日線檔讀不到', broken.state.key + '／' + broken.state.word + '／' + broken.state.because, 'error／暫時讀不到／分析資料暫時讀不到');
+          if (broken.facts.length) p.push('讀不到就不該列數字');
+          if (!box(CA.strip(asset('t', 'yahoo'), [broken])).querySelector('.asp-missing')) p.push('日線檔讀不到時圖示列下面要寫「分析資料暫時讀不到」');
+          same(p, '有 error 就算數字齊全也是讀不到', trendOf(TR({ error: '測試' })).state.key, 'error');
           var missing = trendOf(undefined);
           same(p, '分析檔裡沒有這個標的', missing.state.key + '／' + missing.state.because, 'na／分析檔裡還沒有這個標的的趨勢');
           var old = of(CA.aspects(asset('t', 'yahoo'), ctx(T10, { risk: { assets: {} } })), 'trend');

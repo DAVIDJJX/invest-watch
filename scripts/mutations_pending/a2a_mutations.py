@@ -69,6 +69,17 @@ M = [
     ("W19", "天數寫死，不看 JSON 的 maDays", P_,
      "    return v === 0 ? '跟 ' + maDays + ' 日均線差不到 0.1%' : '比 ' + maDays + ' 日均線'",
      "    return v === 0 ? '跟 ' + maDays + ' 日均線差不到 0.1%' : '比 ' + 200 + ' 日均線'", ASPECTS),
+    # 第四包（Codex 第 3 輪）：日線檔讀不到是第三種狀態
+    ("W20", "日線檔讀不到寫成資料不足（只有 0 天），不是讀不到", AN_,
+     "        if err:\n            t = trend_of([])", "        if False:\n            t = trend_of([])", ANALYZE),
+    ("W21", "日線檔讀不到沒記進錯誤清單", AN_,
+     "            if problems is not None:\n                problems.append(\"趨勢 %s：日線檔", "            if False:\n                problems.append(\"趨勢 %s：日線檔", ANALYZE),
+    ("W22", "前端把 error 當成資料不足", CA_,
+     "    if (t && t.error) { out.state = Pl.unavailable('trend'); return out; }",
+     "    if (t && t.error) { out.state = Pl.insufficient('trend', t.error); return out; }", ASPECTS),
+    ("W23", "讀不到的檔也吞掉（checked 版本跟原本一樣回空、不給原因）", AN_,
+     "        return [], \"讀不懂（%s）\" % e.__class__.__name__\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):",
+     "        return [], None\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):", ANALYZE),
 ]
 
 MUTATIONS = M

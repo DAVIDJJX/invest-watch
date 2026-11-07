@@ -798,6 +798,13 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第二包的測試：`test_analyze.py` 新增 9 條（上／下／持平、199／200、252／253、排除盤中點、條塊與沒有日線、鍵名避開禁用鍵、文件兩條；離線全跑那一條加檢查每個標的都有趨勢）；`test_aspects.html` 的趨勢題改用假的 risk.json `trend` 物件（199／200、252／253 的邊界移到 Python），新增「讀不到不是資料不足」「天數照 JSON」；`test_plain.html` 的趨勢模板測試表帶 `days`；`test_plain_js.py`、`test_aspects_js.py` 的原始碼檢查改成「前端沒有門檻、不碰日線」。既有測試沒有再改別的。
 - 突變 W 系列改成 W01～W19（錨點移到新位置；新增 Python 門檻、排除盤中點、前端自己算、讀不到寫成資料不足、文件數字寫錯、天數寫死）。
 
+**第四包：Codex 第 3 輪 1 條 P1 採納並修**（4501075687，`scripts/analyze.py`）
+
+- 日線檔損毀或格式不對時，原本 `load_history_daily()` 吞掉例外回空清單，趨勢被寫成「資料不足：只有 0 天」，讀檔失敗被掩蓋。仿 A1-4 回補檔（`backfillError`）的第三種狀態：新增 `load_history_daily_checked()`（回傳點與讀不到的原因；沒有這個檔照舊是空的），趨勢改用它；`load_history_daily()` 本身不動，拆解、成本、匯率讀日線的行為不變。
+- 讀不到時那一筆寫 `error`（數字全是 null、`days` 是 null、沒有 `reason`），並記進錯誤清單（risk.json 的 `problems` → status.json 的 `errors`，這一輪結束碼 2）。前端 `trendAspect`：有 `error` → `Pl.unavailable('trend')`（暫時讀不到）。
+- 測試：`test_analyze.py` 新增 2 條（損毀檔與格式不對→error 且進錯誤清單、點數不足→資料不足、檔不存在→照舊是「只有 0 天」；離線全跑時錯誤進 risk.json 與 status.json、`load_history_daily` 照舊回空清單）；`test_aspects.html` 的「讀不到不是資料不足」那一題加 error 物件→暫時讀不到。突變加 W20～W23（讀不到寫成資料不足、沒記進錯誤清單、前端把 error 當資料不足、讀不到的檔也吞掉），**W01～W23 共 23 個全部紅**（基準 test_aspects_js 33、test_plain_js 21、test_analyze 109 條先全綠）。
+- 全套：第三包 1140 條 → 第四包 1142 條，全綠（沒有鹽的 3 條跳過）。DOM 沒有重做（正常資料下的路徑沒變）。
+
 **改了什麼**
 
 - `js/plain.js`：趨勢的門檻與規則句各只有一份（`TREND_MA_DAYS = 200`、`TREND_RET_DAYS = 252`、`TREND_RULE`）；`trendNumbers`（均線與報酬用 `js/indicators.js` 現成的 `ma`、`changeOver`）、`trendState`（現價高於 200 日均線且 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平）、兩個數字的白話（`SENTENCES` 的 `trendMa`、`trendReturn`，跟其他模板一樣有逐字的測試表）；`ASPECTS.trend` 的規則從「A2 起才有」換成正式規則、圖示用色點（向下不等於壞，不配天氣）。這次的數字：「現價比 200 日均線高 3.2%、近 12 個月 +8.1%（不含息，資料到 2026-11-06） → 向上」，一位小數、正負號。不到 200 點（均線）或 253 點（12 個月報酬）就是「資料不足：只有 N 天（…）」。

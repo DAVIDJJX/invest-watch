@@ -451,6 +451,54 @@ class TestTrend(unittest.TestCase):
         self.assertEqual(out["gold_twd"]["ret12mPct"], 100.0)
         self.assertEqual(out["nothing"]["reason"], "資料不足：只有 0 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）")
 
+    def test_broken_history_is_an_error_not_insufficient(self):
+        """Codex 第 3 輪 4501075687：日線檔損毀＝讀不到（第三種狀態），記進錯誤清單；檔不存在照舊是資料不足；點數不足是資料不足。
+        對照組：讀不到寫成「只有 0 天」、或沒記進錯誤清單 → 這一條會紅。"""
+        w = World()
+        try:
+            p = os.path.join(w.data, "history", "broken.json")
+            with io.open(p, "w", encoding="utf-8") as fh:
+                fh.write("{ 這不是 JSON")
+            w.write("history/odd.json", {"points": "不是清單"})
+            w.write("history/short.json", {"points": daily([10] * 30)})
+            problems = []
+            out = A.build_trend([{"id": "broken", "type": "yahoo"}, {"id": "odd", "type": "yahoo"},
+                                 {"id": "short", "type": "yahoo"}, {"id": "missing", "type": "yahoo"}], w.paths, problems)
+        finally:
+            w.close()
+        b = out["broken"]
+        self.assertEqual(b["error"], "日線檔 data/history/broken.json 讀不懂（JSONDecodeError），這一輪算不出趨勢")
+        self.assertNotIn("reason", b)
+        self.assertIsNone(b["days"])
+        for k in ("ma200", "dist200Pct", "above", "ret12mPct", "through"):
+            self.assertIsNone(b[k], k)
+        self.assertEqual(out["odd"]["error"], "日線檔 data/history/odd.json 格式不對（沒有 points 清單），這一輪算不出趨勢")
+        self.assertEqual(problems, ["趨勢 broken：日線檔 讀不懂（JSONDecodeError），這一輪算不出趨勢",
+                                    "趨勢 odd：日線檔 格式不對（沒有 points 清單），這一輪算不出趨勢"])
+        self.assertNotIn("error", out["short"])
+        self.assertIn("只有 30 天", out["short"]["reason"])
+        self.assertNotIn("error", out["missing"])                                      # 沒有這個檔：照既有定義是資料不足
+        self.assertIn("只有 0 天", out["missing"]["reason"])
+
+    def test_broken_history_reaches_risk_and_status_errors(self):
+        """讀不到的日線檔要進 risk.json 的 problems 與 status.json 的 errors；別的面向讀日線的方式不變（load_history_daily 照舊回空清單）。"""
+        w = World()
+        try:
+            fill_world(w)
+            with io.open(os.path.join(w.data, "history", "gspc.json"), "w", encoding="utf-8") as fh:
+                fh.write("{ 壞掉")
+            with redirect_stdout(io.StringIO()):
+                status, code = A.run("review", offline=True, now=NOW)
+            risk = w.read("analysis/risk.json")
+            self.assertEqual(A.load_history_daily("gspc", w.paths), [])
+        finally:
+            w.close()
+        self.assertIn("error", risk["trend"]["gspc"])
+        self.assertIn("趨勢 gspc：日線檔 讀不懂（JSONDecodeError），這一輪算不出趨勢", risk["problems"])
+        self.assertTrue(any("趨勢 gspc" in e for e in status["errors"]))
+        self.assertEqual(code, 2)
+        self.assertNotIn("error", risk["trend"]["fx_usd"])
+
     def test_trend_keys_stay_clear_of_forbidden_names(self):
         from test_analysis_guards import FORBIDDEN_JSON_KEYS
         t = A.trend_of(daily([10] * 253))
