@@ -785,7 +785,22 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
-## 2026-11-06～ · 停點 P3 接收模式＋status.json＋用量記錄器＋三個誤擋修正（標籤 `stopP3`；一般模式，等放行後合併）
+## 2026-11-06～ · 停點 P3 接收模式＋status.json＋用量記錄器＋三個誤擋修正（標籤 `stopP3`；一般模式，2026-11-07 合併 fd6ca2d）
+
+**合併紀錄（2026-11-07）**
+
+- David 手打「放行 P3」（一般模式），程式開通行證，只准合併分支 `feat/stopP3` 的頂端 `c9ad823`。合併分兩個指令：先單獨建 worktree，再進去合併。
+- 合併 commit **fd6ca2d**（`--no-ff`；第一個 parent 是 main 的 9ea8799，第二個是分支的 c9ad823）。合併在另一個暫時的 worktree 做，主目錄留在 main、排程照跑。
+- 合併後的樹上全套測試 1115 條全綠（Python 3.12、Chrome，有帶鹽）。
+- **外部審查（Codex）**：2 輪（上限 4）。第 1 輪（`4c563f6`）2 條 P1 都採納並修在 `3e027ae`；第 2 輪（`c9ad823`）沒有找到重大問題。
+- **驗收機**（`c9ad823`）：1115 條測試（1112 過、3 條跳過＝驗收機上沒有鹽）；突變 478 個、紅 477、存活的只有已知例外 M105；七段都在封鎖裡跑、台銀 0。
+- **審查代理驗收**（`c9ad823`）：第 1 輪要改一條（信沒寫出這一段改了保護程式自己、審查準則加了一條），只改信；第 2 輪批准，沒有必改。
+- 本機突變：十片同時跑時，「放行關卡」那組流程測試在這台電腦上單次超過 30 分鐘、執行器整片停掉；改成六片、單次上限 2 小時補跑剩下的，合起來跟驗收機一致。之後本機跑突變不要開到十片。
+- 標籤 `stopP3` 在 `4c563f6`，其後尚有 `3e027ae`（Codex 第 1 輪的修正）、`c9ad823`（CHANGELOG 補記），同一個合併；標籤沒有動。
+- **待辦，等下一個動到保護的一般模式階段**（要改的是保護檔與 `docs/AUTOPILOT.md`，這一筆文件改不到）：
+  - status.json 在 verify／review-status／寄信之後由程式重寫，這幾個時機沒有測試也沒有突變（審查代理驗收時提的）；補測試與突變，並把這一條補進 `docs/AUTOPILOT.md` 的待辦表。
+- 合併之後：開一個新的工作階段確認 `usage.json` 有寫出來（Cowork 裁決 12）；P3-drill 由 Cowork 排（裁決 14）。
+- 這一筆文件 commit 只改 README 的回滾表與進度、這一段紀錄與下面「怎麼退回」的合併編號；沒有動程式。
 
 最後一個流程段：之後的功能段可以「雲端寫程式、筆電只收包推送合併」。一般模式（David 在場；保護檔只能這樣改）。覆述經 Cowork 裁決（14 件）、審查代理兩輪後批准。
 
@@ -814,7 +829,7 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 
 **怎麼退回**
 
-- 合併之後：主目錄 `git revert -m 1 <P3 的合併 commit> && git push --no-verify`（第二道對沒有通行證的 main 推送對誰都擋，`--no-verify` 是給 David 的），再主目錄 `git merge --ff-only origin/main`。舊的保護立刻恢復（推送前的入口不用重裝）。statusLine 要開新的工作階段才失效；`usage.json`、`status.json` 留著無害。要退 P2 得先退 P3。
+- 合併之後：主目錄 `git revert -m 1 fd6ca2d && git push --no-verify`（第二道對沒有通行證的 main 推送對誰都擋，`--no-verify` 是給 David 的），再主目錄 `git merge --ff-only origin/main`。舊的保護立刻恢復（推送前的入口不用重裝）。statusLine 要開新的工作階段才失效；`usage.json`、`status.json` 留著無害。要退 P2 得先退 P3。
 
 ## 2026-11-05 · 分析系列 A1-4 00646 官方淨值回補＋U1 柔和配色（標籤 `stopA1-4`；2026-11-06 合併 c77d598）
 
