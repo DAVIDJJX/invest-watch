@@ -130,10 +130,13 @@ GIT_DASH_C_OK = set(["core.quotepath", "color.ui", "advice.detachedhead", "core.
 # 會替我送訊息、排程、或開別的工作階段的工具：內容裡出現放行詞就擋（永遠有效）
 MESSAGING_TOOLS = re.compile(r"^(CronCreate|ScheduleWakeup|SendMessage|RemoteTrigger|PushNotification|"
                              r"mcp__scheduled-tasks__.*|mcp__ccd_session_mgmt__send_message|mcp__ccd_session__spawn_task)$")
-APPROVAL_WORDS = ("放行", "自動駕駛", "裁決", "免外部審查", "驗收機變更")
+APPROVAL_WORDS = ("放行", "自動駕駛", "裁決", "免外部審查", "驗收機變更", "接收：", "接收:")
 
 # 暫停（或停在合併前）期間，除了讀檔與搜尋之外還准用的工具：都不會動到任何檔。清單寫死、越窄越好（test_pause_allowed_list_is_narrow）。
 PAUSE_TOOLS = ("Skill", "ToolSearch", "TodoWrite", "SubagentHandback")
+# 讀通知（P3 規格 2.4(c)）：唯讀；app 在等背景工作時會自己叫它（A1-4 合併時就因為它不在清單裡被記成暫停、之後又被算成「暫停中又試」）。
+# 暫停中也准用。另外列一個清單：上面那一份是「暫停中的工具」原本的範圍，有測試釘住它不可以變寬。
+NOTICE_TOOLS = ("ReadNotifications",)
 _SQUEEZE = re.compile("[\\s" + "".join(chr(c) for c in (0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x3000, 0x00A0, 0x00AD)) + "]+")
 
 _SELF_RE = re.compile(r"(^|/)\.claude/(settings(\.local)?\.json|hooks|agents|skills|autopilot)(/|$)")
@@ -253,6 +256,10 @@ class GitInfo(object):
         rc, out = C.git(["rev-parse", "-q", "--verify", "MERGE_HEAD^{commit}"], cdir)
         return out if rc == 0 and out else None
 
+    def tier2_hash(self, cdir, path):
+        """這個分支最頂端的 commit 上，tier2 那個檔的 diff 指紋（跟 David「繼續」時記的比）。查不出來回 None。"""
+        return C.tier2_hash(cdir, REMOTE_MAIN, path, "HEAD")
+
     def gh_verify_runs(self, cfg, sha):
         """GitHub 上驗收機對這個 commit 的執行紀錄（唯讀；只有「重跑驗收」那條規則會問）。查不到回 None。"""
         import iw_review as RV                                      # 用到才載入：守門平常不連 GitHub
@@ -269,7 +276,7 @@ class GitInfo(object):
 # ---------------------------------------------------------------- 情境
 
 class Ctx(object):
-    def __init__(self, main_root, state, cfg, allow, git, inp, home=None, now=None):
+    def __init__(self, main_root, state, cfg, allow, git, inp, home=None, now=None, usage="read"):
         self.main_root = main_root
         self.main_key = C.key(main_root)
         self.state = ST.normalize(dict(state)) if state else {}     # 舊版（P1）寫的 paused／stopped 也看得懂
@@ -285,6 +292,7 @@ class Ctx(object):
         self.effects = []
         self.cwd = self.inp.get("cwd") or main_root
         self.scratch_key = C.key(self.inp.get("scratchpad_dir")) if self.inp.get("scratchpad_dir") else None
+        self._usage = usage                                         # 測試直接給一份；平常（"read"）用到時才讀主目錄的 usage.json
 
     @property
     def autopilot(self):
@@ -292,8 +300,25 @@ class Ctx(object):
         return bool(st.get("active")) and st.get("session_id") == self.inp.get("session_id")
 
     @property
+    def receive(self):
+        """接收模式（P3）：「接收：<階段>」啟動的。限制加在既有規則之上（_receive_gate）。"""
+        return ST.mode_of(self.state) == "receive"
+
+    @property
     def stage(self):
         return self.state.get("stage")
+
+    def usage(self):
+        """狀態列寫的用量紀錄（P3）。讀不到、格式不對回 None（＝不擋）。"""
+        if self._usage != "read":
+            return self._usage
+        try:
+            u = self.cfg.get("usage") or {}
+            p = os.path.join(self.main_root, *(self.cfg["runsDir"].split("/") + [u.get("file") or "usage.json"]))
+            obj = C.load_json(p)
+            return obj if isinstance(obj, dict) else None
+        except Exception:                                           # noqa: B902
+            return None
 
     def worktree_keys(self):
         base = self.main_key + "/" + self.cfg["worktreeDir"].strip("/").lower() + "/" + (self.cfg["tagPrefix"] + (self.stage or "")).lower()
@@ -440,6 +465,8 @@ def _decide(inp, ctx):
             raise Block("這個工具會替人送出訊息，內容裡不可以有 David 的指令詞（放行、自動駕駛）——那幾句只能由他親手輸入。", 1)
     if auto:
         _autopilot_tool(tool, ti, ctx)
+        if ctx.receive:
+            _receive_gate(tool, ti, ctx)                            # P3：接收模式在既有規則之上再查一層
 
 
 def _strings(obj):
@@ -456,8 +483,7 @@ def _strings(obj):
 
 def _autopilot_gate(tool, ti, ctx):
     st, cfg = ctx.state, ctx.cfg
-    need_model, need_effort = cfg["requiredModel"], cfg["requiredEffort"]
-    model_label, effort_label = cfg.get("requiredModelLabel") or need_model, cfg.get("requiredEffortLabel") or need_effort
+    need_model, need_effort, model_label, effort_label = ST.required_model(st, cfg)       # 施工看 required*、接收看 receive*（P3）
     effort = ((ctx.inp.get("effort") or {}).get("level")) if isinstance(ctx.inp.get("effort"), dict) else None
     model = ST.norm_model(ctx.inp.get("_observed_model") or "") or None
     approved_models = set([need_model] + list(st.get("model_approved") or []))
@@ -469,12 +495,12 @@ def _autopilot_gate(tool, ti, ctx):
         if effort is not None and effort != need_effort:
             ctx.effects.append(("deactivate", "思考強度是 %s，不是 %s" % (effort, need_effort)))
             raise Block("自動駕駛沒有啟動：思考強度現在是「%s」，規定是「%s（%s）」。\n"
-                        "請告訴 David：用輸入框旁邊的思考強度選單（Effort；快速鍵 Ctrl+Shift+E）改成 %s，再重新輸入「自動駕駛：%s」。Max 也不行，只認 %s。"
-                        % (effort, need_effort, effort_label, effort_label, st.get("stage"), effort_label), 9)
+                        "請告訴 David：用輸入框旁邊的思考強度選單（Effort；快速鍵 Ctrl+Shift+E）改成 %s，再重新輸入「%s：%s」。Max 也不行，只認 %s。"
+                        % (effort, need_effort, effort_label, effort_label, _start_word(ctx), st.get("stage"), effort_label), 9)
         if model is not None and model not in approved_models:
             ctx.effects.append(("deactivate", "模型是 %s，不是 %s" % (model, need_model)))
             raise Block("自動駕駛沒有啟動：現在的模型是「%s」，規定是「%s」。\n請告訴 David：用輸入框旁邊的模型選單改回 %s，"
-                        "再重新輸入「自動駕駛：%s」。" % (model, need_model, model_label, st.get("stage")), 9)
+                        "再重新輸入「%s：%s」。" % (model, need_model, model_label, _start_word(ctx), st.get("stage")), 9)
         ctx.effects.append(("activate", {"effort": effort, "model": model}))
     else:
         if st.get("model_violation") and st["model_violation"].get("model") not in approved_models:
@@ -493,6 +519,13 @@ def _autopilot_gate(tool, ti, ctx):
         if st.get("status") == "pending":                           # 「繼續／修改」之後的第一個動作：模型與強度都對，接著做
             ctx.effects.append(("activate", {"effort": effort, "model": model}))
 
+    if not ST.is_paused(st) and st.get("status") != "awaiting_approval":
+        hi = _usage_high(ctx)
+        if hi:                                                      # P3：5 小時的用量到門檻＝暫停、寄小事的短信（程式寄，不靠 Claude 記得寄）
+            ctx.effects.append(("usage_pause", hi[0], hi[1]))
+            if not _is_wrapup(tool, ti, ctx):
+                raise Block("5 小時的用量到了 %s%%（門檻 %s%%），自動駕駛已暫停（已寄信）。額度恢復之後請 David 輸入「繼續 %s」。"
+                            % (_pct(hi[0]), _pct(hi[1]), st.get("stage")), 9)
     reason = stop_reason(ctx)
     if reason and not _is_wrapup(tool, ti, ctx):
         if ST.is_paused(st):
@@ -500,6 +533,32 @@ def _autopilot_gate(tool, ti, ctx):
         raise Block(reason + "\n現在只能做三件事：寫停止報告（.autopilot/runs/%s/）、執行寄信的指令、唯讀地查看。" % ctx.stage,
                     (st.get("stop_required") or st.get("pause") or {}).get("code"))
     ctx.effects.append(("heartbeat", effort, model))
+
+
+def _start_word(ctx):
+    """啟動這一種自動駕駛的指令詞（給 David 的提示用）。"""
+    return "接收" if ctx.receive else "自動駕駛"
+
+
+def _pct(x):
+    return ("%.1f" % x).rstrip("0").rstrip(".")
+
+
+def _usage_high(ctx):
+    """5 小時的用量到了門檻（P3 規格 2.3）：回傳 (百分比, 門檻) 或 None。
+    usage.json 要在 freshSeconds 秒內寫的才算；讀不到、過期、沒有數字（例如不是 Pro／Max、還沒有第一次回應）＝None＝不擋。"""
+    u = ctx.cfg.get("usage") or {}
+    obj = ctx.usage()
+    if not obj:
+        return None
+    at = C.parse_iso(obj.get("updated_at"))
+    if at is None or abs((ctx.now - at).total_seconds()) > float(u.get("freshSeconds", 60)):
+        return None
+    pct = obj.get("five_hour_pct")
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+        return None
+    limit = float(u.get("pausePct", 90))
+    return (float(pct), limit) if pct >= limit else None
 
 
 def stop_reason(ctx):
@@ -519,6 +578,20 @@ def stop_reason(ctx):
     if status == "awaiting_approval":
         return "已經停在合併前，等 David 輸入「放行 %s」或「修改 %s：＿＿」。" % (stage, stage)
     t0 = C.parse_iso(st.get("clock_started_at"))
+    if ctx.receive:
+        # 接收模式（P3 裁決 8）：7 天的絕對上限從「接收：」或 David 最後一次「繼續」起算；8 小時從最後一次接受包起算（套包成功時程式重設），
+        # 超過 8 小時不是停止條件，而是只准等包、驗包、套包、寫狀態、寄信、唯讀查看（＝等包不計時）。
+        r = st.get("receive") or {}
+        marks = [x for x in (C.parse_iso(r.get("started_at")), C.parse_iso(r.get("last_resume_at"))) if x is not None]
+        days = float(cfg.get("receiveMaxDays", 7))
+        if marks and (ctx.now - max(marks)).total_seconds() > 86400.0 * days:
+            ctx.effects.append(("stop_required", 9, "接收模式超過 %s 天上限" % _pct(days)))
+            return "已經碰到停止條件 9：接收模式從「接收：」或最後一次「繼續」起超過 %s 天。" % _pct(days)
+        idle_hours = float(cfg.get("maxHours", 8))
+        if t0 is not None and (ctx.now - t0).total_seconds() > 3600.0 * idle_hours:
+            return ("接收模式：從最後一次接受包起超過 %s 小時。現在只准等包、驗包、套包、寫狀態、寄信與唯讀查看；"
+                    "接受下一個包之後重新計時。" % cfg.get("maxHours", 8))
+        return None
     if t0 is not None and (ctx.now - t0).total_seconds() > 3600.0 * float(cfg.get("maxHours", 8)):
         ctx.effects.append(("stop_required", 9, "超過時間上限 %s 小時" % cfg.get("maxHours", 8)))
         return "已經碰到停止條件 9：這一輪超過時間上限 %s 小時。" % cfg.get("maxHours", 8)
@@ -551,11 +624,13 @@ def _is_wrapup(tool, ti, ctx):
         輸出若轉向，只准到 .autopilot/runs/<階段>/；用 ;、&&、管線串在後面的寫入指令一樣擋
       * Skill、ToolSearch、TodoWrite、SubagentHandback（都不動任何檔）
     其他一律擋。"""
-    if tool in PAUSE_TOOLS:
+    if tool in PAUSE_TOOLS or tool in NOTICE_TOOLS:
         return True
     runs = _runs_key(ctx)
     if tool in ("Write", "Edit"):
         k = C.key(str(ti.get("file_path") or ""), ctx.cwd)
+        if _evidence_problem(k, ctx):                               # status.json、usage.json、收件匣：只准程式寫（P3）
+            return False
         return k is not None and C.is_under(k, runs)
     if tool == "Bash":
         try:
@@ -583,11 +658,16 @@ def _is_wrapup(tool, ti, ctx):
                     return False
                 if ">" in op and w.text not in ("/dev/null",) and not re.match(r"^[0-9]+$", w.text):
                     k = C.key(w.text, cwd) if not w.opaque else None
+                    if _evidence_problem(k, ctx):
+                        return False
                     if k is None or not C.is_under(k, runs):
                         return False
             if _notify_command(argv, cwd, ctx):
                 if "pr" in argv[1:]:                                # 暫停中不開 PR、不改 PR、不留言（那不是「寫報告、寄信、唯讀查看」）
                     return False
+                if "receive" in argv[1:] and ("--apply" in argv or "--tested" in argv) and \
+                        (ST.is_paused(ctx.state) or ctx.state.get("status") == "awaiting_approval"):
+                    return False                                    # P3：暫停中、停在合併前不套新的包（接收模式超過 8 小時、沒有暫停時可以）
                 continue
             if p == "git" and _git_sub(argv)[3]:                   # git -c：臨時改設定，暫停中不准
                 return False
@@ -709,6 +789,9 @@ def _file_write(path, tool, ctx, auto):
     k = C.key(path, ctx.cwd)
     if k is None:
         raise Block("看不懂這個路徑：%s" % path, 8)
+    ev = _evidence_problem(k, ctx)
+    if ev:
+        raise Block("自動駕駛期間不能直接寫%s：它只准程式寫（給 Cowork 與檢查程式看的證據、雲端放包的地方）。" % ev, 3)
     if C.is_under(k, ctx.home_key + "/.claude/projects") and "/memory/" in k and k.endswith(".md"):
         return                                                      # 記憶檔
     roots = ctx.write_roots()
@@ -718,6 +801,26 @@ def _file_write(path, tool, ctx, auto):
         if C.is_under(k, wt):
             _tier_check([C.rel_to(k, wt)], ctx, "改")
             break
+
+
+def _evidence_problem(k, ctx):
+    """P3 裁決 10：給 Cowork 與守門看的證據檔（每個階段的 status.json、狀態列寫的用量紀錄）與雲端放包的收件匣，只准程式寫；
+    自動駕駛（兩種模式）一律擋 Claude 直接寫（不然筆電上的 Claude 可以「幫忙修」一個被拒收的包，或把用量寫低）。是的話回白話名稱。"""
+    if k is None:
+        return None
+    runs = ctx.main_key + "/" + ctx.cfg["runsDir"].strip("/").lower()
+    if not C.is_under(k, runs) or k == runs:
+        return None
+    parts = C.rel_to(k, runs).split("/")
+    usage_file = ((ctx.cfg.get("usage") or {}).get("file") or "usage.json").lower()
+    inbox = ((ctx.cfg.get("receive") or {}).get("inboxDir") or "inbox").lower()
+    if len(parts) == 1 and parts[0].startswith(usage_file):         # usage.json 與它的暫存檔
+        return "用量紀錄（%s）" % usage_file
+    if len(parts) == 2 and parts[1].startswith("status.json"):
+        return "給 Cowork 讀的狀態檔（status.json）"
+    if len(parts) >= 2 and parts[1] == inbox:
+        return "雲端放包的收件匣（%s/）" % inbox
+    return None
 
 
 def not_preexisting(files, state, blobs):
@@ -1343,6 +1446,9 @@ def _write_target(w, cwd, ctx, verb):
     k = C.key(w.text, cwd)
     if k is None:
         raise Block("%s的位置是相對路徑，但前面的 cd 讓我看不出現在在哪個資料夾（%s）。請寫完整路徑。" % (verb, w.text), 8)
+    ev = _evidence_problem(k, ctx) or _evidence_problem(C.real_key(w.text, cwd), ctx)
+    if ev:
+        raise Block("自動駕駛期間指令不能直接寫%s：它只准程式寫。" % ev, 3)
     rk = C.real_key(w.text, cwd) or k
     roots = ctx.write_roots()
     if not any(C.is_under(k, r) for r in roots) or not any(C.is_under(rk, r) for r in roots + [C.real_key(r) or r for r in roots]):
@@ -1612,7 +1718,10 @@ def _git(words, cwd, ctx, auto):
         if pos and pos[0] == "add" and MAIN in pos[1:] and (_short_flag(args, "Bb", "") or "--force" in opts or _short_flag(args, "f", "Bb")):
             raise Block("不能用 worktree add 重設或重複佔用 main 分支。", 4)
         if auto and pos and pos[0] == "add":
-            target = next((a for a in pos[1:]), None)
+            # 路徑＝跳過選項與選項的值之後的第一個參數。原本取「第一個不是 - 開頭的」，-b feat/stopA1-4 的分支名就被當成路徑
+            # （2026-11-05 A1-4 被誤擋的那一行；P3 規格 2.4(a)）。-b／-B 後面接分支名，--reason 後面接一段說明。
+            plain = _plain_positionals(args, ("--reason",), "bB")
+            target = plain[1] if len(plain) > 1 and plain[0] == "add" else None
             k = C.key(target, cdir) if target else None
             base = ctx.main_key + "/" + ctx.cfg["worktreeDir"].strip("/").lower()
             if k is None or not C.is_under(k, base):
@@ -1892,14 +2001,18 @@ def _git_push(args, words, cdir, ctx, auto):
         if changed is None:
             raise Block("查不出這個分支跟 main 差了哪些檔，先不推。", 8)
         _tier_check(not_preexisting(changed, ctx.state, ctx.git.head_blobs(cdir)), ctx, "推上去 ")
-        pending = [p for p, v in ((ctx.state.get("tier2") or {}).get("touched") or {}).items() if not v.get("ack")]
+        # tier2（P3 規格 2.4(b)）：David「繼續」時記下那一份 diff 的指紋；要推的 commit 上算出來的指紋一樣＝看過了，不一樣（或沒有指紋）＝要他再看。
+        # 原本是「每動一次就清掉已讀」，同一份 diff 要一看再看（A1-4 寄了四次）。動過、但現在跟正式版一樣的檔沒有 diff 可看，不擋。
+        touched = (ctx.state.get("tier2") or {}).get("touched") or {}
         t2 = [f for f in changed if C.glob_match(f, ctx.cfg["tier2"]["paths"])]
-        if pending or t2:
-            acked = set(p for p, v in ((ctx.state.get("tier2") or {}).get("touched") or {}).items() if v.get("ack"))
-            need = sorted(set(pending) | (set(t2) - acked))
-            if need:
-                raise Block("這個階段動到了要先給 David 看 diff 的檔（%s）。先寄「請看 diff」的停止報告，等他輸入「繼續 %s」之後才能推。"
-                            % ("、".join(need), ctx.stage), 3)
+        need = []
+        for f in sorted(set(t2)):
+            v = touched.get(f) or touched.get(f.lower()) or {}
+            if not (v.get("ack") and v.get("hash") and v.get("hash") == ctx.git.tier2_hash(cdir, f)):
+                need.append(f)
+        if need:
+            raise Block("這個階段動到了要先給 David 看 diff 的檔（%s），而且他還沒看過現在這一版。先寄「請看 diff」的停止報告，等他輸入「繼續 %s」之後才能推。"
+                        % ("、".join(need), ctx.stage), 3)
 
 
 # ---------------------------------------------------------------- gh 與 curl
@@ -2097,6 +2210,53 @@ def _curl(p, argv, ctx, auto):
 
 # ---------------------------------------------------------------- 自動駕駛：程式清單與寫入位置
 
+def _evidence_container(k, ctx):
+    """這個路徑本身不是證據檔，但包住了證據檔（報告資料夾的根與它的上層、某個階段的資料夾、收件匣）：刪掉、搬走或整個蓋掉，
+    status.json、usage.json、收件匣就跟著沒了或被換掉。"""
+    if k is None:
+        return False
+    runs = ctx.main_key + "/" + ctx.cfg["runsDir"].strip("/").lower()
+    if C.is_under(runs, k):
+        return True
+    return C.is_under(k, runs) and len(C.rel_to(k, runs).split("/")) == 1
+
+
+def _evidence_by_directory(p, argv, args, cwd, ctx):
+    """Codex 對 P3 的第一次審查（P1）：只看 cp 的最後一個參數，「cp <報告資料夾>/草稿/status.json <報告資料夾>/」就漏掉了實際被覆寫的
+    status.json；遞迴複製可以整個蓋掉收件匣；rm -r 整個階段資料夾會連證據一起刪掉。自動駕駛期間（兩種模式）：
+      * rm／rmdir／mv 的對象不可以是包住證據檔的資料夾；
+      * cp／mv 的目的地在報告資料夾（或包住它的資料夾）時，只准「一個檔 → 一個檔」：不准資料夾目的地（結尾是斜線、點、或已經是資料夾）、
+        不准多個來源、不准遞迴——這樣目的地就是實際被寫的那個檔，前面那一道看的就是它。"""
+    if p in ("rm", "rmdir", "mv"):
+        for w in args:
+            if not w.opaque and _evidence_container(C.key(w.text, cwd), ctx):
+                raise Block("「%s」的對象（%s）包住了 status.json、用量紀錄或收件匣（只准程式寫的證據），不允許。" % (p, w.text), 3)
+    if p not in ("cp", "mv") or not args:
+        return
+    dest = args[-1]
+    dk = None if dest.opaque else C.key(dest.text, cwd)
+    runs = ctx.main_key + "/" + ctx.cfg["runsDir"].strip("/").lower()
+    if dk is None or not (C.is_under(dk, runs) or _evidence_container(dk, ctx)):
+        return
+    recursive = any(a in ("--recursive", "--archive") or (a.startswith("-") and not a.startswith("--") and any(ch in a[1:] for ch in "rRa"))
+                    for a in argv[1:])
+    tail = dest.text.replace("\\", "/")
+    real = C.norm(dest.text, cwd)
+    if recursive or len(args) != 2 or tail.endswith("/") or tail.rsplit("/", 1)[-1] in (".", "..") or (real and os.path.isdir(real)):
+        raise Block("「%s」的目的地在報告資料夾（%s）時，只准寫成「一個檔 → 一個檔」：不用資料夾當目的地、不用多個來源、不用遞迴"
+                    "（不然實際被寫的檔看不出來，可能是 status.json 或收件匣）。" % (p, dest.text), 3)
+
+
+def _target_dir_option(argv):
+    """cp／mv 的 -t 目的地（P3 審查時找到的）：「cp -t <資料夾> <檔>」的目的地在選項裡，只看最後一個參數就看錯了位置。"""
+    for a in argv[1:]:
+        if a == "--":
+            break
+        if a.startswith("--target-directory") or (a.startswith("-") and not a.startswith("--") and "t" in a[1:]):
+            return True
+    return False
+
+
 def _autopilot_program(p, words, c, cwd, ctx, shell):
     allow = ctx.allow["programs"]
     if p not in allow["allow"]:
@@ -2104,6 +2264,8 @@ def _autopilot_program(p, words, c, cwd, ctx, shell):
     argv = [w.text for w in words]
     if _mutating_flags(p, argv) and p == "find":
         raise Block("自動駕駛期間 find 不用 -delete／-exec（看不到實際會動到什麼）。請用 Python 腳本。", 8)
+    if p in ("cp", "mv") and _target_dir_option(argv):
+        raise Block("自動駕駛期間 %s 不用 -t／--target-directory（目的地寫在選項裡，檢查程式會看錯位置）。請把目的地寫在最後。" % p, 8)
     targets = []
     args = [w for w in words[1:] if not w.text.startswith("-")]
     if p in ("rm", "rmdir", "touch", "mkdir", "tee", "mv"):
@@ -2114,7 +2276,265 @@ def _autopilot_program(p, words, c, cwd, ctx, shell):
         targets = args[1:] if len(args) > 1 else args
     for w in targets:
         _write_target(w, cwd, ctx, "「%s」要動" % p)
+    _evidence_by_directory(p, argv, args, cwd, ctx)
     if p == "git":
         sub = _git_sub(argv)[0]
         if sub in ("init",):
             raise Block("自動駕駛期間不另外建倉庫。", 8)
+
+
+# ---------------------------------------------------------------- 接收模式（P3）
+# 「接收：<階段>」啟動的自動駕駛：筆電上的 Claude 只收雲端（Cowork）做好的包、測、推、開 PR、合併，不改程式。
+# 做法＝「暫停中准做的事」（讀、寫報告、寄信、唯讀查看）再多開收包流程一定要的幾樣；其他一律擋（停止條件 8）。
+# 規則是程式判定的，不靠流程檔的文字（規格 P3 第 1 節）。包本身由收包程式（iw_receive.py）驗、套，Claude 不碰 bundle。
+
+_RECEIVE_PUSH_OPTS = frozenset(["-u", "--set-upstream", "-q", "--quiet", "-v", "--verbose", "--progress", "--no-progress"])
+_RECEIVE_CURL_FLAGS = frozenset(["-s", "-S", "-sS", "-Ss", "-f", "-fsS", "-sf", "-I", "-L", "--silent", "--show-error", "--fail", "--head", "--location"])
+_RECEIVE_CURL_VALUE_OPTS = frozenset(["-w", "--write-out", "-m", "--max-time", "--connect-timeout"])
+
+
+def _docs_files(ctx):
+    return [f.lower() for f in ctx.cfg["docsFollowupFiles"]]
+
+
+def _receive_write_ok(k, ctx, docs=True):
+    """接收模式寫得到的地方：這個階段的報告資料夾（證據檔與收件匣除外）；放行後、合併推上去到文件推上去之間，
+    合併用的 worktree 裡的 README.md 與 docs/CHANGELOG.md（文件那一筆；裁決 4，沿用通行證的 docs 規則）。"""
+    if k is None or _evidence_problem(k, ctx):
+        return False
+    if C.is_under(k, _runs_key(ctx)):
+        return True
+    if docs and ST.credential_problem(ctx.state, ctx.cfg, "docs", ctx.now) is None:
+        merge_wt = ctx.worktree_keys()[1]
+        return k in [merge_wt + "/" + f for f in _docs_files(ctx)]
+    return False
+
+
+def _receive_gate(tool, ti, ctx):
+    allow = ctx.allow["tools"]
+    if tool in (allow.get("receiveExclude") or []):
+        raise Block("接收模式（筆電只收包）不用「%s」。需要的話：寫停止報告、寄信。" % tool, 8)
+    if tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        path = str(ti.get("file_path") or ti.get("notebook_path") or "")
+        if _receive_write_ok(C.key(path, ctx.cwd), ctx):
+            return
+        raise Block("接收模式不改程式：改檔工具只准寫這個階段的報告資料夾（%s/%s/；status.json 與收件匣除外），"
+                    "放行後的文件那一筆另外准改合併用 worktree 裡的 %s。「%s」不行——程式要改，由雲端做成下一個包。"
+                    % (ctx.cfg["runsDir"], ctx.stage, "、".join(ctx.cfg["docsFollowupFiles"]), path), 8)
+    if tool == "Bash":
+        _receive_bash(str(ti.get("command") or ""), ctx)
+
+
+def _receive_bash(command, ctx):
+    try:
+        parsed = S.parse_bash(command, {"HOME": ctx.home})
+    except S.ParseError as e:
+        raise Block("看不懂這段指令的寫法（%s）。" % e, 8)
+    if parsed.complex or parsed.heredocs:
+        raise Block("接收模式的指令只用簡單的寫法（不用 heredoc、case、函式定義）。", 8)
+    cwd = ctx.cwd
+    for c in parsed.cmds:
+        for op, w in c.redirs:
+            if ">" not in op or w.text in ("/dev/null", "/dev/stdout", "/dev/stderr") or re.match(r"^[0-9]+$|^-$", w.text):
+                continue
+            k = None if w.opaque else C.key(w.text, cwd)
+            if not _receive_write_ok(k, ctx, docs=False):
+                raise Block("接收模式的指令輸出只能轉向到這個階段的報告資料夾（%s/%s/；status.json 與收件匣除外）；「%s」不行。"
+                            % (ctx.cfg["runsDir"], ctx.stage, w.text), 8)
+        if not c.words:
+            continue
+        words, _notes = _unwrap(c.words)
+        if not words:
+            continue
+        if words[0].opaque:
+            raise Block("看不出這一段實際執行的是什麼程式。", 8)
+        p = prog_name(words[0].text)
+        argv = [w.text for w in words]
+        if p in ("cd", "pushd"):
+            tgt = [w for w in words[1:] if not w.text.startswith("-")]
+            cwd = C.norm(tgt[0].text, cwd) if tgt and not tgt[0].opaque else (ctx.home if not tgt else None)
+            continue
+        if p == "popd":
+            cwd = None
+            continue
+        if _notify_command(argv, cwd, ctx):                         # shell、eval、source 這類不在下面任何一種裡：由最後那一道擋
+            continue
+        if p in ctx.allow["programs"]["pythonInterpreters"]:
+            if _receive_python_ok(argv, cwd, ctx):
+                continue
+            raise Block("接收模式的 Python 只准兩種：在這個階段的 worktree（或合併用的 worktree）裡跑寫死的全套測試"
+                        "（-m unittest discover -s scripts -p test_*.py），以及主目錄那支 iw_notify.py。別的腳本（包括放在報告資料夾裡的）一律不跑。", 8)
+        if p == "git":
+            _receive_git(words, cwd, ctx)
+            continue
+        if p == "gh":
+            continue                                                # gh 已經照既有規則只放行唯讀、寄通知與有範圍的重跑驗收
+        if p == "curl":
+            _receive_curl(argv)
+            continue
+        if _is_readonly(p, words, "bash"):
+            continue
+        if p in ("mkdir", "touch", "rm", "rmdir", "mv", "tee", "cp"):
+            args = [w for w in words[1:] if not w.text.startswith("-")]       # cp／mv 的 -t 在既有的自動駕駛規則已經擋了
+            targets = args[-1:] if p == "cp" else args             # mv：來源也會被移走，一起看
+            for w in targets:
+                k = None if w.opaque else C.key(w.text, cwd)
+                if not _receive_write_ok(k, ctx, docs=False):
+                    raise Block("接收模式的「%s」只准動這個階段的報告資料夾裡的檔（status.json 與收件匣除外）；「%s」不行。" % (p, w.text), 8)
+            continue
+        raise Block("接收模式不用「%s」（會寫檔、或不在接收模式的清單裡）。" % p, 8)
+
+
+def _receive_python_ok(argv, cwd, ctx):
+    args = argv[1:]
+    if args and prog_name(argv[0]) == "py" and re.match(r"^-[0-9][0-9.]*(-(32|64))?$", args[0]):
+        args = args[1:]                                             # py 後面接的版本（例如 -3.12）：選版本，不是 Python 的選項
+    if args in (["--version"], ["-V"]):
+        return True
+    i = 0
+    while i + 1 < len(args) and (args[i], args[i + 1]) in (("-W", "ignore"), ("-X", "utf8")):
+        i += 2
+    rest = args[i:]
+    if rest not in (["-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py"],
+                    ["-m", "unittest", "discover", "-s", "scripts", "-p", "test_*.py", "-v"]):
+        return False
+    k = C.key(cwd) if cwd else None
+    return k is not None and k in ctx.worktree_keys()
+
+
+def _receive_curl(argv):
+    it = iter(argv[1:])
+    for a in it:
+        if a in _RECEIVE_CURL_VALUE_OPTS:
+            next(it, None)
+            continue
+        if a.startswith("-") and a not in _RECEIVE_CURL_FLAGS:
+            raise Block("接收模式的 curl 只准看（-s、-S、-f、-I、-L、-w、-m），不准存檔或讀設定檔（%s）。" % a, 8)
+
+
+def _receive_git(words, cwd, ctx):
+    argv = [w.text for w in words]
+    sub, args, dirs, _keys, _bad = _git_sub(argv)
+    cdir = cwd
+    for d in dirs:
+        cdir = C.norm(d, cdir) if cdir is not None else None
+    if sub is None or sub in ("version", "help", "h") or sub in READONLY_GIT:
+        return                                                      # 唯讀（會寫檔的選項在既有規則已經擋了）
+    stage_wt, merge_wt = ctx.worktree_keys()
+    k = C.key(cdir) if cdir else None
+    in_stage, in_merge = k is not None and C.is_under(k, stage_wt), k is not None and C.is_under(k, merge_wt)
+    info = ctx.git.info(cdir) if cdir else None
+    opts = [a for a in args if a.startswith("-")]
+    pos = [a for a in args if not a.startswith("-")]
+    st = ctx.state
+    cred = st.get("credential") or {}
+    merge_ok = ST.credential_problem(st, ctx.cfg, "merge", ctx.now) is None
+    docs_ok = ST.credential_problem(st, ctx.cfg, "docs", ctx.now) is None
+    finishing = st.get("status") in ("merged", "done") or bool(cred.get("merge"))
+    origin_main = ("origin/" + MAIN, REMOTE_MAIN)
+    nope = "接收模式不用這個 git 指令（git %s）：筆電不改程式、包由收包程式（iw_notify.py receive --apply）套上；合併只在放行之後照 merge-steps 做。" % sub
+    if sub == "fetch":
+        if (not pos or pos[0] == ctx.cfg["remote"]) and not any(":" in a for a in pos[1:]):
+            return                                                  # 不帶目的地：只更新「遠端在哪裡」的記號，不動本機分支
+        raise Block("接收模式的 git fetch 只准寫成 git fetch %s（可以接分支名，不帶目的地）；包由收包程式套上，不從檔案或別的地方 fetch。"
+                    % ctx.cfg["remote"], 8)
+    if sub == "push":
+        _receive_push(args, cdir, info, in_stage, finishing, ctx)
+        return
+    if sub == "tag":
+        if not args or (any(o in _REF_QUERY_OPTS["tag"] for o in opts) and not any(o in ("-d", "--delete") for o in opts)):
+            return                                                  # 列出、查詢
+        name = ctx.cfg["tagPrefix"] + (ctx.stage or "")
+        if opts or not pos or pos[0] != name or len(pos) > 2:
+            raise Block("接收模式只准建這個階段的標籤，而且只能寫成 git tag %s（不加選項、不帶訊息）。" % name, 8)
+        if ctx.git.tag_exists(name):
+            raise Block("標籤 %s 已經有了；接收模式不動既有標籤（之後的包是標籤之後的 commit）。" % name, 4)
+        applied = (st.get("receive") or {}).get("applied_head")
+        head = (info or {}).get("head")
+        target = ctx.git.rev(cdir, pos[1]) if len(pos) == 2 else head
+        if not in_stage or not applied or head != applied or target != applied:
+            raise Block("標籤 %s 只准在這個階段的 worktree 裡、打在收包程式套上的那個 commit 上。" % name, 8)
+        return
+    if sub == "worktree":
+        sub2 = pos[0] if pos else ""
+        if sub2 == "list" or (sub2 == "prune" and finishing):
+            return
+        plain = _plain_positionals(args, ("--reason",), "bB")
+        target = C.key(plain[1], cdir) if len(plain) > 1 else None
+        if sub2 == "add" and merge_ok and opts == ["--detach"] and target == merge_wt and len(plain) == 3 and plain[2] in origin_main:
+            return
+        if sub2 == "remove" and finishing and target in (stage_wt, merge_wt) and not opts:
+            return
+        raise Block(nope, 8)
+    if sub == "merge":
+        if in_merge and (merge_ok or "--abort" in opts):
+            return                                                  # 既有規則另外查：只准合併放行的那個 commit、一定 --no-ff
+        if info and info.get("is_main_checkout") and "--ff-only" in opts:
+            return                                                  # 主目錄快轉（既有規則只准 origin/main）
+        raise Block(nope, 8)
+    if sub == "checkout":
+        if in_merge and merge_ok and opts == ["--detach"] and len(pos) == 1 and pos[0] in origin_main:
+            return
+        raise Block(nope, 8)
+    if sub == "commit":
+        if in_merge and merge_ok and cred.get("candidate") and ctx.git.merge_head(cdir) == cred.get("candidate"):
+            return                                                  # 放行的那一個合併（內容由推送前的檢查把關）
+        if in_merge and docs_ok and not (_short_flag(args, "a", "mFCct") or "--all" in opts or _plain_positionals(args, ("--message", "--file"), "mFCct")):
+            staged = [f.lower() for f in ctx.git.staged_files(cdir)]
+            if staged and set(staged) <= set(_docs_files(ctx)):
+                return                                              # 文件那一筆：只准那兩個檔
+        raise Block(nope + "（例外只有兩種：放行的那個合併、合併後只改 %s 的文件那一筆）" % "、".join(ctx.cfg["docsFollowupFiles"]), 8)
+    if sub == "add":
+        files = [a.lower() for a in args if a != "--"]
+        if in_merge and docs_ok and files and set(files) <= set(_docs_files(ctx)):
+            return
+        raise Block(nope + "（例外只有文件那一筆：git add -- %s）" % " ".join(ctx.cfg["docsFollowupFiles"]), 8)
+    if sub == "branch":
+        deleting = any(o in ("-d", "-D", "--delete") for o in opts)
+        if not deleting and (not pos or any(o in _REF_QUERY_OPTS["branch"] for o in opts)):
+            return
+        if finishing and opts == ["-d"] and pos == [ctx.cfg["branchPrefix"] + (ctx.stage or "")]:
+            return
+        raise Block(nope, 8)
+    if sub == "config" and not _config_is_write(args):
+        return
+    if sub == "remote" and (not pos or pos[0] in ("show", "get-url")):
+        return
+    if sub == "stash" and pos[:1] in (["list"], ["show"]):
+        return
+    raise Block(nope, 8)
+
+
+def _receive_push(args, cdir, info, in_stage, finishing, ctx):
+    flags = [a for a in args if a.startswith("-")]
+    pos = [a for a in args if not a.startswith("-")]
+    branch = ctx.cfg["branchPrefix"] + (ctx.stage or "")
+    tag = ctx.cfg["tagPrefix"] + (ctx.stage or "")
+    usage = ("接收模式的 git push 只准寫成：git push origin %s（在這個階段的 worktree 裡）、git push origin %s；"
+             "放行之後另外有 merge-steps 的 git push origin HEAD:main 與收尾時刪掉遠端的 %s。" % (branch, tag, branch))
+    if len(pos) != 2 or pos[0] != ctx.cfg["remote"]:
+        raise Block(usage, 8)
+    r = pos[1]
+    if "--delete" in flags or "-d" in flags:
+        if finishing and r in (branch, "refs/heads/" + branch) and set(flags) <= set(["--delete", "-d"]):
+            return
+        raise Block(usage, 8)
+    if any(f not in _RECEIVE_PUSH_OPTS for f in flags):
+        raise Block(usage, 8)
+    if r in (tag, "refs/tags/" + tag):
+        return
+    if r in ("HEAD:" + MAIN, "HEAD:refs/heads/" + MAIN):
+        return                                                      # 既有規則已經查過通行證（合併一次、文件一筆）
+    if r in (branch, "refs/heads/" + branch, "HEAD:" + branch, "HEAD:refs/heads/" + branch):
+        rcv = ctx.state.get("receive") or {}
+        head = (info or {}).get("head")
+        if not in_stage:
+            raise Block("推 %s 要在這個階段的 worktree 裡下。" % branch, 8)
+        if not head or head != rcv.get("applied_head"):
+            raise Block("現在的 commit（%s）不是收包程式套上的那一個（%s）；接收模式只推雲端做好、驗過的包。"
+                        % ((head or "?")[:7], (rcv.get("applied_head") or "還沒有")[:7]), 8)
+        if rcv.get("tested_head") != head:
+            raise Block("這個 commit（%s）還沒通過「本機全套＋完整性檢查」那一步：先跑寫死的全套測試、把輸出存成報告資料夾的 tests.txt"
+                        "（第一行記 commit），再執行 iw_notify.py receive --tested --stage %s。" % (head[:7], ctx.stage), 8)
+        return
+    raise Block(usage, 8)

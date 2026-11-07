@@ -2,7 +2,7 @@
   "version": 1,
   "about": "自動駕駛的常數。這個檔是保護檔：生效的是主目錄（main）上的那一份，改它要經過「放行」。說明見 docs/AUTOPILOT.md。",
 
-  "protectionVersion": "P2",
+  "protectionVersion": "P3",
 
   "modelRoles": "模型分工（2026-10-05，P2）：施工（Claude Code）＝requiredModel＋requiredEffort；審查代理＝reviewer.model＋reviewer.effort，固定寫在代理設定，不跟著施工模型換；外部審查（Codex）的模型由 OpenAI 指定，不在這裡。approvableEfforts：施工中途可以由 David 手打「放行模型」臨時放行的思考強度（只有 Max）；其他強度要改回來再「繼續」。",
   "requiredModel": "claude-opus-5-5",
@@ -11,6 +11,34 @@
   "requiredEffortLabel": "Extra high",
   "approvableEfforts": ["max"],
   "maxHours": 8,
+
+  "receiveAbout": "接收模式（P3）：David 第一行手打「接收：<階段>」啟動。筆電上的 Claude 只收雲端（Cowork）做好的包、測、推、開 PR、合併，不改程式；限制寫在守門（iw_guard._receive_gate）與收包程式（iw_receive.py）。receiveModel／receiveEffort：接收模式規定的模型與思考強度（施工模式仍是 requiredModel／requiredEffort）。receiveMaxDays：從「接收：」或 David 最後一次手打「繼續」起算的絕對上限（超過＝停止條件 9）。cloudAuthor：包裡每一筆 commit 的作者與提交者都要是它（信箱是保留網域，保證不會寄到任何人；只寫在倉庫的檔案裡，公開文字的掃描不放行它）。",
+  "receiveModel": "claude-sonnet-5-5",
+  "receiveEffort": "high",
+  "receiveModelLabel": "Sonnet 5.5",
+  "receiveEffortLabel": "High",
+  "receiveMaxDays": 7,
+  "cloudAuthor": {"name": "InvestWatch Cloud", "email": "invest-watch-cloud@example.invalid"},
+
+  "receive": {
+    "about": "接收模式的常數（P3）。包放在 .autopilot/runs/<階段>/<inboxDir>/<NN>/（NN＝seq，兩位數）。waitMinutes：等包一次最多等多久；stableSeconds：兩個檔多久大小不變才算放好；binaryMaxBytes：二進位檔的上限；bundleMaxBytes：包本身的上限；commentMaxChars：status.json 裡 Codex 留言內文截多少字。neverPaths／neverNames：包裡一律不收的路徑（不分大小寫；neverNames 是任何資料夾裡的那個檔名）——這些都是拿來改規則的檔，雲端永遠不該碰。",
+    "inboxDir": "inbox",
+    "waitMinutes": 240,
+    "stableSeconds": 30,
+    "binaryMaxBytes": 2097152,
+    "bundleMaxBytes": 52428800,
+    "commentMaxChars": 600,
+    "neverPaths": [".claude/**", ".github/**", ".autopilot/**", ".mcp.json", ".gitattributes", ".gitmodules"],
+    "neverNames": ["CLAUDE.md", "CLAUDE.local.md", "AGENTS.md"]
+  },
+
+  "usage": {
+    "about": "用量記錄器（P3）。狀態列每次更新時由 .claude/autopilot/usage_status.py 寫 .autopilot/runs/<file>。守門每個動作讀一次：freshSeconds 秒內寫的才算；自動駕駛（兩種模式）5 小時的用量到 pausePct 就暫停、寄小事的短信；7 天的用量到 warnPct 每封信多一行提醒（不擋）。一般模式只顯示在狀態列。讀不到、過期＝不擋。",
+    "file": "usage.json",
+    "pausePct": 90,
+    "warnPct": 70,
+    "freshSeconds": 60
+  },
 
   "stopLevels": {
     "about": "停止報告信的三個等級，寫在標題與第一行。由程式依停下的原因判定（iw_notify.level_for），模型改不了；文件與測試都從這裡讀字串。",

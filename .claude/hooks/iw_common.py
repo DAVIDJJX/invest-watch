@@ -11,6 +11,7 @@ iw_common.py — 自動駕駛共用的小工具：路徑正規化、設定檔、
 """
 import datetime
 import fnmatch
+import hashlib
 import io
 import json
 import os
@@ -318,6 +319,24 @@ def head_blobs(worktree, ref="HEAD"):
         if len(parts) >= 3 and path:
             res[path] = parts[2]
     return res
+
+
+def tier2_hash(repo, base_ref, path, rev=None):
+    """「要先給 David 看 diff 的檔」（tier2）那一份 diff 的指紋（P3 規格 2.4(b)）。David「繼續」時記下來；之後推送、寄「可以合併」時再算一次，
+    一樣就算看過了、不一樣才要他再看。比對的基準是這個分支跟正式版的分叉點（merge-base）——跟原本的三點比對同一個基準。
+    rev 是 None：跟 worktree 現在的內容比（不分 commit 了沒）；rev 是一個 commit：跟那個 commit 的內容比。
+    原本的寫法把「已 commit」與「還沒 commit」分成兩段文字，同一份內容 commit 前後指紋就不一樣——A1-4 因此同一份 diff 寄了四次。
+    查不出來回 None（呼叫的人要當成「沒看過」）。"""
+    rc, mb = git(["merge-base", base_ref, rev or "HEAD"], repo, timeout=30)
+    if rc != 0 or not re.match(r"^[0-9a-f]{40,64}$", mb.strip()):
+        return None
+    args = ["-c", "core.quotepath=false", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", mb.strip()]
+    if rev:
+        args.append(rev)
+    rc, out = git(args + ["--", path], repo, timeout=60)
+    if rc != 0:
+        return None
+    return hashlib.sha256(out.encode("utf-8")).hexdigest()[:16]
 
 
 def common_dir(checkout_root=None):

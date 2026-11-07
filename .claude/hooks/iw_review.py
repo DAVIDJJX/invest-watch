@@ -284,7 +284,7 @@ def body_findings(review, ext):
     def add(path, line, text, badge):
         clean = re.sub(r"<[^>]+>|\*\*|!\[[^\]]*\]\([^)]*\)", "", text or "").strip()
         found.append({"id": "%s-%d" % (review.get("id"), len(found) + 1), "severity": severity_of(badge or "", ext), "path": path, "line": line,
-                      "excerpt": clean[:160], "where": "review 本文"})
+                      "excerpt": clean[:160], "body": clean[:4000], "where": "review 本文"})
     for line in body.replace("\r\n", "\n").split("\n"):
         m = _BLOB_LINE.match(line)
         if m:
@@ -367,7 +367,7 @@ def codex_status(main_root, cfg, pr_number, head, runner=None, pr=None):
         on_head = str(c.get("original_commit_id") or "").lower() == head.lower() or (rid is not None and str(rid) in head_ids)
         line = c.get("line") or c.get("original_line")
         findings.append({"id": c.get("id"), "severity": severity_of(c.get("body") or "", ext), "path": c.get("path"), "line": line,
-                         "excerpt": (c.get("body") or "")[:160], "on_head": on_head, "review_id": rid})
+                         "excerpt": (c.get("body") or "")[:160], "body": (c.get("body") or "")[:4000], "on_head": on_head, "review_id": rid})
         inline.add((None if rid is None else str(rid), c.get("path"), line))
     for r in all_reviews:                                           # review 本文裡的意見也算（同一次 review 裡同一個檔同一行已經有行內留言的不重複算）
         r_head = str(r.get("id")) in head_ids

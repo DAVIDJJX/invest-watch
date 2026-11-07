@@ -21,6 +21,8 @@ hook 說「已放行 <階段>：通行證已開」之後才做。通行證只准
 7. 執行事先備好的腳本（帶合併 commit 編號）→ `git add -- README.md docs/CHANGELOG.md` → `git commit -F …` → `git push origin HEAD:main`。只改這兩個檔、只一筆、合併後 60 分鐘內。
 8. 主目錄 `git merge --ff-only origin/main`。
 
+接收模式（P3）：第 7 步不跑腳本。合併推上去之後，用改檔工具改合併用 worktree 裡的 `README.md` 與 `docs/CHANGELOG.md`（只在這個時間窗改得到），其餘照做。
+
 ## 收尾
 
 9. `py -3.12 .claude/hooks/iw_notify.py status`：確認狀態是 done、`protectionVersion` 是現在的版本；改了保護檔的階段再跑 `py -3.12 scripts/autopilot_install.py --check`。

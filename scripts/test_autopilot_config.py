@@ -91,7 +91,8 @@ class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
         self.assertIs(SETTINGS["switchModelsOnFlag"], False)                     # 訊息被標記時暫停，不自動換模型
         self.assertNotIn("fallbackModel", SETTINGS)                              # 沒有備援模型＝出錯就停，不改用別的模型
         self.assertNotIn("disableAllHooks", SETTINGS)
-        self.assertEqual(sorted(SETTINGS.keys()), ["effortLevel", "hooks", "model", "permissions", "switchModelsOnFlag"])
+        # P3 規格 2.3 加了 statusLine（用量記錄器）；其餘照舊
+        self.assertEqual(sorted(SETTINGS.keys()), ["effortLevel", "hooks", "model", "permissions", "statusLine", "switchModelsOnFlag"])
 
     def test_reviewer_agent_is_pinned_and_read_only(self):
         """對照組（規格第 11 節）：把審查代理改成 inherit → 這一條會紅；多給它改檔或執行指令的工具 → 也會紅。"""
@@ -317,7 +318,7 @@ class TestDocsAndSkill(unittest.TestCase):
             for label in labels:                                                     # 當成字串常數寫死（"…"）才算；句子裡提到不算
                 self.assertNotIn('"%s"' % label, text, "%s 裡寫死了等級「%s」（應該從 config.json 的 stopLevels 讀）" % (os.path.basename(path), label))
                 self.assertNotIn("【%s】" % label, text, os.path.basename(path))
-        self.assertEqual(CFG["protectionVersion"], "P2")
+        self.assertEqual(CFG["protectionVersion"], "P3")
         guide = read("docs/AUTOPILOT.md")
         for must in labels + ["裁決：", "暫停", "P1-1", "P2", "先退", "--no-verify"]:
             self.assertIn(must, guide, must)
@@ -496,7 +497,7 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertIn(pat, ALLOW["programs"]["ghAllowed"])
         for pat in (["pr", "create"], ["pr", "comment"], ["pr", "edit"], ["pr", "review"], ["api"]):
             self.assertNotIn(pat, ALLOW["programs"]["ghAllowed"])
-        self.assertEqual(CFG["protectionVersion"], "P2")
+        self.assertEqual(CFG["protectionVersion"], "P3")
 
     def test_the_no_review_flag_is_gone(self):
         import iw_notify as N

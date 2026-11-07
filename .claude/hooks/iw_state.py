@@ -28,6 +28,24 @@ def default_state():
     return {"version": 1, "active": False, "stage": None, "status": None}
 
 
+# 自動駕駛的兩種（P3）：build＝「自動駕駛：<階段>」啟動的（筆電上施工）；receive＝「接收：<階段>」啟動的（筆電只收雲端做好的包、測、推、合併，不改程式）。
+MODES = ("build", "receive")
+
+
+def mode_of(st):
+    """這個狀態是哪一種自動駕駛。舊版（P3 以前）的狀態檔沒有這個欄位＝build。"""
+    m = (st or {}).get("mode")
+    return m if m in MODES else "build"
+
+
+def required_model(st, cfg):
+    """這個狀態規定的模型與思考強度：(模型, 強度, 模型的顯示名, 強度的顯示名)。
+    build 看 requiredModel／requiredEffort；receive 看 receiveModel／receiveEffort。凡是要比「規定的模型」的地方都問這裡（守門、換模型、開工作階段、啟動訊息、信裡那一行）。"""
+    pre = "receive" if mode_of(st) == "receive" else "required"
+    m, e = cfg[pre + "Model"], cfg[pre + "Effort"]
+    return m, e, cfg.get(pre + "ModelLabel") or m, cfg.get(pre + "EffortLabel") or e
+
+
 def is_paused(st):
     """暫停中：hook 記了 pause（守門擋下、寄了停止報告、模型被換、用量上限、冒充的指令詞…）或程式判定的停止條件成立。"""
     return bool(st.get("pause")) or bool(st.get("stop_required"))
@@ -319,7 +337,7 @@ def parse_command(prompt):
     """看一則訊息是不是你的指令詞。回傳 dict(kind=…, stage=…, rest=…) 或 None。
 
     整則訊息完全相符：放行 <階段>、繼續 <階段>、放行模型、結束自動駕駛、免外部審查 <階段>、驗收機變更 <階段>
-    第一行相符：      自動駕駛：<階段>（下面是規格）、修改 <階段>：＿＿、裁決：<階段>（下面是 Cowork 寫的內容）
+    第一行相符：      自動駕駛：<階段>（下面是規格）、接收：<階段>（P3；下面是那一段的規格）、修改 <階段>：＿＿、裁決：<階段>（下面是 Cowork 寫的內容）
     為什麼不能用「訊息裡有這幾個字就算」：規格本身就寫著「放行 P1」；代理回報、背景工作通知也會經過同一個 hook（外面包著標籤）。"""
     t = clean_prompt(prompt)
     if not t or t.startswith("<"):
@@ -330,6 +348,9 @@ def parse_command(prompt):
     m = re.match(r"^自動駕駛\s*" + colon + r"\s*(\S+)$", first)
     if m:
         return {"kind": "start", "stage": m.group(1), "rest": rest.strip("\n")}
+    m = re.match(r"^接收\s*" + colon + r"\s*(\S+)$", first)
+    if m:
+        return {"kind": "receive", "stage": m.group(1), "rest": rest.strip("\n")}
     m = re.match(r"^修改\s+(\S+?)\s*" + colon + r"(.*)$", first)
     if m:
         return {"kind": "revise", "stage": m.group(1), "rest": (m.group(2) + ("\n" + rest if rest else "")).strip()}
@@ -398,7 +419,8 @@ def near_miss(prompt, stage=None):
         return None
     first = lines[0]
     colon = "[:" + chr(0xFF1A) + "]"
-    shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("approve_model", r"^放行\s*模型"),
+    shapes = [("start", r"^自動駕駛\s*" + colon + r"?\s*[A-Za-z0-9]"), ("receive", r"^接收\s*" + colon + r"?\s*[A-Za-z0-9]"),
+              ("approve_model", r"^放行\s*模型"),
               ("approve", r"^放行(\s*[A-Za-z0-9]|$)"), ("end", r"^結束自動駕駛"), ("ruling", r"^裁決\s*" + colon + r"?\s*[A-Za-z0-9]"),
               ("waive", r"^免外部審查(\s*[A-Za-z0-9]|$)"), ("verifier_change", r"^驗收機變更(\s*[A-Za-z0-9]|$)")]
     if stage:
@@ -409,7 +431,8 @@ def near_miss(prompt, stage=None):
             return {"kind": kind, "where": "shape"}
     if len(lines) == 1 and len(first) <= _SHORT:                    # 一句話裡提到了（「請幫我 放行 P1」「我想結束自動駕駛」）
         for kind, pat in (("approve_model", r"放行\s*模型"), ("approve", r"放行\s*[A-Za-z0-9]"),
-                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("end", r"結束自動駕駛"), ("waive", r"免外部審查\s*[A-Za-z0-9]"),
+                          ("start", r"自動駕駛\s*" + colon + r"\s*[A-Za-z0-9]"), ("receive", r"接收\s*" + colon + r"\s*[A-Za-z0-9]"),
+                          ("end", r"結束自動駕駛"), ("waive", r"免外部審查\s*[A-Za-z0-9]"),
                           ("verifier_change", r"驗收機變更\s*[A-Za-z0-9]")):
             if re.search(pat, first):
                 return {"kind": kind, "where": "shape"}
