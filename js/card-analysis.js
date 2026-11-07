@@ -10,7 +10,7 @@
  *       strip() 畫收合時就看得到的圖示列，detail() 畫點開後的數字、規則、白話。儀表板的卡片與分析分頁的總覽表用同一份。
  *       狀態的門檻與白話模板在 js/plain.js、位置的燈號在 js/indicators.js；這一支只負責「哪張卡的哪個面向看哪個數字」。
  *       摺疊區的每一列下面也多一行白話（plain.js 載入之後才有；沒載入就跟以前一樣只有數字）。
- * A2a：第四個面向「趨勢」——用已載入的日線算 200 日均線位置與 12 個月價格報酬（門檻與規則在 js/plain.js），只顯示事實。
+ * A2a：第四個面向「趨勢」——200 日均線位置與 12 個月價格報酬，讀 risk.json 的 trend（scripts/analyze.py 在 15:30 算），只顯示事實。
  *
  * 純函式：facts(asset, risk, cost) 回一個物件；render(facts) 回 HTML 字串。不 fetch、不碰 DOM。
  * 抓檔與掛進卡片的事在 js/app.js（首屏畫完之後才抓）。
@@ -501,50 +501,28 @@
     return out;
   }
 
-  /* ---- 趨勢（A2a）：200 日均線＋12 個月價格報酬（不含息）。只描述狀態，不是判斷；門檻、規則句、白話都在 js/plain.js。
-     用的是卡片已經載入的日線（ctx.points），跟位置一樣把現價當成序列的最後一點；不另外抓任何檔。 */
+  /* ---- 趨勢（A2a）：200 日均線＋12 個月價格報酬（不含息）。數字是 scripts/analyze.py 在 15:30 那一輪用日線算好的
+     （data/analysis/risk.json 的 trend，跟風險同一個檔）；這裡只挑出這一張卡的那一筆、交給 js/plain.js 換成三態與白話，
+     不自己算均線或報酬。只描述狀態，不是判斷。 */
   function signedPct(x) {                       // 一位小數、帶正負號；四捨五入是 0 的印 0.0%
     var v = Math.round(x * 10) / 10;
     return (v > 0 ? '+' : (v < 0 ? '-' : '')) + num(Math.abs(v), 1) + '%';
   }
   function trendAspect(asset, ctx) {
-    var Pl = global.Plain, I = global.Indicators;
+    var Pl = global.Plain;
     var out = { aspect: 'trend', facts: [], extra: [], dates: '' };
-    var points = ctx.points || [];
-    if (asset.type === 'bot_gold_bar') {
-      out.state = Pl.insufficient('trend', '台銀不公布條塊的歷史牌價；本站自己累積的只有 ' + points.length + ' 個交易日，不夠算 ' +
-                                           Pl.TREND_MA_DAYS + ' 日均線與 12 個月報酬');
-      return out;
-    }
-    if (ctx.historyFailed || !I) {
-      out.state = Pl.insufficient('trend', '歷史資料讀取失敗，無法計算趨勢');
-      return out;
-    }
-    // 這一輪更新失敗（例如台銀擋下連線）：沒有現價，但已經載入的日線還在——用日線最後一天的收盤算，日期照實寫那一天；
-    // 連日線都沒有（儀表板不替更新失敗的標的抓日線）就是資料不足。
-    var stale = asset.status !== 'ok';
-    var dated = points.filter(function (p) { return p && isNum(p.c); });
-    if (stale && !dated.length) {
-      out.state = Pl.insufficient('trend', '這一項這一輪更新失敗，也沒有載入日線，算不出趨勢');
-      return out;
-    }
-    var series = I.closes(points);
-    var price = !stale && isNum(asset.price) ? asset.price : series[series.length - 1];
-    if (series.length && isNum(price)) series[series.length - 1] = price;
-    var through = (!stale && asset.date) || (dated.length ? dated[dated.length - 1].d : '') || '';
-    out.state = Pl.trendState(series, price, through);
-    var t = Pl.trendNumbers(series, price);
-    if (!t.ok) return out;
-    if (stale) out.extra.push({ text: '這一項這一輪更新失敗：用日線最後一天（' + through + '）的收盤算' });
+    if (ctx.risk === null) { out.state = Pl.unavailable('trend'); return out; }
+    var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id];
+    out.state = Pl.trendState(t);
+    if (!t || ['low', 'mid', 'high'].indexOf(out.state.key) < 0) return out;
     var nd = asset.decimals || 0;
-    var from200 = I.windowStart(points, Pl.TREND_MA_DAYS), from12 = I.windowStart(points, Pl.TREND_RET_DAYS + 1);
-    out.facts.push({ term: Pl.TREND_MA_DAYS + ' 日均線', k: Pl.TREND_MA_DAYS + ' 日均線', v: num(t.ma200, nd), label: '日線', date: through,
-                     note: '現價相對 ' + signedPct(t.dist200Pct) + '；最近 ' + Pl.TREND_MA_DAYS + ' 個交易日（' + (from200 || '—') + '～' + (through || '—') + '）的收盤平均',
-                     plain: Pl.sentence('trendMa', { pct: t.dist200Pct }) });
-    out.facts.push({ term: '12 個月報酬', k: '12 個月報酬（不含息）', v: signedPct(t.ret12mPct), label: '日線', date: through,
-                     note: '起算日 ' + (from12 || '—') + '（' + Pl.TREND_RET_DAYS + ' 個交易日前的收盤）；只算價格，不含配息',
-                     plain: Pl.sentence('trendReturn', { pct: t.ret12mPct, from: from12 }) });
-    out.dates = '趨勢的資料日期：' + (through || '—') + '（日線）。';
+    out.facts.push({ term: t.maDays + ' 日均線', k: t.maDays + ' 日均線', v: num(t.ma200, nd), label: t.label || '單一來源', date: t.through,
+                     note: '現價相對 ' + signedPct(t.dist200Pct) + '；最近 ' + t.maDays + ' 個交易日（' + (t.from200 || '—') + '～' + (t.through || '—') + '）的收盤平均',
+                     plain: Pl.sentence('trendMa', { pct: t.dist200Pct, days: t.maDays }) });
+    out.facts.push({ term: '12 個月報酬', k: '12 個月報酬（不含息）', v: signedPct(t.ret12mPct), label: t.label || '單一來源', date: t.through,
+                     note: '起算日 ' + (t.from12 || '—') + '（' + t.retDays + ' 個交易日前的收盤）；只算價格，不含配息',
+                     plain: Pl.sentence('trendReturn', { pct: t.ret12mPct, days: t.retDays, from: t.from12 }) });
+    out.dates = '趨勢的資料日期：' + (t.through || '—') + '（日線，每天 15:30 那一輪算）。';
     return out;
   }
 
