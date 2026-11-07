@@ -18,7 +18,8 @@ test_aspects_js.py — 分析系列 A1-7：每張卡的「面向」（位置、�
   7. 檔案讀不到寫「分析資料暫時讀不到」；任何輸出沒有帶方向的交易字眼、沒有「幾個面向怎樣」的計數。
   A2a（趨勢；對照組見 scripts/mutations_pending/a2a_mutations.py 的 W 系列）：
   8. 面向變成四個，趨勢排最後；現價高於 200 日均線且 12 個月價格報酬為正＝向上、都相反＝向下、其他＝持平；用色點不用天氣。
-  9. 200 日均線至少 200 點、12 個月報酬至少 253 點，任一不夠就是資料不足（寫出只有幾天）；條塊固定資料不足。
+  9. 數字由 scripts/analyze.py 在 15:30 那一輪算好放在 risk.json 的 trend，前端只照 JSON 換成三態與白話、不自己算；
+     天數照 JSON 的 maDays／retDays；JSON 寫資料不足就照寫原因；risk.json 讀不到是「暫時讀不到」，不是資料不足。
   10. 這次的數字：一位小數、正負號、寫明不含息與資料日期；規則句以「規則：」開頭；兩個名詞在名詞解釋裡，RSI 補一句定位。
 """
 import os
@@ -118,20 +119,20 @@ class TestAspectsJs(unittest.TestCase):
         """對照組：持平的條件改成「任一個相反就算向下」→ 這一條會紅。"""
         self.case("trend_is_flat_when_the_two_facts_disagree_or_sit_on_the_line")
 
-    def test_trend_199_and_200_points(self):
-        """對照組：200 日均線的門檻改成 199 → 這一條會紅。"""
-        self.case("trend_needs_200_points_for_the_average")
+    def test_trend_insufficient_from_the_file(self):
+        """對照組：資料不足也硬算一個狀態 → 這一條會紅。（199／200、252／253 的邊界在 test_analyze.py）"""
+        self.case("trend_insufficient_comes_from_the_analysis_file")
 
-    def test_trend_252_and_253_points(self):
-        """對照組：12 個月報酬的門檻少一天（253 → 252）→ 這一條會紅。"""
-        self.case("trend_needs_253_points_for_the_twelve_month_return")
+    def test_trend_unreadable_is_not_insufficient(self):
+        """Codex 第 1 輪 4500259969。對照組：risk.json 讀不到寫成資料不足 → 這一條會紅。"""
+        self.case("trend_unreadable_file_is_not_insufficient")
 
-    def test_trend_bar_and_failures(self):
-        """對照組：條塊不固定資料不足 → 這一條會紅。"""
-        self.case("trend_bar_and_failures_say_why_instead_of_guessing")
+    def test_trend_every_card(self):
+        """對照組：面向順序少了趨勢 → 這一條會紅。"""
+        self.case("trend_bar_and_every_card_get_a_chip")
 
     def test_trend_because_format(self):
-        """對照組：這次的數字不寫「不含息」→ 這一條會紅。"""
+        """對照組：這次的數字不寫「不含息」、或天數寫死不看 JSON → 這一條會紅。"""
         self.case("trend_because_has_one_decimal_signs_and_the_data_date")
 
     def test_trend_rule(self):
@@ -183,12 +184,16 @@ class TestAspectsWiring(unittest.TestCase):
                 self.assertNotIn(bad, src, "%s 裡出現 %s" % (rel, bad))
 
     def test_trend_is_wired_after_the_other_three(self):
-        """A2a：趨勢排最後、用的是現成的 trendAspect；儀表板的佔位字跟著改；趨勢只用已經載入的日線。"""
+        """A2a：趨勢排最後；trendAspect 只讀 risk.json 的 trend、不自己算（Codex 第 1 輪 4500259968）；儀表板的佔位字跟著改。"""
         ca = self.read("js/card-analysis.js")
         self.assertIn("var ASPECT_ORDER = ['position', 'risk', 'cost', 'trend'];", ca)
         self.assertIn("trend: trendAspect", ca)
         block = ca[ca.index("  function trendAspect("):ca.index("  var BUILDERS = ")]
-        self.assertIn("Pl.trendState(series, price, through)", block)
+        self.assertIn("var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id];", block)
+        self.assertIn("if (ctx.risk === null) { out.state = Pl.unavailable('trend'); return out; }", block)
+        self.assertIn("out.state = Pl.trendState(t);", block)
+        for bad in ("Indicators", "ctx.points", "closes", "changeOver", ".ma(", "historyFailed"):
+            self.assertNotIn(bad, block)                                                          # 前端不自己算
         self.assertIsNone(re.search(r"(?<![A-Za-z0-9])(200|252|253)(?![0-9])", block))      # 門檻只在 js/plain.js 一份（ma200 這種名字不算）
         app = self.read("js/app.js")
         self.assertIn("位置、風險、成本、趨勢：讀取中…", app)

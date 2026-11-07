@@ -371,6 +371,121 @@ class TestRisk(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------
+# 4b. 趨勢（A2a）：日線的 200 日均線與 12 個月價格報酬，放在 risk.json 的 trend；門檻只在 analyze.py 一份
+# --------------------------------------------------------------------------
+
+
+def daily(values, start="2025-01-01", provisional_last=False):
+    """假的日線：一天一點，數字一看就是假的（10／20／30）。"""
+    d0 = A.parse_day(start)
+    out = [{"d": (d0 + timedelta(days=i)).strftime("%Y-%m-%d"), "c": float(v), "dateSource": "x"} for i, v in enumerate(values)]
+    if provisional_last and out:
+        out[-1]["provisional"] = True
+    return out
+
+
+class TestTrend(unittest.TestCase):
+    def test_constants_are_the_only_copy(self):
+        self.assertEqual((A.TREND_MA_DAYS, A.TREND_RET_DAYS), (200, 252))
+        for rel in ("js/plain.js", "js/card-analysis.js"):
+            with io.open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertNotIn("TREND_MA_DAYS", src, rel)                                           # 前端不另寫一份門檻
+            self.assertNotIn("changeOver", src, rel)                                              # 也不自己算報酬
+
+    def test_up_down_and_flat_facts(self):
+        """對照組：均線用 199 天、或報酬少算一天 → 這一條會紅。"""
+        up = A.trend_of(daily([10] * 252 + [20]))
+        self.assertEqual((up["ma200"], up["above"], up["ret12mPct"], up["dist200Pct"]), (10.05, True, 100.0, round((20 / 10.05 - 1) * 100, 4)))
+        self.assertEqual((up["days"], up["maDays"], up["retDays"], up["label"]), (253, 200, 252, "單一來源"))
+        self.assertEqual(up["from12"], "2025-01-01")
+        self.assertEqual(up["from200"], daily([0] * 253)[53]["d"])
+        self.assertEqual(up["through"], daily([0] * 253)[-1]["d"])
+        self.assertNotIn("reason", up)
+        down = A.trend_of(daily([20] * 252 + [10]))
+        self.assertEqual((down["ma200"], down["above"], down["ret12mPct"]), (19.95, False, -50.0))
+        mixed = A.trend_of(daily([30] + [10] * 251 + [20]))
+        self.assertEqual((mixed["above"], round(mixed["ret12mPct"], 2)), (True, -33.33))
+        even = A.trend_of(daily([10] * 253))
+        self.assertEqual((even["above"], even["dist200Pct"], even["ret12mPct"]), (False, 0.0, 0.0))
+
+    def test_199_and_200_points(self):
+        """對照組：門檻 200 改成 199 → 這一條會紅。"""
+        t199 = A.trend_of(daily([10] * 199))
+        self.assertIsNone(t199["ma200"])
+        self.assertEqual(t199["reason"], "資料不足：只有 199 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）")
+        t200 = A.trend_of(daily([10] * 200))
+        self.assertEqual(t200["ma200"], 10.0)
+        self.assertIsNone(t200["ret12mPct"])
+        self.assertIn("只有 200 天", t200["reason"])
+
+    def test_252_and_253_points(self):
+        """對照組：12 個月報酬少算一天（253 → 252）→ 這一條會紅。"""
+        t252 = A.trend_of(daily([10] * 251 + [20]))
+        self.assertIsNone(t252["ret12mPct"])
+        self.assertIsNone(t252["from12"])
+        self.assertEqual(t252["ma200"], 10.05)
+        self.assertIn("只有 252 天", t252["reason"])
+        t253 = A.trend_of(daily([10] * 252 + [20]))
+        self.assertEqual(t253["ret12mPct"], 100.0)
+
+    def test_provisional_points_are_left_out(self):
+        """盤中的暫定點不算：最後一點是 provisional 時，用前一個收盤。對照組：不排除暫定點 → 這一條會紅。"""
+        t = A.trend_of(daily([10] * 253 + [99], provisional_last=True))
+        self.assertEqual(t["days"], 253)
+        self.assertEqual(t["ret12mPct"], 0.0)
+        self.assertEqual(t["through"], daily([0] * 253)[-1]["d"])
+
+    def test_bar_is_fixed_insufficient_and_missing_history_says_so(self):
+        """對照組：條塊拿自己累積的點去算 → 這一條會紅。"""
+        w = World()
+        try:
+            w.write("history/gold_bar.json", {"points": daily([20] * 300)})
+            w.write("history/gold_twd.json", {"points": daily([10] * 252 + [20])})
+            out = A.build_trend([{"id": "gold_bar", "type": "bot_gold_bar"}, {"id": "gold_twd", "type": "bot_gold"}, {"id": "nothing", "type": "yahoo"}],
+                                w.paths)
+        finally:
+            w.close()
+        self.assertIsNone(out["gold_bar"]["dist200Pct"])
+        self.assertEqual(out["gold_bar"]["reason"], "台銀不公布條塊的歷史牌價；本站自己累積的只有 300 個交易日，不夠算 200 日均線與 12 個月報酬")
+        self.assertEqual(out["gold_twd"]["ret12mPct"], 100.0)
+        self.assertEqual(out["nothing"]["reason"], "資料不足：只有 0 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）")
+
+    def test_trend_keys_stay_clear_of_forbidden_names(self):
+        from test_analysis_guards import FORBIDDEN_JSON_KEYS
+        t = A.trend_of(daily([10] * 253))
+        self.assertEqual([k for k in t if k.lower() in FORBIDDEN_JSON_KEYS], [])
+        self.assertIn("不含息", A.TREND_NOTE)
+
+
+class TestTrendDocsMatchConstants(unittest.TestCase):
+    """docs/ANALYSIS.md 與名詞解釋寫的天數，跟 analyze.py 的常數相等（Codex 第 1 輪 4500259973）。對照組：文件寫錯一個數字 → 紅。"""
+
+    def read(self, rel):
+        with io.open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_analysis_md_trend_section(self):
+        doc = self.read("docs/ANALYSIS.md")
+        sec = doc[doc.index("### 5.12 趨勢"):doc.index("## 6. 呈現原則")]
+        ma, ret = A.TREND_MA_DAYS, A.TREND_RET_DAYS
+        self.assertIn("%d 日均線＝最近 %d 個收盤的簡單平均" % (ma, ma), sec)
+        self.assertIn("現價相對 %d 個交易日前的收盤" % ret, sec)
+        self.assertIn("序列不到 %d 點算不出均線、不到 %d 點算不出 12 個月報酬" % (ma, ret + 1), sec)
+        self.assertIn("資料不足：只有 N 天（%d 日均線至少要 %d 天、12 個月報酬至少要 %d 天）" % (ma, ma, ret + 1), sec)
+        row = [l for l in doc.split("\n") if l.strip().startswith("| 趨勢 | 向上／持平／向下 |")]
+        self.assertEqual(len(row), 1)
+        self.assertIn("%d 日均線至少 %d 天、12 個月報酬至少 %d 天" % (ma, ma, ret + 1), row[0])
+        nums = set(int(x) for x in re.findall(r"(?<![0-9.])(\d{3})(?= ?(?:日|天|點|個))", sec))
+        self.assertLessEqual(nums, {ma, ret, ret + 1}, "5.12 裡出現了跟常數對不上的天數：%s" % sorted(nums))
+
+    def test_glossary_numbers(self):
+        g = self.read("js/glossary.js")
+        self.assertIn("'%d 日均線': '最近 %d 個交易日收盤價的平均。" % (A.TREND_MA_DAYS, A.TREND_MA_DAYS), g)
+        self.assertIn("'12 個月報酬': '現價跟 %d 個交易日（大約 12 個月）前的收盤價比" % A.TREND_RET_DAYS, g)
+
+
+# --------------------------------------------------------------------------
 # 5. 拆解
 # --------------------------------------------------------------------------
 
@@ -580,6 +695,10 @@ class TestRunOffline(unittest.TestCase):
         self.assertTrue(any("融資成本" in n for n in dec["gold"]["notes"]))                 # 期貨基差的解釋
         for aid, e in status["longHistory"].items():
             self.assertIn("offline", e["action"])
+        self.assertEqual(sorted(risk["trend"]), sorted(a["id"] for a in ASSETS["assets"]))         # A2a：每個標的一筆趨勢
+        self.assertEqual(risk["trend"]["gold_twd"]["days"], 200)                                     # 沒有週線長歷史的也有
+        self.assertIn("只有 200 天", risk["trend"]["gold_twd"]["reason"])
+        self.assertIn("不含息", risk["method"]["trend"])
         self.assertIn("fx_cny", risk["assets"])                                              # A1-6：人民幣有風險列
         self.assertEqual(risk["assets"]["fx_cny"]["dataLabel"], "有對照")
         self.assertNotIn("usdcny", risk["assets"])                                           # 基準序列不進風險表與矩陣

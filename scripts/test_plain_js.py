@@ -135,21 +135,21 @@ class TestPlainWiring(unittest.TestCase):
             return fh.read()
 
     def test_trend_thresholds_live_in_one_place(self):
-        """A2a：200 與 252 各只寫一次（常數），算法用 Indicators 現成的 ma、changeOver。對照組：門檻改成 199 → 這一條會紅。"""
+        """A2a（Codex 第 1 輪 4500259968）：200 與 252 只在 scripts/analyze.py；plain.js 不另寫一份、不自己算均線或報酬。"""
         src = self.read("js/plain.js")
-        self.assertIn("var TREND_MA_DAYS = 200;", src)
-        self.assertIn("var TREND_RET_DAYS = 252;", src)
-        block = src[src.index("  function trendNumbers("):src.index("  function trendShort(")]
-        self.assertIn("I.ma(s, TREND_MA_DAYS)", block)
-        self.assertIn("I.changeOver(s, price, TREND_RET_DAYS)", block)
-        self.assertIn("s.length >= TREND_RET_DAYS + 1", block)
+        for bad in ("TREND_MA_DAYS", "TREND_RET_DAYS", "changeOver", "I.ma(", "trendNumbers"):
+            self.assertNotIn(bad, src)
+        block = src[src.index("  function trendRule("):src.index("  /* 資料不足的三種說法")]
         self.assertIsNone(re.search(r"(?<![A-Za-z0-9])(200|252|253)(?![0-9])", block))           # ma200 這種名字不算
+        an = self.read("scripts/analyze.py")
+        self.assertEqual(len(re.findall(r"^TREND_MA_DAYS = 200\b", an, re.M)), 1)
+        self.assertEqual(len(re.findall(r"^TREND_RET_DAYS = 252\b", an, re.M)), 1)
 
     def test_trend_rule_and_icon(self):
-        """A2a：規則句照規格；趨勢用色點（向下不等於壞，不配天氣）。對照組：dot 換成天氣 → 這一條會紅。"""
+        """A2a：規則句照規格（天數來自 JSON）；趨勢用色點（向下不等於壞，不配天氣）。對照組：dot 換成天氣 → 這一條會紅。"""
         src = self.read("js/plain.js")
-        self.assertIn("var TREND_RULE = '規則：現價高於 ' + TREND_MA_DAYS + ' 日均線且近 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平。只描述趨勢狀態，不是判斷。';", src)
-        self.assertIn("trend:      { name: '趨勢', icon: 'dot', words: { low: '向下', mid: '持平', high: '向上' }, rule: TREND_RULE },", src)
+        self.assertIn("return '規則：現價高於 ' + (isNum(maDays) ? maDays + ' 日均線' : '長期均線') + '且近 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平。只描述趨勢狀態，不是判斷。';", src)
+        self.assertIn("trend:      { name: '趨勢', icon: 'dot', words: { low: '向下', mid: '持平', high: '向上' }, rule: trendRule() },", src)
         self.assertNotIn("規則：A2 起才有", src)
         self.assertIn("var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above && t.ret12mPct < 0 ? 'low' : 'mid');", src)
 
