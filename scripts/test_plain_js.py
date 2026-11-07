@@ -20,6 +20,9 @@ test_plain_js.py — 分析系列 A1-6／A1-7：「一眼看懂」的翻譯層�
   9. 「資料不足」「不適用」「暫時讀不到」是三種不同的狀態。
   10. 每一種白話模板至少三組測試（正常、極端、資料不足），輸出逐字比對。
   11. 先畫、後載入名詞解釋的地方（儀表板的指標格）能換成可以點的按鈕；點名詞不會觸發外面的點擊。
+  A2a（趨勢；瀏覽器裡的逐題測試在 scripts/test_aspects.html，這裡只看原始碼）：
+  12. 趨勢的門檻只有一份（TREND_MA_DAYS、TREND_RET_DAYS），均線與報酬用 js/indicators.js 現成的 ma、changeOver；
+      規則句照規格一字不差、以「規則：」開頭；趨勢用色點；名詞解釋有兩個新詞，RSI 補一句定位。
 """
 import html
 import json
@@ -70,7 +73,7 @@ class TestPlainJs(unittest.TestCase):
 
     def test_page_really_ran(self):
         self.assertTrue(self.report.get("loaded"), "測試頁沒有載到 js/plain.js 或 js/glossary.js")
-        self.assertEqual(self.report.get("total"), 12)
+        self.assertEqual(self.report.get("total"), 13)
 
     def test_three_states_follow_the_rules(self):
         """對照組：匯率位置的門檻改壞（60 改成 80）→ 這一條會紅。"""
@@ -112,6 +115,10 @@ class TestPlainJs(unittest.TestCase):
         """對照組：狀態詞換成帶方向的字眼、或印出「幾個面向怎樣」→ 這一條會紅。"""
         self.case("no_trading_words_and_no_counting_anywhere")
 
+    def test_trend_templates_follow_the_constants(self):
+        """A2a：趨勢的兩個白話模板在 SENTENCES 裡、天數跟著常數。對照組：白話不寫不含配息 → 這一條（與測試表那一條）會紅。"""
+        self.case("trend_templates_follow_the_trend_constants")
+
     def test_glossary(self):
         self.case("glossary_has_the_required_terms_and_opens_on_click")
 
@@ -126,6 +133,31 @@ class TestPlainWiring(unittest.TestCase):
     def read(self, rel):
         with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
             return fh.read()
+
+    def test_trend_thresholds_live_in_one_place(self):
+        """A2a：200 與 252 各只寫一次（常數），算法用 Indicators 現成的 ma、changeOver。對照組：門檻改成 199 → 這一條會紅。"""
+        src = self.read("js/plain.js")
+        self.assertIn("var TREND_MA_DAYS = 200;", src)
+        self.assertIn("var TREND_RET_DAYS = 252;", src)
+        block = src[src.index("  function trendNumbers("):src.index("  function trendShort(")]
+        self.assertIn("I.ma(s, TREND_MA_DAYS)", block)
+        self.assertIn("I.changeOver(s, price, TREND_RET_DAYS)", block)
+        self.assertIn("s.length >= TREND_RET_DAYS + 1", block)
+        self.assertIsNone(re.search(r"(?<![A-Za-z0-9])(200|252|253)(?![0-9])", block))           # ma200 這種名字不算
+
+    def test_trend_rule_and_icon(self):
+        """A2a：規則句照規格；趨勢用色點（向下不等於壞，不配天氣）。對照組：dot 換成天氣 → 這一條會紅。"""
+        src = self.read("js/plain.js")
+        self.assertIn("var TREND_RULE = '規則：現價高於 ' + TREND_MA_DAYS + ' 日均線且近 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平。只描述趨勢狀態，不是判斷。';", src)
+        self.assertIn("trend:      { name: '趨勢', icon: 'dot', words: { low: '向下', mid: '持平', high: '向上' }, rule: TREND_RULE },", src)
+        self.assertNotIn("規則：A2 起才有", src)
+        self.assertIn("var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above && t.ret12mPct < 0 ? 'low' : 'mid');", src)
+
+    def test_trend_glossary_terms_and_rsi_positioning(self):
+        src = self.read("js/glossary.js")
+        self.assertIn("'200 日均線': '最近 200 個交易日收盤價的平均。", src)
+        self.assertIn("'12 個月報酬': '現價跟 252 個交易日（大約 12 個月）前的收盤價比", src)
+        self.assertIn("本站只拿它描述最近漲跌，不作為判斷依據。", src)
 
     def test_analysis_page_loads_the_three_new_scripts_before_analysis_js(self):
         src = self.read("analysis.html")

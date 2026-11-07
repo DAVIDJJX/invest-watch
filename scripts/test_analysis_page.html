@@ -629,10 +629,10 @@
           /* 對照組：預設順序不照儀表板的分組 → 這一條會紅。 */
           same(p, '列數與順序', ovIds().join('、'), OV_ORDER.join('、'));
           var heads = $$('#ov-table thead th').map(function (x) { return x.innerText.replace(/\s*[↕↑↓]\s*/g, '').trim(); });
-          same(p, '表頭', heads.join('｜'), '標的｜現價｜位置的資料日期｜位置｜風險｜成本');
+          same(p, '表頭', heads.join('｜'), '標的｜現價｜位置的資料日期｜位置｜風險｜成本｜趨勢');
           OV_ORDER.forEach(function (id) {
             var a = FIX.market.latest.assets[id], row = ovItem(id).querySelector('tr.ov-row');
-            if (row.cells.length !== 6) p.push(id + '：應該有 6 格，得到 ' + row.cells.length);
+            if (row.cells.length !== 7) p.push(id + '：應該有 7 格，得到 ' + row.cells.length);
             if (row.cells[0].innerText.indexOf(a.name) < 0 || row.cells[0].innerText.indexOf(a.group) < 0) p.push(id + '：第一格要有名稱與分組');
             same(p, id + ' 的資料日期（日線）', row.cells[2].innerText.trim(), a.date);
             if (!row.cells[2].classList.contains('date')) p.push(id + '：日期那一格沒有標成日期欄');
@@ -731,7 +731,7 @@
           row.click();
           if (det.hidden) p.push('點一列沒有展開細節');
           var boxes = det.querySelectorAll('.asp-detail');
-          same(p, '三個面向各一塊', Array.prototype.map.call(boxes, function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk、cost');
+          same(p, '四個面向各一塊（A2a 加趨勢）', Array.prototype.map.call(boxes, function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk、cost、trend');
           Array.prototype.forEach.call(boxes, function (b) {
             var asp = b.getAttribute('data-aspect');
             if (!b.querySelector('.asp-because') || !b.querySelector('.asp-because').innerText.trim()) p.push(asp + '：沒有寫這次是哪個數字');
@@ -746,7 +746,7 @@
           if (t.indexOf('風險的資料日期：2026-09-14（最後一根完成的週棒）') < 0) p.push('風險的週線日期要寫在細節裡');
           if (t.indexOf('位置的資料日期：2026-09-23（日線）') < 0) p.push('位置的日線日期要寫在細節裡');
           if (t.indexOf('指數只是一個數字') < 0) p.push('不適用要寫原因');
-          if (det.cells[0].colSpan !== 6) p.push('細節要橫跨整列');
+          if (det.cells[0].colSpan !== 7) p.push('細節要橫跨整列');
           row.click();
           if (!det.hidden) p.push('再點一次要收起來');
           var fx = ovItem('fx_cny');
