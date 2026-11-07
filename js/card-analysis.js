@@ -10,6 +10,7 @@
  *       strip() 畫收合時就看得到的圖示列，detail() 畫點開後的數字、規則、白話。儀表板的卡片與分析分頁的總覽表用同一份。
  *       狀態的門檻與白話模板在 js/plain.js、位置的燈號在 js/indicators.js；這一支只負責「哪張卡的哪個面向看哪個數字」。
  *       摺疊區的每一列下面也多一行白話（plain.js 載入之後才有；沒載入就跟以前一樣只有數字）。
+ * A2a：第四個面向「趨勢」——200 日均線位置與 12 個月價格報酬，讀 risk.json 的 trend（scripts/analyze.py 在 15:30 算），只顯示事實。
  *
  * 純函式：facts(asset, risk, cost) 回一個物件；render(facts) 回 HTML 字串。不 fetch、不碰 DOM。
  * 抓檔與掛進卡片的事在 js/app.js（首屏畫完之後才抓）。
@@ -248,9 +249,9 @@
    *        risk／cost／fx 是 data/analysis 的三個檔，null 表示那一檔讀不到（顯示「分析資料暫時讀不到」，不是資料不足）。
    * 三種「沒有狀態」要分清楚：資料不足＝之後會有（虛線圓圈＋原因）；不適用＝這一類標的沒有這個面向（卡片不畫、總覽表寫灰字）；
    * 暫時讀不到＝檔案沒抓到。幾個面向各看各的：這裡沒有任何把它們加起來或數一數的函式。
-   * 之後 A2／A3 要加趨勢、情緒、估值：在 ASPECT_ORDER 加一個名字、在 BUILDERS 加一個函式，卡片與總覽表就會自己多一格。
+   * 之後 A3 要加情緒、估值：在 ASPECT_ORDER 加一個名字、在 BUILDERS 加一個函式，卡片與總覽表就會自己多一格（A2a 的趨勢就是這樣加的，排最後）。
    */
-  var ASPECT_ORDER = ['position', 'risk', 'cost'];
+  var ASPECT_ORDER = ['position', 'risk', 'cost', 'trend'];
   var COST_MIN_DAYS = PREMIUM_MIN_DAYS;          // 折溢價與條塊溢價：自己的歷史滿幾個交易日才跟自己比
   var COST_PREMIUM_TAG = '確定';                 // 折溢價的狀態看哪一個口徑：確定（收盤對官方淨值，資料標籤「單一來源」）；預估口徑並列在細節裡
   /* 這幾類標的沒有「比平常貴或便宜」可比的成本 → 成本這個面向不適用 */
@@ -500,7 +501,34 @@
     return out;
   }
 
-  var BUILDERS = { position: positionAspect, risk: riskAspect, cost: costAspect };
+  /* ---- 趨勢（A2a）：200 日均線＋12 個月價格報酬（不含息）。數字是 scripts/analyze.py 在 15:30 那一輪用日線算好的
+     （data/analysis/risk.json 的 trend，跟風險同一個檔）；這裡只挑出這一張卡的那一筆、交給 js/plain.js 換成三態與白話，
+     不自己算均線或報酬。只描述狀態，不是判斷。 */
+  function signedPct(x) {                       // 一位小數、帶正負號；四捨五入是 0 的印 0.0%
+    var v = Math.round(x * 10) / 10;
+    return (v > 0 ? '+' : (v < 0 ? '-' : '')) + num(Math.abs(v), 1) + '%';
+  }
+  function trendAspect(asset, ctx) {
+    var Pl = global.Plain;
+    var out = { aspect: 'trend', facts: [], extra: [], dates: '' };
+    if (ctx.risk === null) { out.state = Pl.unavailable('trend'); return out; }
+    var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id];
+    // 日線檔讀不到（analyze.py 寫 error）：跟檔案沒抓到一樣是「暫時讀不到」，不是資料不足（Codex 第 3 輪）
+    if (t && t.error) { out.state = Pl.unavailable('trend'); return out; }
+    out.state = Pl.trendState(t);
+    if (!t || ['low', 'mid', 'high'].indexOf(out.state.key) < 0) return out;
+    var nd = asset.decimals || 0;
+    out.facts.push({ term: t.maDays + ' 日均線', k: t.maDays + ' 日均線', v: num(t.ma200, nd), label: t.label || '單一來源', date: t.through,
+                     note: '現價相對 ' + signedPct(t.dist200Pct) + '；最近 ' + t.maDays + ' 個交易日（' + (t.from200 || '—') + '～' + (t.through || '—') + '）的收盤平均',
+                     plain: Pl.sentence('trendMa', { pct: t.dist200Pct, days: t.maDays }) });
+    out.facts.push({ term: '12 個月報酬', k: '12 個月報酬（不含息）', v: signedPct(t.ret12mPct), label: t.label || '單一來源', date: t.through,
+                     note: '起算日 ' + (t.from12 || '—') + '（' + t.retDays + ' 個交易日前的收盤）；只算價格，不含配息',
+                     plain: Pl.sentence('trendReturn', { pct: t.ret12mPct, days: t.retDays, from: t.from12 }) });
+    out.dates = '趨勢的資料日期：' + (t.through || '—') + '（日線，每天 15:30 那一輪算）。';
+    return out;
+  }
+
+  var BUILDERS = { position: positionAspect, risk: riskAspect, cost: costAspect, trend: trendAspect };
 
   function aspects(asset, ctx) {
     if (!global.Plain || !asset) return null;                     // 白話層沒載入就什麼都不畫（由呼叫的人顯示「分析資料暫時讀不到」）

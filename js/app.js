@@ -351,8 +351,8 @@
 
     card.appendChild(head);
 
-    /* --- 圖示列（A1-7）：位置、風險、成本；首屏先留位置，內容等首屏畫完才補上（見 afterFirstScreen） --- */
-    var glance = el('div', 'card-glance', '<div class="asp-wait">位置、風險、成本：讀取中…</div>');
+    /* --- 圖示列（A1-7；A2a 加趨勢）：位置、風險、成本、趨勢；首屏先留位置，內容等首屏畫完才補上（見 afterFirstScreen） --- */
+    var glance = el('div', 'card-glance', '<div class="asp-wait">位置、風險、成本、趨勢：讀取中…</div>');
     glance.dataset.glance = a.id;
     card.appendChild(glance);
 
