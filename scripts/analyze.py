@@ -311,6 +311,24 @@ def load_history_daily(aid, paths=None):
         return []
 
 
+def load_history_daily_checked(aid, paths=None):
+    """趨勢用（A2a，Codex 第 3 輪）：跟 load_history_daily 讀同一個檔，但讀不到要說出來 → (points, 讀不到的原因)。
+    沒有這個檔：([], None)，照舊算資料不足。檔在、但讀不到、讀不懂或格式不對：([], 原因)——第三種狀態，
+    呼叫的那一邊要記成錯誤（同 A1-4 回補檔的做法）。load_history_daily 本身不動，別的面向照舊。"""
+    paths = paths or default_paths()
+    p = os.path.join(paths["history"], "%s.json" % aid)
+    if not os.path.exists(p):
+        return [], None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            j = json.load(fh)
+    except Exception as e:                                       # noqa: B902
+        return [], "讀不懂（%s）" % e.__class__.__name__
+    if not isinstance(j, dict) or not isinstance(j.get("points"), list):
+        return [], "格式不對（沒有 points 清單）"
+    return j["points"], None
+
+
 # ==========================================================================
 # 連線：正式的 Fetcher ＋ 主機白名單
 # ==========================================================================
@@ -737,12 +755,21 @@ def trend_of(points):
     return out
 
 
-def build_trend(assets, paths=None):
-    """每個 assets.json 的標的一筆（有沒有週線長歷史都算；台銀黃金這一輪更新失敗時，用日線最後一天，through 照實寫）。"""
+def build_trend(assets, paths=None, problems=None):
+    """每個 assets.json 的標的一筆（有沒有週線長歷史都算；台銀黃金這一輪更新失敗時，用日線最後一天，through 照實寫）。
+    日線檔在、卻讀不到：那一筆寫 error（數字全是 null、沒有 reason，不寫成「只有 0 天」），並記進 problems（→ risk.json 與 status.json 的錯誤）。"""
     out = {}
     for a in assets:
         aid = a.get("id")
-        pts = load_history_daily(aid, paths)
+        pts, err = load_history_daily_checked(aid, paths)
+        if err:
+            t = trend_of([])
+            t.pop("reason", None)
+            t.update({"days": None, "error": "日線檔 data/history/%s.json %s，這一輪算不出趨勢" % (aid, err)})
+            out[aid] = t
+            if problems is not None:
+                problems.append("趨勢 %s：日線檔 %s，這一輪算不出趨勢" % (aid, err))
+            continue
         if a.get("type") == "bot_gold_bar":
             t = trend_of([])
             t.update({"days": len(pts), "through": pts[-1].get("d") if pts else None,
@@ -772,8 +799,9 @@ def build_risk(series, assets_by_id, now, trend_assets=None, paths=None):
                "趨勢（trend）用的是日線，不是週線；價格報酬、不含息。每個標的都有一筆，跟有沒有週線長歷史無關。",
            ],
            "assets": {}, "correlation": None, "problems": []}
+    trend_problems = []
     if trend_assets is not None:
-        out["trend"] = build_trend(trend_assets, paths)
+        out["trend"] = build_trend(trend_assets, paths, trend_problems)
     for aid, pts in sorted(series.items()):
         a = assets_by_id.get(aid, {})
         rets = weekly_returns(pts)
@@ -794,6 +822,7 @@ def build_risk(series, assets_by_id, now, trend_assets=None, paths=None):
     corr.update({"window": "3 年（156 週）", "minOverlap": CORR_MIN_OVERLAP, "label": LABEL_SINGLE,
                  "note": "每一格的 n 是實際重疊的週數，from／through 是那一對的實際區間"})
     out["correlation"] = corr
+    problems = problems + trend_problems
     out["problems"] = problems
     return out, problems
 

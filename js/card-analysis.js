@@ -513,6 +513,8 @@
     var out = { aspect: 'trend', facts: [], extra: [], dates: '' };
     if (ctx.risk === null) { out.state = Pl.unavailable('trend'); return out; }
     var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id];
+    // 日線檔讀不到（analyze.py 寫 error）：跟檔案沒抓到一樣是「暫時讀不到」，不是資料不足（Codex 第 3 輪）
+    if (t && t.error) { out.state = Pl.unavailable('trend'); return out; }
     out.state = Pl.trendState(t);
     if (!t || ['low', 'mid', 'high'].indexOf(out.state.key) < 0) return out;
     var nd = asset.decimals || 0;
