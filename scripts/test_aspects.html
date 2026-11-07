@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <title>面向（位置、風險、成本）離線測試頁</title>
+  <title>面向（位置、風險、成本、趨勢）離線測試頁</title>
 </head>
 <body>
   <!-- 這一頁不連網、不讀資料檔：把假的行情、日線、risk／cost／fx 餵給 js/card-analysis.js 的 aspects()，逐題檢查每個面向的狀態、
@@ -30,7 +30,8 @@
       var COUNTING = /[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)/;
       var VOCAB = { position: ['相對低檔區', '中性', '相對高檔區', '資料不足', '暫時讀不到'],
                     risk: ['平靜', '正常', '劇烈', '資料不足', '暫時讀不到'],
-                    cost: ['便宜', '正常', '偏貴', '資料不足', '不適用', '暫時讀不到'] };
+                    cost: ['便宜', '正常', '偏貴', '資料不足', '不適用', '暫時讀不到'],
+                    trend: ['向上', '持平', '向下', '資料不足', '暫時讀不到'] };
 
       /* 合成的日線（跟 scripts/test_indicators.html 同一個產生法，不是任何真實資料） */
       function series(kind, n) {
@@ -60,10 +61,16 @@
                  maxDrawdown: { pct: -40, peakDate: '2020-02-17', troughDate: '2020-03-16', recoveredDate: '2020-08-24', label: '單一來源' },
                  currentDrawdown: { pct: -10, highDate: '2026-08-10', dataThrough: '2026-09-21', label: '單一來源' } };
       }
+      // A2a：risk.json 的 trend（analyze.py 算的；這裡是 252 個 10＋最後 20 算出來的值）
+      var TREND_UP = { maDays: 200, retDays: 252, days: 253, through: '2026-09-30', ma200: 10.05, dist200Pct: 99.005, above: true, ret12mPct: 100,
+                       from200: '2025-10-24', from12: '2025-09-01', label: '單一來源' };
       var RISK = { assets: {
         tw00646: riskAsset('index_etf', 7.9, 10), tw00679b: riskAsset('bond_etf', 10, '資料不足：只有 40 週（至少要 234 週）'),
         tw2330: riskAsset('stock', 12.1, 10), twii: riskAsset('index', 10, 10), btc: riskAsset('crypto', 8, 10), wti: riskAsset('commodity', 12, 10),
         gold_intl: riskAsset('commodity', 12.5, 10), fx_usd: riskAsset('fx', 4, 5), fx_cny: riskAsset('fx', 3, 5), newthing: riskAsset('reit', 10, 10) },
+        trend: { fx_usd: TREND_UP, gold_twd: TREND_UP, tw00679b: TREND_UP, gspc: TREND_UP, tw00646: TREND_UP,
+                 gold_bar: { maDays: 200, retDays: 252, days: 12, through: '2026-09-30', ma200: null, dist200Pct: null, above: null, ret12mPct: null,
+                             reason: '台銀不公布條塊的歷史牌價；本站自己累積的只有 12 個交易日，不夠算 200 日均線與 12 個月報酬', label: '單一來源' } },
         correlation: { window: '3 年（156 週）', label: '單一來源', matrix: {
           tw00646: { tw00646: { r: 1, n: 156 }, twii: { r: 0.9, n: 156, through: '2026-09-08' }, tw00679b: { r: 0.05, n: 156, through: '2026-09-08' }, fx_usd: { r: -0.35, n: 154, through: '2026-09-08' } } } } };
       function daily(n, value, last) {
@@ -108,11 +115,11 @@
         Object.keys(ASSETS).forEach(function (id) { ALL[id] = CA.aspects(ASSETS[id], ctx()); });
 
         check('aspects_come_in_a_fixed_order_each_with_word_number_and_rule', function (p) {
-          same(p, '面向的順序', CA.ASPECT_ORDER.join('、'), 'position、risk、cost');
+          same(p, '面向的順序', CA.ASPECT_ORDER.join('、'), 'position、risk、cost、trend');
           Object.keys(ALL).forEach(function (id) {
             var list = ALL[id];
-            if (!list || list.length !== 3) { p.push(id + '：應該有三個面向'); return; }
-            same(p, id + ' 的順序', list.map(function (a) { return a.aspect; }).join('、'), 'position、risk、cost');
+            if (!list || list.length !== 4) { p.push(id + '：應該有四個面向'); return; }
+            same(p, id + ' 的順序', list.map(function (a) { return a.aspect; }).join('、'), 'position、risk、cost、trend');
             list.forEach(function (a) {
               var s = a.state, tag = id + '/' + a.aspect;
               if (!s) { p.push(tag + '：沒有狀態'); return; }
@@ -294,7 +301,7 @@
             same(p, c[0] + ' 的原因', a.state.because, c[1]);
             if (a.facts.length) p.push(c[0] + '：沒有給靜態費用表時，不適用的面向沒有數字可列');
             var strip = box(CA.strip(ASSETS[c[0]], ALL[c[0]]));
-            same(p, c[0] + ' 的卡片只畫兩個圖示', Array.prototype.map.call(strip.querySelectorAll('button.asp'), function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk');
+            same(p, c[0] + ' 的卡片不畫成本那一個圖示', Array.prototype.map.call(strip.querySelectorAll('button.asp'), function (b) { return b.getAttribute('data-aspect'); }).join('、'), 'position、risk、trend');
             if (strip.textContent.indexOf('不適用') >= 0) p.push(c[0] + '：卡片上不畫不適用的面向');
             var cell = box(CA.cell(a));
             same(p, c[0] + ' 的總覽表那一格', cell.textContent, '不適用');
@@ -343,7 +350,7 @@
           if (facts[0].querySelector('.ana-tag').textContent.indexOf('官方公告') < 0 || facts[0].querySelector('.ana-tag').textContent.indexOf('2026-09-25') < 0) p.push('固定費用那一列要有資料標籤與查核日期');
           // 卡片上還是不畫這個面向的圖示（卡片也拿不到靜態費用表）
           var strip = box(CA.strip(ASSETS.tw2330, list));
-          same(p, '卡片只畫兩個圖示', strip.querySelectorAll('button.asp').length, 2);
+          same(p, '卡片不畫成本那一個圖示（位置、風險、趨勢）', strip.querySelectorAll('button.asp').length, 3);
           if (strip.textContent.indexOf('證券交易稅') >= 0) p.push('卡片的圖示列不該出現不適用面向的內容');
           // 沒有它的項目（指數）、或沒有給費用表：不適用照舊只有原因
           same(p, '表裡沒有它的項目', of(CA.aspects(ASSETS.twii, ctx(null, { staticCosts: SC })), 'cost').facts.length, 0);
@@ -529,6 +536,191 @@
           var gold = box(CA.render(CA.facts(ASSETS.gold_cny, RISK, COST)));
           same(p, '人民幣存摺那一列的白話', gold.querySelector('.ana-row .plain-line').textContent,
                '銀行掛的兩個價格差 1.20%：今天存進 100 人民幣的黃金、馬上再換回現金，大約會少 1.20 人民幣。');
+        });
+
+        /* ======================================================== A2a：趨勢（200 日均線＋12 個月價格報酬）
+           數字由 scripts/analyze.py 在 15:30 那一輪算好放在 risk.json 的 trend；這裡餵假的 trend 物件（10／20／30 算出來的值），
+           檢查前端只是照 JSON 換成三態與白話、不自己算。門檻 199／200、252／253 的邊界在 scripts/test_analyze.py 測。 */
+        function TR(over) {
+          var t = { maDays: 200, retDays: 252, days: 253, through: '2026-09-30', ma200: 10.05, dist200Pct: 99.005, above: true, ret12mPct: 100,
+                    from200: '2025-10-24', from12: '2025-09-01', label: '單一來源' };   // 252 個 10＋最後 20
+          Object.keys(over || {}).forEach(function (k) { t[k] = over[k]; });
+          return t;
+        }
+        function trendOf(t, over, a) {
+          a = a || asset('t', 'yahoo', { price: 20 });
+          var risk = { assets: {}, trend: {} };
+          if (t !== undefined) risk.trend[a.id] = t;
+          return of(CA.aspects(a, ctx(T10, Object.assign({ risk: risk }, over || {}))), 'trend');
+        }
+        var T10 = series('flat', 10);                                 // 日線只有 10 點：證明趨勢不看日線
+        var T_DOWN = TR({ ma200: 19.95, dist200Pct: -49.8747, above: false, ret12mPct: -50 });
+        var T_MIXED = TR({ dist200Pct: 99.005, above: true, ret12mPct: -33.3333 });
+        var T_UNDER = TR({ dist200Pct: -49.8747, above: false, ret12mPct: 100 });
+        var T_EVEN = TR({ ma200: 10, dist200Pct: 0, above: false, ret12mPct: 0 });
+        var RULE_TEXT = '規則：現價高於 200 日均線且近 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平。只描述趨勢狀態，不是判斷。';
+        var SHORT199 = '資料不足：只有 199 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）';
+
+        check('trend_up_when_above_the_200_day_average_and_the_year_is_positive', function (p) {
+          /* 對照組：三態判斷反過來（向上變向下）、或 dot 換成天氣 → 這一條會紅。 */
+          var a = trendOf(TR());
+          same(p, '狀態', a.state.key + '／' + a.state.word, 'high／向上');
+          same(p, '這次的數字', a.state.because, '現價比 200 日均線高 99.0%、近 12 個月 +100.0%（不含息，資料到 2026-09-30） → 向上');
+          same(p, '圖示是色點', a.state.icon + '／' + a.state.iconName, 'dot／橘色圓點');
+          same(p, '面向名稱', a.name + '／' + a.aspect, '趨勢／trend');
+          same(p, '規則', a.state.rule, RULE_TEXT);
+          same(p, '列兩個數字', a.facts.map(function (f) { return f.k + '＝' + f.v; }).join('｜'), '200 日均線＝10.05｜12 個月報酬（不含息）＝+100.0%');
+          same(p, '均線那一列的附註', a.facts[0].note, '現價相對 +99.0%；最近 200 個交易日（2025-10-24～2026-09-30）的收盤平均');
+          same(p, '報酬那一列的附註', a.facts[1].note, '起算日 2025-09-01（252 個交易日前的收盤）；只算價格，不含配息');
+          same(p, '均線的白話', a.facts[0].plain, '現價比最近 200 個交易日的平均收盤價高 99.0%。');
+          same(p, '報酬的白話', a.facts[1].plain, '跟 252 個交易日前（2025-09-01）的收盤價比，價格漲了 100.0%；只算價格，不含配息。');
+          same(p, '資料標籤與日期', a.facts[0].label + '／' + a.facts[0].date, '單一來源／2026-09-30');
+          same(p, '資料日期', a.dates, '趨勢的資料日期：2026-09-30（日線，每天 15:30 那一輪算）。');
+          same(p, '日期用 JSON 的 through，不是行情檔的日期', trendOf(TR({ through: '2026-10-28' })).state.because.indexOf('資料到 2026-10-28') > 0, true);
+        });
+
+        check('trend_down_when_below_the_average_and_the_year_is_negative', function (p) {
+          var a = trendOf(T_DOWN);
+          same(p, '狀態', a.state.key + '／' + a.state.word, 'low／向下');
+          same(p, '這次的數字', a.state.because, '現價比 200 日均線低 49.9%、近 12 個月 -50.0%（不含息，資料到 2026-09-30） → 向下');
+          same(p, '圖示是色點', a.state.icon + '／' + a.state.iconName, 'dot／綠色圓點');
+          same(p, '均線的白話', a.facts[0].plain, '現價比最近 200 個交易日的平均收盤價低 49.9%。');
+          same(p, '報酬的白話', a.facts[1].plain, '跟 252 個交易日前（2025-09-01）的收盤價比，價格跌了 50.0%；只算價格，不含配息。');
+          same(p, '報酬那一格', a.facts[1].v, '-50.0%');
+        });
+
+        check('trend_is_flat_when_the_two_facts_disagree_or_sit_on_the_line', function (p) {
+          /* 對照組：持平的條件改成「任一個相反就算向下」→ 這一條會紅。 */
+          var mixed = trendOf(T_MIXED);
+          same(p, '均線之上、一年報酬為負', mixed.state.key + '／' + mixed.state.word, 'mid／持平');
+          same(p, '這次的數字', mixed.state.because, '現價比 200 日均線高 99.0%、近 12 個月 -33.3%（不含息，資料到 2026-09-30） → 持平');
+          same(p, '圖示是色點', mixed.state.icon + '／' + mixed.state.iconName, 'dot／灰色圓點');
+          same(p, '均線之下、一年報酬為正', trendOf(T_UNDER).state.key, 'mid');
+          var even = trendOf(T_EVEN);
+          same(p, '剛好在均線上、報酬 0', even.state.key + '／' + even.state.word, 'mid／持平');
+          same(p, '剛好在均線上的寫法', even.state.because, '現價跟 200 日均線差不到 0.1%、近 12 個月 0.0%（不含息，資料到 2026-09-30） → 持平');
+          same(p, '剛好在均線上的白話', even.facts[0].plain + '｜' + even.facts[1].plain,
+               '現價跟最近 200 個交易日的平均收盤價幾乎一樣。｜跟 252 個交易日前（2025-09-01）的收盤價比，價格幾乎沒變；只算價格，不含配息。');
+          same(p, '三態的字', P.ASPECTS.trend.words.low + '／' + P.ASPECTS.trend.words.mid + '／' + P.ASPECTS.trend.words.high, '向下／持平／向上');
+        });
+
+        check('trend_insufficient_comes_from_the_analysis_file', function (p) {
+          /* 對照組：資料不足也硬算一個狀態 → 這一條會紅。 */
+          var a = trendOf(TR({ days: 199, ma200: null, dist200Pct: null, above: null, ret12mPct: null, from200: null, from12: null, reason: SHORT199 }));
+          same(p, '199 點', a.state.key + '／' + a.state.word + '／' + a.state.icon, 'na／資料不足／none');
+          same(p, '原因照 JSON', a.state.because, SHORT199);
+          same(p, '資料不足也印規則（天數照 JSON）', a.state.rule, RULE_TEXT);
+          if (a.facts.length) p.push('資料不足就不該列數字');
+          var only = trendOf(TR({ ret12mPct: null, from12: null, reason: '資料不足：只有 252 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）' }));
+          same(p, '有均線、沒有 12 個月報酬', only.state.key + '／' + only.state.because, 'na／資料不足：只有 252 天（200 日均線至少要 200 天、12 個月報酬至少要 253 天）');
+          same(p, '沒有原因就寫資料不足', trendOf(TR({ above: null })).state.because, '資料不足');
+          var bar = trendOf(TR({ dist200Pct: null, ret12mPct: null, reason: '台銀不公布條塊的歷史牌價；本站自己累積的只有 12 個交易日，不夠算 200 日均線與 12 個月報酬' }),
+                            null, ASSETS.gold_bar);
+          same(p, '條塊照 JSON 的原因', bar.state.key + '／' + bar.state.because, 'na／台銀不公布條塊的歷史牌價；本站自己累積的只有 12 個交易日，不夠算 200 日均線與 12 個月報酬');
+        });
+
+        check('trend_unreadable_file_is_not_insufficient', function (p) {
+          /* Codex 第 1 輪 4500259969：risk.json 讀不到＝暫時讀不到（error），不是資料不足。對照組：讀不到寫成資料不足 → 這一條會紅。 */
+          var gone = of(CA.aspects(asset('t', 'yahoo'), ctx(T10, { risk: null })), 'trend');
+          same(p, 'risk.json 讀不到', gone.state.key + '／' + gone.state.word + '／' + gone.state.because, 'error／暫時讀不到／分析資料暫時讀不到');
+          var strip = box(CA.strip(asset('t', 'yahoo'), [gone]));
+          if (!strip.querySelector('.asp-missing')) p.push('讀不到時圖示列下面要寫「分析資料暫時讀不到」');
+          // Codex 第 3 輪：日線檔讀不到時 analyze.py 寫 error → 暫時讀不到，不是資料不足
+          var broken = trendOf({ maDays: 200, retDays: 252, days: null, through: null, ma200: null, dist200Pct: null, above: null, ret12mPct: null,
+                                 label: '單一來源', error: '日線檔 data/history/t.json 讀不懂（JSONDecodeError），這一輪算不出趨勢' });
+          same(p, '日線檔讀不到', broken.state.key + '／' + broken.state.word + '／' + broken.state.because, 'error／暫時讀不到／分析資料暫時讀不到');
+          if (broken.facts.length) p.push('讀不到就不該列數字');
+          if (!box(CA.strip(asset('t', 'yahoo'), [broken])).querySelector('.asp-missing')) p.push('日線檔讀不到時圖示列下面要寫「分析資料暫時讀不到」');
+          same(p, '有 error 就算數字齊全也是讀不到', trendOf(TR({ error: '測試' })).state.key, 'error');
+          var missing = trendOf(undefined);
+          same(p, '分析檔裡沒有這個標的', missing.state.key + '／' + missing.state.because, 'na／分析檔裡還沒有這個標的的趨勢');
+          var old = of(CA.aspects(asset('t', 'yahoo'), ctx(T10, { risk: { assets: {} } })), 'trend');
+          same(p, '舊的分析檔（沒有 trend）', old.state.key + '／' + old.state.because, 'na／分析檔裡還沒有這個標的的趨勢');
+          same(p, '日線讀不到不影響趨勢（它只看分析檔）', trendOf(TR(), { historyFailed: true, points: [] }).state.key, 'high');
+          same(p, '更新失敗的標的照 JSON', trendOf(TR({ through: '2026-10-28' }), null, asset('t', 'bot_gold', { status: 'error', price: null })).state.key, 'high');
+        });
+
+        check('trend_bar_and_every_card_get_a_chip', function (p) {
+          /* 對照組：面向順序少了趨勢 → 這一條會紅。 */
+          var d = box(CA.strip(ASSETS.gold_bar, ALL.gold_bar));
+          var chip = d.querySelector('button.asp[data-aspect="trend"]');
+          if (!chip || chip.getAttribute('data-state') !== 'na') p.push('條塊卡上要畫趨勢的資料不足圖示');
+          ['fx_usd', 'gold_twd', 'tw00679b', 'twii'].forEach(function (id) {
+            same(p, id + ' 照 JSON', of(ALL[id], 'trend').state.key, RISK.trend[id] ? 'high' : 'na');
+          });
+        });
+
+        check('trend_because_has_one_decimal_signs_and_the_data_date', function (p) {
+          /* 對照組：because 不寫「不含息」或日期、或天數寫死不看 JSON → 這一條會紅。 */
+          var FORMAT = /^現價(比 \d+ 日均線(高|低) \d+\.\d%|跟 \d+ 日均線差不到 0\.1%)、近 12 個月 (\+\d+\.\d%|-\d+\.\d%|0\.0%)（不含息，資料到 \d{4}-\d{2}-\d{2}） → (向上|持平|向下)$/;
+          var seen = {};
+          [[99.005, true, 100], [-49.87, false, -50], [5.04, true, -0.04], [-0.04, false, 0.04], [0.01, true, 0.01], [-12.34, false, -56.78]].forEach(function (c) {
+            var a = trendOf(TR({ dist200Pct: c[0], above: c[1], ret12mPct: c[2] }));
+            seen[a.state.key] = true;
+            if (!FORMAT.test(a.state.because)) p.push('格式不對：' + a.state.because);
+            if (a.state.because.indexOf('-0.0%') >= 0) p.push('不印 -0.0%：' + a.state.because);
+          });
+          same(p, '三態都測到', Object.keys(seen).sort().join('、'), 'high、low、mid');
+          var other = trendOf(TR({ maDays: 150, retDays: 120 }));
+          same(p, '天數照 JSON（均線）', other.state.because.indexOf('比 150 日均線') === 2, true);
+          same(p, '天數照 JSON（規則）', other.state.rule.indexOf('現價高於 150 日均線') > 0, true);
+          same(p, '天數照 JSON（細節）', other.facts[0].k + '｜' + other.facts[1].plain.slice(0, 12), '150 日均線｜跟 120 個交易日前（');
+        });
+
+        check('trend_rule_starts_with_rule_and_is_printed_everywhere', function (p) {
+          same(p, '規則句', P.trendRule(200), RULE_TEXT);
+          if (P.ASPECTS.trend.rule.indexOf('規則：') !== 0) p.push('面向的預設規則句要以「規則：」開頭');
+          same(p, '面向用色點', P.ASPECTS.trend.icon, 'dot');
+          [TR(), T_DOWN, T_MIXED, TR({ dist200Pct: null, reason: SHORT199 })].forEach(function (t, i) {
+            var a = trendOf(t), d = box(CA.detail(a));
+            same(p, i + ' 狀態的規則', a.state.rule, RULE_TEXT);
+            same(p, i + ' 細節印出規則', d.querySelector('.asp-rule') && d.querySelector('.asp-rule').textContent, RULE_TEXT);
+            var c = box(CA.cell(a)).querySelector('.asp-cell');
+            same(p, i + ' 總覽表那一格', c.getAttribute('data-state'), a.state.key);
+            if (!c.querySelector('.asp-icon svg')) p.push(i + '：總覽表那一格沒有圖示');
+          });
+        });
+
+        check('trend_terms_are_in_the_glossary_and_rsi_is_only_a_description', function (p) {
+          /* 對照組：名詞解釋少了「200 日均線」、或 RSI 少了定位那一句 → 這一條會紅。 */
+          ['200 日均線', '12 個月報酬'].forEach(function (t) {
+            var def = window.Glossary.define(t);
+            if (!def || def.length < 8) p.push('名詞「' + t + '」沒有解釋');
+          });
+          if ((window.Glossary.define('12 個月報酬') || '').indexOf('不含配息') < 0) p.push('12 個月報酬要寫不含配息');
+          if ((window.Glossary.define('RSI') || '').indexOf('本站只拿它描述最近漲跌，不作為判斷依據') < 0) p.push('RSI 要寫清楚它在本站的定位');
+          var d = box(CA.detail(trendOf(TR())));
+          var terms = Array.prototype.map.call(d.querySelectorAll('button.term'), function (b) { return b.getAttribute('data-term'); });
+          same(p, '細節裡的名詞可以點', terms.join('｜'), '200 日均線｜12 個月報酬');
+          window.Glossary.wire(d);
+          d.querySelector('button.term').click();
+          if (!d.querySelector('.term-def') || d.querySelector('.term-def').textContent.indexOf('200 日均線：') !== 0) p.push('點名詞沒有展開解釋');
+        });
+
+        check('trend_sentences_say_insufficient_instead_of_nothing', function (p) {
+          ['trendMa', 'trendReturn'].forEach(function (k) {
+            if (P.KINDS.indexOf(k) < 0) p.push('白話模板清單（Plain.KINDS）裡沒有 ' + k);
+            [undefined, {}, { pct: null, days: 200 }, { pct: 'abc', days: 200 }, { pct: NaN, days: 200 }, { pct: 1 }].forEach(function (data) {
+              same(p, k + ' 遇到 ' + JSON.stringify(data), P.sentence(k, data), '資料不足');
+            });
+          });
+          same(p, '沒有起算日就不寫括號', P.sentence('trendReturn', { pct: -3.21, days: 252 }), '跟 252 個交易日前的收盤價比，價格跌了 3.2%；只算價格，不含配息。');
+          same(p, '很大的數字', P.sentence('trendMa', { pct: 1234.56, days: 200 }), '現價比最近 200 個交易日的平均收盤價高 1,234.6%。');
+        });
+
+        check('trend_has_no_trading_words_and_no_counting', function (p) {
+          /* 對照組：趨勢的字眼帶方向的交易用語、或加總 → 這一條會紅。 */
+          var text = [P.trendRule(200), P.ASPECTS.trend.rule, window.Glossary.define('200 日均線'), window.Glossary.define('12 個月報酬'), window.Glossary.define('RSI')].join('\n');
+          [TR(), T_DOWN, T_MIXED, T_EVEN, TR({ dist200Pct: null, reason: SHORT199 })].forEach(function (t) {
+            var a = trendOf(t);
+            text += '\n' + box(CA.strip(asset('t', 'yahoo'), [a]) + CA.detail(a) + CA.cell(a)).textContent;
+            if (VOCAB.trend.indexOf(a.state.word) < 0) p.push('不在詞表裡的狀態詞「' + a.state.word + '」');
+          });
+          BANNED.forEach(function (w) { if (text.indexOf(w) >= 0) p.push('出現「' + w + '」'); });
+          if (COUNTING.test(text)) p.push('出現面向計數：' + COUNTING.exec(text)[0]);
+          ['count', 'total', 'summary', 'score', 'tally', 'countStates', 'sumStates'].forEach(function (k) {
+            if (typeof P[k] !== 'undefined' || typeof CA[k] !== 'undefined') p.push('不該有加總用的函式：' + k);
+          });
         });
       }
       document.getElementById('result').textContent = JSON.stringify({ loaded: loaded, total: results.length, results: results });

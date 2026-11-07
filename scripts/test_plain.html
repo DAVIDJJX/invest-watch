@@ -136,7 +136,16 @@
                      [{ pct: 50, labels: [] }, NA]],
         concAligned: [[{ pct: 30, proxy: 'tw2330' }, '跟收入來源的代理標的（tw2330）常常同方向走的類別，合起來佔全部的 30%。'],
                       [{ pct: 0, proxy: 'tw2330' }, '跟收入來源的代理標的（tw2330）常常同方向走的類別，合起來佔全部的 0%。'],
-                      [{ pct: 30 }, NA]]
+                      [{ pct: 30 }, NA]],
+        // A2a 趨勢的兩個數字（days 是 risk.json 帶的天數：均線用 maDays、報酬用 retDays）
+        trendMa: [[{ pct: 3.21, days: 200 }, '現價比最近 200 個交易日的平均收盤價高 3.2%。'],
+                  [{ pct: -30, days: 200 }, '現價比最近 200 個交易日的平均收盤價低 30.0%。'],
+                  [{ pct: 0.04, days: 200 }, '現價跟最近 200 個交易日的平均收盤價幾乎一樣。'],
+                  [{ pct: 3.21 }, NA]],
+        trendReturn: [[{ pct: 10, days: 252, from: '2025-11-06' }, '跟 252 個交易日前（2025-11-06）的收盤價比，價格漲了 10.0%；只算價格，不含配息。'],
+                      [{ pct: -20, days: 252, from: '2025-11-06' }, '跟 252 個交易日前（2025-11-06）的收盤價比，價格跌了 20.0%；只算價格，不含配息。'],
+                      [{ pct: 0, days: 252, from: '2025-11-06' }, '跟 252 個交易日前（2025-11-06）的收盤價比，價格幾乎沒變；只算價格，不含配息。'],
+                      [{ days: 252, from: '2025-11-06' }, NA]]
       };
 
       if (loaded) {
@@ -363,6 +372,16 @@
           if (COUNTING.test(text)) p.push('出現面向計數：' + COUNTING.exec(text)[0]);
           if (!COUNTING.test('3 個面向偏貴') || !COUNTING.test('兩項指標正常')) p.push('計數的檢查式自己壞了');
           if (typeof P.count !== 'undefined' || typeof P.total !== 'undefined' || typeof P.summary !== 'undefined') p.push('plain.js 不該有任何加總用的函式');
+        });
+
+        check('trend_templates_follow_the_trend_constants', function (p) {
+          /* A2a：趨勢兩個白話模板在 SENTENCES 裡（每個模板都有上面的測試表）；天數照 risk.json 帶的（這裡不另寫一份門檻）；四捨五入之後是 0 的不印 -0.0%。 */
+          ['trendMa', 'trendReturn'].forEach(function (k) { if (P.KINDS.indexOf(k) < 0) p.push('模板清單裡沒有 ' + k); });
+          if (P.sentence('trendMa', { pct: 1, days: 150 }).indexOf('最近 150 個交易日') < 0) p.push('均線的白話沒有用 JSON 給的天數');
+          if (P.sentence('trendReturn', { pct: 1, days: 120 }).indexOf('跟 120 個交易日前') < 0) p.push('報酬的白話沒有用 JSON 給的天數');
+          same(p, '-0.04%', P.sentence('trendReturn', { pct: -0.04, days: 252 }), '跟 252 個交易日前的收盤價比，價格幾乎沒變；只算價格，不含配息。');
+          same(p, '-0.06% 四捨五入', P.sentence('trendMa', { pct: -0.06, days: 200 }), '現價比最近 200 個交易日的平均收盤價低 0.1%。');
+          if (typeof P.TREND_MA_DAYS !== 'undefined' || typeof P.trendNumbers !== 'undefined') p.push('plain.js 不該再有自己的門檻或計算');
         });
 
         check('glossary_has_the_required_terms_and_opens_on_click', function (p) {

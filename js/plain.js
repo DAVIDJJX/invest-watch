@@ -9,6 +9,7 @@
  *   3. 每個數字下面一行白話（這裡的模板產生）；資料不足就輸出「資料不足」，不是空字串。
  *   圖示只是狀態的圖像，狀態詞一定並列——色弱或不懂隱喻的人只看字也懂。
  *   風險與成本用天氣（晴、多雲、雨）；位置用色點，不用天氣——低檔不等於好，不該配一個晴天。
+ *   A2a：趨勢（200 日均線＋12 個月價格報酬）也用色點——向下不等於壞，同樣不配天氣。只描述狀態，不改變任何資金規則。
  *
  * 「資料不足」與「不適用」是兩回事：資料不足＝之後會有（虛線圓圈＋原因）；不適用＝這一類標的沒有這個面向。
  *
@@ -35,7 +36,12 @@
   /* 面向、狀態詞、規則句。
      位置的三個詞就是卡片燈號的三個詞（js/indicators.js 的 positionSignal，A1-5 釘住）；這裡只是抄一份給圖例與測試對照，
      真正顯示的字一律從燈號函式的輸出拿（lampState），不在這裡另外判定。
-     趨勢、情緒、估值要等 A2、A3 才有資料，這裡先把詞定下來；它們的門檻到時候才定（目前沒有任何函式會產生這三個面向的狀態）。 */
+     情緒、估值要等 A3 才有資料，這裡先把詞定下來；它們的門檻到時候才定（目前沒有任何函式會產生這兩個面向的狀態）。
+     趨勢 A2a 起有了：數字由 scripts/analyze.py 在 15:30 那一輪算好放在 data/analysis/risk.json 的 trend（門檻常數只在 Python 一份），
+     這裡只把 JSON 的數字換成三態與白話；均線天數（maDays）、報酬天數（retDays）都從 JSON 拿，不在這裡另寫一份。 */
+  function trendRule(maDays) {
+    return '規則：現價高於 ' + (isNum(maDays) ? maDays + ' 日均線' : '長期均線') + '且近 12 個月價格報酬為正＝向上；都相反＝向下；其他＝持平。只描述趨勢狀態，不是判斷。';
+  }
   var ASPECTS = {
     position:   { name: '位置', icon: 'dot', words: { low: '相對低檔區', mid: '中性', high: '相對高檔區' },
                   rule: '規則：區間位置低於 25% 算相對低檔區、25%～75% 算中性、高於 75% 算相對高檔區' },
@@ -46,7 +52,7 @@
     risk:       { name: '風險', words: { low: '平靜', mid: '正常', high: '劇烈' },
                   rule: '規則：1 年波動比 5 年波動低兩成以上算平靜、高兩成以上算劇烈，其餘算正常' },
     valuation:  { name: '估值', words: { low: '偏便宜', mid: '中間', high: '偏貴' }, rule: '規則：A3 起才有' },
-    trend:      { name: '趨勢', words: { low: '向下', mid: '持平', high: '向上' }, rule: '規則：A2 起才有' },
+    trend:      { name: '趨勢', icon: 'dot', words: { low: '向下', mid: '持平', high: '向上' }, rule: trendRule() },
     mood:       { name: '情緒', words: { low: '冷', mid: '中性', high: '熱' }, rule: '規則：A3 起才有' }
   };
   /* 折溢價不跟中位數比，跟自己歷史的第 25／75 百分位比（折溢價會是負的，「高一成」這種比法不適用） */
@@ -69,7 +75,7 @@
   };
   var ICON_OF = { low: 'sun', mid: 'cloud', high: 'rain' };
   var ICON_NAME = { sun: '晴', cloud: '多雲', rain: '雨', none: '沒有資料' };
-  var DOT_NAME = { low: '綠色圓點', mid: '灰色圓點', high: '橘色圓點' };
+  var DOT_NAME = { low: '綠色圓點', mid: '灰色圓點', high: '橘色圓點' };   // 位置與趨勢共用（顏色沿用 [data-state]）
 
   /* 一個狀態：key 是 low／mid／high（三態）、na（資料不足）、none（不適用）、error（分析資料暫時讀不到）。
      opts：word（位置用燈號自己的字）、rule（折溢價用自己的規則）、reason（資料不足或不適用的原因）、note（例如「累積中 3/20」）。 */
@@ -122,6 +128,26 @@
     var ratio = vol1y / vol5y;
     return make('risk', ratio < 0.8 ? 'low' : (ratio > 1.2 ? 'high' : 'mid'),
                 '1 年波動 ' + n(vol1y, 1) + '%，5 年波動 ' + n(vol5y, 1) + '%');
+  }
+  /* ---- 趨勢（A2a）：t 是 risk.json 的 trend[<id>]（maDays、retDays、dist200Pct、above、ret12mPct、through、reason）。
+     兩個數字有一個是 null 就是資料不足，原因照 JSON 的 reason 寫；這裡不自己算均線或報酬。 */
+  function signed1(x) {
+    var v = Math.round(x * 10) / 10;
+    return (v > 0 ? '+' : (v < 0 ? '-' : '')) + n(Math.abs(v), 1) + '%';
+  }
+  function versusMa(dist, maDays) {
+    var v = Math.round(dist * 10) / 10;
+    return v === 0 ? '跟 ' + maDays + ' 日均線差不到 0.1%' : '比 ' + maDays + ' 日均線' + (v > 0 ? '高 ' : '低 ') + n(Math.abs(v), 1) + '%';
+  }
+  /* 三態：現價在均線之上且 12 個月報酬為正＝向上；都相反＝向下；其他＝持平。through 是資料日期（寫進這次的數字） */
+  function trendState(t) {
+    if (!t) return insufficient('trend', '分析檔裡還沒有這個標的的趨勢');
+    var rule = trendRule(t.maDays);
+    var ok = isNum(t.maDays) && isNum(t.dist200Pct) && isNum(t.ret12mPct) && typeof t.above === 'boolean';
+    if (!ok) return insufficient('trend', t.reason || NA, rule);
+    var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above && t.ret12mPct < 0 ? 'low' : 'mid');
+    return make('trend', key, '現價' + versusMa(t.dist200Pct, t.maDays) + '、近 12 個月 ' + signed1(t.ret12mPct) + '（不含息，資料到 ' + (t.through || '—') + '）',
+                { rule: rule });
   }
   /* 資料不足的三種說法：還在累積（之後會有）、沒有這個面向（不適用）、檔案暫時讀不到 */
   function accumulating(aspect, have, need, rule, reason) {
@@ -359,6 +385,19 @@
     concAligned: function (d) {
       if (!isNum(d.pct) || !d.proxy) return NA;
       return '跟收入來源的代理標的（' + d.proxy + '）常常同方向走的類別，合起來佔全部的 ' + n(d.pct, 0) + '%。';
+    },
+    /* A2a 趨勢：均線（pct＝現價相對均線 %，days＝均線天數）、12 個月價格報酬（pct＝報酬 %，days＝交易日數，from＝起算日）；不含配息 */
+    trendMa: function (d) {
+      if (!isNum(d.pct) || !isNum(d.days)) return NA;
+      var v = Math.round(d.pct * 10) / 10;
+      if (v === 0) return '現價跟最近 ' + d.days + ' 個交易日的平均收盤價幾乎一樣。';
+      return '現價比最近 ' + d.days + ' 個交易日的平均收盤價' + (v > 0 ? '高' : '低') + ' ' + n(Math.abs(v), 1) + '%。';
+    },
+    trendReturn: function (d) {
+      if (!isNum(d.pct) || !isNum(d.days)) return NA;
+      var v = Math.round(d.pct * 10) / 10;
+      var head = '跟 ' + d.days + ' 個交易日前' + (d.from ? '（' + d.from + '）' : '') + '的收盤價比，';
+      return head + (v === 0 ? '價格幾乎沒變' : '價格' + (v > 0 ? '漲了 ' : '跌了 ') + n(Math.abs(v), 1) + '%') + '；只算價格，不含配息。';
     }
   };
   function sentence(kind, data) {
@@ -376,6 +415,8 @@
     ASPECTS: ASPECTS, ICONS: ICONS, PREMIUM_RULE: PREMIUM_RULE, premiumRule: premiumRule, KINDS: Object.keys(SENTENCES),
     lampState: lampState, fxPositionState: fxPositionState, costState: costState, premiumState: premiumState, riskState: riskState,
     accumulating: accumulating, insufficient: insufficient, notApplicable: notApplicable, unavailable: unavailable,
-    badge: badge, iconHtml: iconHtml, sentence: sentence, line: line
+    badge: badge, iconHtml: iconHtml, sentence: sentence, line: line,
+    // A2a：趨勢
+    trendRule: trendRule, trendState: trendState
   };
 })(window);

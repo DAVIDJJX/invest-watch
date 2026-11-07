@@ -100,6 +100,12 @@ EXTRA_LONG_SERIES = [
      "note": "只是人民幣拆解的基準序列，不進 assets.json、不做卡片、不進風險表與相關矩陣"},
 ]
 
+# ---- A2a：趨勢（日線；全站只有這一份門檻，前端與文件都從這裡來，文件的數字有測試釘住）----
+TREND_MA_DAYS = 200                                      # 200 日均線：最近 200 個收盤的簡單平均
+TREND_RET_DAYS = 252                                     # 12 個月＝252 個交易日；算報酬要再多一點（起算那天），所以至少 253 點
+TREND_NOTE = ("趨勢（trend）：日線（data/history，排除盤中的暫定點）最近 %d 個收盤的簡單平均，現價（最後一個收盤）相對它高或低幾 %%；"
+              "12 個月報酬＝最後一個收盤相對 %d 個交易日前的收盤，價格報酬、不含息。只描述狀態，這裡沒有任何判斷。" % (TREND_MA_DAYS, TREND_RET_DAYS))
+
 # ---- A1-6：匯率與換匯助手 ----
 FX_CURRENCIES = (("fx_usd", "USD"), ("fx_cny", "CNY"))
 FX_DAILY_WINDOW = 252                                    # 1 年（日線）
@@ -303,6 +309,24 @@ def load_history_daily(aid, paths=None):
             return (json.load(fh) or {}).get("points") or []
     except Exception:
         return []
+
+
+def load_history_daily_checked(aid, paths=None):
+    """趨勢用（A2a，Codex 第 3 輪）：跟 load_history_daily 讀同一個檔，但讀不到要說出來 → (points, 讀不到的原因)。
+    沒有這個檔：([], None)，照舊算資料不足。檔在、但讀不到、讀不懂或格式不對：([], 原因)——第三種狀態，
+    呼叫的那一邊要記成錯誤（同 A1-4 回補檔的做法）。load_history_daily 本身不動，別的面向照舊。"""
+    paths = paths or default_paths()
+    p = os.path.join(paths["history"], "%s.json" % aid)
+    if not os.path.exists(p):
+        return [], None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            j = json.load(fh)
+    except Exception as e:                                       # noqa: B902
+        return [], "讀不懂（%s）" % e.__class__.__name__
+    if not isinstance(j, dict) or not isinstance(j.get("points"), list):
+        return [], "格式不對（沒有 points 清單）"
+    return j["points"], None
 
 
 # ==========================================================================
@@ -705,7 +729,58 @@ def ten_year_window(points):
             "reason": "資料不足，%s 起才滿 10 年" % ready.strftime("%Y-%m")}
 
 
-def build_risk(series, assets_by_id, now):
+def trend_short(days):
+    return "資料不足：只有 %d 天（%d 日均線至少要 %d 天、12 個月報酬至少要 %d 天）" % (days, TREND_MA_DAYS, TREND_MA_DAYS, TREND_RET_DAYS + 1)
+
+
+def trend_of(points):
+    """一個標的的日線（data/history/<id>.json 的 points）→ 趨勢的事實。盤中的暫定點（provisional）不算；不夠就照實寫資料不足，不硬算。"""
+    rows = [p for p in (points or []) if not p.get("provisional") and isinstance(p.get("c"), (int, float)) and p.get("c") > 0 and p.get("d")]
+    days = len(rows)
+    out = {"maDays": TREND_MA_DAYS, "retDays": TREND_RET_DAYS, "days": days, "through": rows[-1]["d"] if rows else None,
+           "ma200": None, "dist200Pct": None, "above": None, "ret12mPct": None, "from200": None, "from12": None, "label": LABEL_SINGLE}
+    if not rows:
+        out["reason"] = trend_short(0)
+        return out
+    last = float(rows[-1]["c"])
+    if days >= TREND_MA_DAYS:
+        win = rows[-TREND_MA_DAYS:]
+        ma = sum(float(p["c"]) for p in win) / TREND_MA_DAYS
+        out.update({"ma200": round(ma, 6), "dist200Pct": round((last / ma - 1.0) * 100.0, 4), "above": last > ma, "from200": win[0]["d"]})
+    if days >= TREND_RET_DAYS + 1:
+        base = rows[-1 - TREND_RET_DAYS]
+        out.update({"ret12mPct": round((last / float(base["c"]) - 1.0) * 100.0, 4), "from12": base["d"]})
+    if out["dist200Pct"] is None or out["ret12mPct"] is None:
+        out["reason"] = trend_short(days)
+    return out
+
+
+def build_trend(assets, paths=None, problems=None):
+    """每個 assets.json 的標的一筆（有沒有週線長歷史都算；台銀黃金這一輪更新失敗時，用日線最後一天，through 照實寫）。
+    日線檔在、卻讀不到：那一筆寫 error（數字全是 null、沒有 reason，不寫成「只有 0 天」），並記進 problems（→ risk.json 與 status.json 的錯誤）。"""
+    out = {}
+    for a in assets:
+        aid = a.get("id")
+        pts, err = load_history_daily_checked(aid, paths)
+        if err:
+            t = trend_of([])
+            t.pop("reason", None)
+            t.update({"days": None, "error": "日線檔 data/history/%s.json %s，這一輪算不出趨勢" % (aid, err)})
+            out[aid] = t
+            if problems is not None:
+                problems.append("趨勢 %s：日線檔 %s，這一輪算不出趨勢" % (aid, err))
+            continue
+        if a.get("type") == "bot_gold_bar":
+            t = trend_of([])
+            t.update({"days": len(pts), "through": pts[-1].get("d") if pts else None,
+                      "reason": "台銀不公布條塊的歷史牌價；本站自己累積的只有 %d 個交易日，不夠算 %d 日均線與 12 個月報酬" % (len(pts), TREND_MA_DAYS)})
+            out[aid] = t
+            continue
+        out[aid] = trend_of(pts)
+    return out
+
+
+def build_risk(series, assets_by_id, now, trend_assets=None, paths=None):
     out = {"generatedAt": iso(now), "slot": "review",
            "method": {
                "returns": "週報酬＝該週完成週棒收盤 ÷ 前一週 − 1；相鄰兩根中間缺週（休市）的報酬跨週照算",
@@ -714,14 +789,19 @@ def build_risk(series, assets_by_id, now):
                "currentDrawdown": "最後一根完成週棒距整段歷史高點的跌幅",
                "correlation": "皮爾森相關，週報酬、ISO 週對齊、成對可用（每一對各自取兩邊都有的最近 156 週），重疊不到 100 週寫資料不足",
                "weekDate": "週棒的日期是該週第一個交易日（Yahoo）或該週最後一個營業日（匯率）；對齊一律用 ISO 週",
+               "trend": TREND_NOTE,
            },
            "labels": LABEL_NOTES,
            "notes": [
                "所有數字都來自公開市場資料（Yahoo 週線、FinMind 轉載的台銀匯率），資料標籤寫在每個數字旁邊。",
                "幣別混用：台股與匯率是台幣、美股與商品是美元、比特幣是美元計價；相關係數是各自幣別的報酬，不含匯率換算。",
                "這裡只有事實與資料標籤，沒有任何判斷。",
+               "趨勢（trend）用的是日線，不是週線；價格報酬、不含息。每個標的都有一筆，跟有沒有週線長歷史無關。",
            ],
            "assets": {}, "correlation": None, "problems": []}
+    trend_problems = []
+    if trend_assets is not None:
+        out["trend"] = build_trend(trend_assets, paths, trend_problems)
     for aid, pts in sorted(series.items()):
         a = assets_by_id.get(aid, {})
         rets = weekly_returns(pts)
@@ -742,6 +822,7 @@ def build_risk(series, assets_by_id, now):
     corr.update({"window": "3 年（156 週）", "minOverlap": CORR_MIN_OVERLAP, "label": LABEL_SINGLE,
                  "note": "每一格的 n 是實際重疊的週數，from／through 是那一對的實際區間"})
     out["correlation"] = corr
+    problems = problems + trend_problems
     out["problems"] = problems
     return out, problems
 
@@ -1916,7 +1997,7 @@ def run(slot, offline=False, dry_run=False, only=None, now=None, paths=None):
             raise AnalyzeError("沒有任何長歷史可用，風險與拆解都算不出來")
         problems = []
         risk_series = dict((k, v) for k, v in series.items() if not by_id.get(k, {}).get("riskExclude"))
-        risk, rp = build_risk(risk_series, by_id, now)
+        risk, rp = build_risk(risk_series, by_id, now, trend_assets=assets, paths=paths)
         problems += rp
         write_json(os.path.join(paths["analysis"], "risk.json"), risk)
         status["produced"].append("data/analysis/risk.json")
