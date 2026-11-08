@@ -785,6 +785,30 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
+## 2026-11-08 · 停點 P3-fix 接收模式兩個誤擋＋A2a 突變併入（標籤 `stopP3-fix`；一般模式）
+
+A2a（接收模式第一次真合併）實跑時碰到的兩個誤擋，加上把 A2a 的突變併進驗收機跑得到的地方。一般模式（David 在場；保護檔只能這樣改）。覆述經審查代理第一輪批准，建議 6 條採納 5 條、第 6 條照實標在驗收報告。
+
+**改了什麼**
+
+- **審查代理的強度被當成主工作階段被改**（規格 2.1；`iw_guard.py`、`iw_state.py`、`iw_events.py`、`iw_notify.py`）：log 證實 A2a 兩次、P3-drill 一次的「思考強度被改成 xhigh」，都是審查代理自己交報告（`SubagentHandback`）那一下——它的強度寫在代理設定（Extra high），接收模式規定主工作階段用 High，守門拿主工作階段的規定去比。現在：hook 輸入的頂層 `agent_id` 有值、`agent_type` 是 `iw-reviewer` 兩個都對，才算審查代理自己的呼叫（只有 `agent_type` 可能是整個工作階段用 `--agent` 開的）；它的模型比 `reviewer.model`、強度比 `reviewer.effort`，不符照樣擋、暫停（原因 `reviewer`、編號 9、信的等級「要你決定」）、程式寄短信。它的模型改讀它自己的對話紀錄（`<工作階段>/subagents/agent-<agent_id>.jsonl`；原本讀的主工作階段那一份會跳過子代理的紀錄，看到的其實是主工作階段的模型），讀不到就這一次不比（事後 posttool／subagentstop 的關卡照舊）；`agent_id`、`session_id` 只收英數字與 `-`、`_`。它的呼叫不觸發「啟動」、不算進信裡「中途是否切換」的紀錄。主工作階段的檢查原文不動（只有 `if first_start:` 變成 `elif`）；其他子代理照舊；主工作階段被記下的模型違規照舊擋所有呼叫。log 每一筆多記 `agent_has_id`（只記有沒有、不記值）。
+- **補文件那一筆被擋**（規格 2.2）：判斷不改（守門不預測同一行前面的 add）。合併用 worktree、文件時間窗開著、暫存區是空的時候，擋下的訊息直接寫做法：先單獨下 `git add -- README.md docs/CHANGELOG.md`，再單獨下 `git commit -F <訊息檔>`，最後單獨下 `git push origin HEAD:main`（兩個檔名從設定檔的 `docsFollowupFiles` 組）。`merge-steps.md` 第 7 步、`SKILL.md` 第 8 步、`receive-steps.md`「放行之後」、`docs/AUTOPILOT.md` 都寫成分三次工具呼叫。施工模式沒有這個問題（commit 只查已 staged 的檔的保護等級，空的不擋）。
+- **突變**（規格 2.3）：A2a 的 W01～W23 從 `scripts/mutations_pending/a2a_mutations.py` 併進 `scripts/mutations/autopilot_mutations.py`（內容一字未改，只有 `M = [` 改成 `M += [`；`mutations_pending/` 刪掉；基準多 aspects、plain、analyze 三組）；這一段新的 X01～X14。既有突變一個都沒改。
+- **說明**（規格 2.4）：README 拿掉 `mutations_pending/a14_mutations.py` 那一行；`docs/AUTOPILOT.md` 寫「接收模式段新增的突變先放 `scripts/mutations_pending/`，下一個一般模式段併入」、審查代理的呼叫怎麼比、文件那一筆分三次下、保護的版本（原本還寫 P2，P3 漏改）；`SKILL.md` 與 `receive-steps.md` 寫接收模式收尾不寫記憶檔。`scripts/test_aspects_js.py` 一行註解改指正式的突變清單（測試內容沒動）。
+- **保護的版本** `P3` → `P3-fix`（`.claude/autopilot/config.json`）。
+- **既有測試的改動**（理由）：`test_autopilot_config.py` 兩處 `protectionVersion == "P3"` 改成 `P3-fix`（換版本；P2、P3 當時也改過這兩處）。沒有刪任何測試。
+
+**怎麼驗的**
+
+- 新測試（`scripts/test_autopilot_receive.py` 三個類別 17 條）：接收模式審查代理用自己的強度交報告不暫停、心跳不算它；主工作階段同樣的強度照樣暫停；審查代理的強度或模型不對照樣擋（兩種模式）；只有 `agent_type` 沒有 `agent_id`、別種子代理、`tool_input` 裡塞欄位都照主工作階段比；施工模式不變；審查代理不觸發啟動；被記下的模型違規照舊擋；hook 端到端（模型讀它自己的紀錄、找不到不比、路徑拼不出去、log 的 `agent_has_id`、紀錄寫錯模型＝暫停寄短信、信的等級）；文件那一筆分三次會過、同一行（含 A2a 那一行原文與 `commit -a`）被擋且訊息含做法、時間窗以外訊息照舊。
+- 突變：X01～X14 本機 14 個全紅；W01～W23 本機（見驗收報告）。驗收機的數字見 PR。
+- 沙盒演練（worktree 的新程式走完整的 hook 入口；暫存資料夾裡真的倉庫、真的 worktree、真的 add 與 commit；寄信換替身）：(1) 接收模式下審查代理 xhigh 交報告 → 放行、不暫停；(2) 主工作階段 xhigh → 暫停 code 9、寄短信；(3) 文件那一筆分開下 add、commit → 都過；(4) A2a 那一行原文 → 擋、訊息含做法、暫存區沒動；(5) 施工模式同一行 add && commit → 不擋。
+- 【待實測】線上的 PreToolUse 輸入真的帶 `agent_id`：官方文件這樣寫，本機沒有實際輸入可以對；沒帶的話這個修正是空轉、照舊誤擋（壞在擋的那一邊）。合併後第一個接收段看 `log.jsonl` 審查代理那一筆的 `agent_has_id`。
+
+**怎麼退回**
+
+- 合併之後：主目錄 `git revert -m 1 <合併 commit> && git push --no-verify`（David 在主目錄的終端機下；第二道對沒有通行證的 main 推送對誰都擋，`--no-verify` 是給 David 的），再主目錄 `git merge --ff-only origin/main`。舊的保護立刻恢復；突變併入一起退回無害（W 系列回到只有雲端跑過）。要退 P3 得先退 P3-fix。
+
 ## 2026-11-07 · 分析系列 A2a 趨勢面事實顯示（200 日均線＋12 個月報酬）（雲端施工、接收模式；2026-11-07 合併 f86aca2）
 
 每張卡的圖示列多第四格「趨勢」，分析分頁的總覽表自動多一欄。**只顯示事實**：不加總、不打分、不改任何資金規則；數字在雲端 15:30 那一輪由 `scripts/analyze.py` 算好放在 `data/analysis/risk.json` 的 `trend`，前端只讀，不新增任何檔或請求。雲端施工（Opus 5.5）打包，筆電接收模式收包（第一包、第二包）。

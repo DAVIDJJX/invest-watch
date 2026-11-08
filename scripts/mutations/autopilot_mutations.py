@@ -1337,6 +1337,109 @@ M += [
     ("V70", "status.json：不是先寫暫存檔再換名", R_, "    os.replace(tmp, p)", "    shutil.copyfile(tmp, p)", RECEIVE + ["-k", "TestStatusJson"]),
 ]
 
-MUTATIONS = [m[:5] + (NARROW.get(m[0], m[5]),) for m in M]
+# ---- 分析系列 A2a（W01～W23）：原本在 scripts/mutations_pending/a2a_mutations.py——A2a 是接收模式跑的，包不收第一層（scripts/mutations/）的改動。
+# 停點 P3-fix（一般模式）把它們併進來，驗收機才跑得到。下面從常數到最後一筆都是原檔的原文，一字未改（只有 M = [ 改成 M += [）。
+ASPECTS = ["scripts/test_aspects_js.py"]
+PLAIN = ["scripts/test_plain_js.py"]
+ANALYZE = ["scripts/test_analyze.py"]
+
+P_ = "js/plain.js"
+CA_ = "js/card-analysis.js"
+G_ = "js/glossary.js"
+AN_ = "scripts/analyze.py"
+
+# 第二包（Codex 第 1 輪採納後）：數字改在 scripts/analyze.py 的 15:30 那一輪算、放在 risk.json 的 trend；前端只讀。
+# 門檻與「排除盤中點」的突變改打在 analyze.py；前端的突變打在讀 JSON 與三態、白話、規則句上。
+M += [
+    ("W01", "200 日均線的門檻 200 改成 199（Python 的常數）", AN_,
+     "TREND_MA_DAYS = 200 ", "TREND_MA_DAYS = 199 ", ANALYZE + PLAIN),
+    ("W02", "12 個月報酬的門檻少一天（253 點改成 252 點就算）", AN_,
+     "    if days >= TREND_RET_DAYS + 1:", "    if days >= TREND_RET_DAYS:", ANALYZE),
+    ("W03", "三態判斷反過來（向上與向下對調）", P_,
+     "    var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above && t.ret12mPct < 0 ? 'low' : 'mid');",
+     "    var key = t.above && t.ret12mPct > 0 ? 'low' : (!t.above && t.ret12mPct < 0 ? 'high' : 'mid');", ASPECTS + PLAIN),
+    ("W04", "持平的條件改壞：任一個相反就算向下", P_,
+     "    var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above && t.ret12mPct < 0 ? 'low' : 'mid');",
+     "    var key = t.above && t.ret12mPct > 0 ? 'high' : (!t.above || t.ret12mPct < 0 ? 'low' : 'mid');", ASPECTS),
+    ("W05", "資料不足不顯示：JSON 寫資料不足也硬給一個狀態", P_,
+     "    if (!ok) return insufficient('trend', t.reason || NA, rule);", "    if (false) return insufficient('trend', t.reason || NA, rule);", ASPECTS),
+    ("W06", "面向順序少了趨勢", CA_,
+     "  var ASPECT_ORDER = ['position', 'risk', 'cost', 'trend'];", "  var ASPECT_ORDER = ['position', 'risk', 'cost'];", ASPECTS),
+    ("W07", "趨勢的圖示從色點改成天氣", P_,
+     "    trend:      { name: '趨勢', icon: 'dot', words:", "    trend:      { name: '趨勢', words:", ASPECTS + PLAIN),
+    ("W08", "名詞解釋少了「200 日均線」", G_,
+     "    '200 日均線': '最近 200 個交易日收盤價的平均。", "    '200 日均線（拿掉）': '最近 200 個交易日收盤價的平均。", ASPECTS + PLAIN + ANALYZE),
+    ("W09", "條塊不固定資料不足（拿本站自己累積的點去算）", AN_,
+     "        if a.get(\"type\") == \"bot_gold_bar\":", "        if False:", ANALYZE),
+    ("W10", "這次的數字不寫「不含息」", P_,
+     "'（不含息，資料到 '", "'（資料到 '", ASPECTS),
+    ("W11", "RSI 少了定位那一句", G_,
+     "它只描述最近的漲跌。本站只拿它描述最近漲跌，不作為判斷依據。'", "它只描述最近的漲跌。'", ASPECTS + PLAIN),
+    ("W12", "規則句不以「規則：」開頭", P_,
+     "    return '規則：現價高於 '", "    return '現價高於 '", ASPECTS + PLAIN),
+    ("W13", "儀表板的佔位字沒有跟著加趨勢", "js/app.js",
+     "位置、風險、成本、趨勢：讀取中…", "位置、風險、成本：讀取中…", ASPECTS),
+    ("W14", "12 個月報酬的白話不寫不含配息", P_,
+     "'；只算價格，不含配息。';", "'。';", ASPECTS + PLAIN),
+    ("W15", "盤中的暫定點也算進去（不排除 provisional）", AN_,
+     "    rows = [p for p in (points or []) if not p.get(\"provisional\") and", "    rows = [p for p in (points or []) if", ANALYZE),
+    ("W16", "前端自己算（拿日線重算均線，不只讀 JSON）", CA_,
+     "    var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id];",
+     "    var t = ctx.risk && ctx.risk.trend && ctx.risk.trend[asset.id]; void (global.Indicators && global.Indicators.ma(global.Indicators.closes(ctx.points || []), 200));",
+     ASPECTS),
+    ("W17", "risk.json 讀不到寫成資料不足（不是暫時讀不到）", CA_,
+     "    if (ctx.risk === null) { out.state = Pl.unavailable('trend'); return out; }",
+     "    if (ctx.risk === null) { out.state = Pl.insufficient('trend', '資料不足'); return out; }", ASPECTS),
+    ("W18", "文件的門檻寫錯一個數字（跟常數對不上）", "docs/ANALYSIS.md",
+     "序列不到 200 點算不出均線、不到 253 點算不出 12 個月報酬", "序列不到 200 點算不出均線、不到 252 點算不出 12 個月報酬", ANALYZE),
+    ("W19", "天數寫死，不看 JSON 的 maDays", P_,
+     "    return v === 0 ? '跟 ' + maDays + ' 日均線差不到 0.1%' : '比 ' + maDays + ' 日均線'",
+     "    return v === 0 ? '跟 ' + maDays + ' 日均線差不到 0.1%' : '比 ' + 200 + ' 日均線'", ASPECTS),
+    # 第四包（Codex 第 3 輪）：日線檔讀不到是第三種狀態
+    ("W20", "日線檔讀不到寫成資料不足（只有 0 天），不是讀不到", AN_,
+     "        if err:\n            t = trend_of([])", "        if False:\n            t = trend_of([])", ANALYZE),
+    ("W21", "日線檔讀不到沒記進錯誤清單", AN_,
+     "            if problems is not None:\n                problems.append(\"趨勢 %s：日線檔", "            if False:\n                problems.append(\"趨勢 %s：日線檔", ANALYZE),
+    ("W22", "前端把 error 當成資料不足", CA_,
+     "    if (t && t.error) { out.state = Pl.unavailable('trend'); return out; }",
+     "    if (t && t.error) { out.state = Pl.insufficient('trend', t.error); return out; }", ASPECTS),
+    ("W23", "讀不到的檔也吞掉（checked 版本跟原本一樣回空、不給原因）", AN_,
+     "        return [], \"讀不懂（%s）\" % e.__class__.__name__\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):",
+     "        return [], None\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):", ANALYZE),
+]
+
+# ---- 停點 P3-fix（X 系列）：審查代理的強度與模型（規格 2.1）、文件那一筆的訊息（規格 2.2）。每條新規則一組「改壞→紅」。
+RVW = RECEIVE + ["-k", "TestReviewerCalls", "-k", "TestReviewerHook"]
+DOC3 = RECEIVE + ["-k", "TestDocsCommitInThreeCalls"]
+_RV_LINE = "    return bool(inp.get(\"agent_id\")) and inp.get(\"agent_type\") == cfg[\"reviewer\"][\"agentType\"]"
+M += [
+    ("X01", "審查代理：拿掉判斷（一律當主工作階段，回到 A2a 的誤判）", H + "iw_state.py", _RV_LINE, "    return False", RVW),
+    ("X02", "審查代理：強度比錯欄位（比主工作階段的規定）", H + "iw_guard.py",
+     "    if effort is not None and effort != rv[\"effort\"]:", "    if effort is not None and effort != ST.required_model(st, ctx.cfg)[1]:", RVW),
+    ("X03", "審查代理：其他子代理也放寬（只看有沒有 agent_id）", H + "iw_state.py", _RV_LINE, "    return bool(inp.get(\"agent_id\"))", RVW),
+    ("X04", "審查代理：不看 agent_id（--agent 開的主工作階段也當審查代理）", H + "iw_state.py", _RV_LINE,
+     "    return inp.get(\"agent_type\") == cfg[\"reviewer\"][\"agentType\"]", RVW),
+    ("X05", "審查代理：模型不比", H + "iw_guard.py", "    if model is not None and model != need_model:", "    if False:", RVW),
+    ("X06", "審查代理：強度不比", H + "iw_guard.py", "    if effort is not None and effort != rv[\"effort\"]:", "    if False:", RVW),
+    ("X07", "審查代理：強度與模型算進主工作階段的心跳（信裡「中途是否切換」會寫「是」）", H + "iw_guard.py",
+     "        effort = model = None", "        pass", RVW),
+    ("X08", "審查代理：它的呼叫也會觸發「啟動」", H + "iw_guard.py",
+     "        _reviewer_gate(effort, model, approved_models, ctx)\n",
+     "        _reviewer_gate(effort, model, approved_models, ctx)\n        ctx.effects.append((\"activate\", {\"effort\": effort, \"model\": model}))\n", RVW),
+    ("X09", "審查代理：hook 照舊讀主工作階段的模型", H + "iw_events.py",
+     "            inp[\"_observed_model\"] = ST.reviewer_model(inp)", "            pass", RVW),
+    ("X10", "審查代理：agent_id、session_id 不驗格式（拼得出別的路徑）", H + "iw_state.py",
+     "    if not tp or not _ID_RE.match(sid) or not _ID_RE.match(aid):", "    if not tp:", RVW),
+    ("X11", "文件那一筆：暫存區是空的時候不給正確做法（回到舊訊息）", H + "iw_guard.py",
+     "        if in_merge and docs_ok and not ctx.git.staged_files(cdir):", "        if False:", DOC3),
+    ("X12", "文件那一筆：暫存區是空的也准", H + "iw_guard.py",
+     "            files = \" \".join(ctx.cfg[\"docsFollowupFiles\"])\n            raise Block(", "            return\n            raise Block(", DOC3),
+    ("X13", "log 不記 agent_id 有沒有值", H + "iw_events.py",
+     "                        \"agent_has_id\": bool(inp.get(\"agent_id\")),", "                        \"agent_id_\": bool(inp.get(\"agent_id\")),", RVW),
+    ("X14", "信的等級：審查代理的暫停沒有白話原因", H + "iw_notify.py", "    elif reason == \"reviewer\":", "    elif False:", RVW),
+]
+
+MUTATIONS =[m[:5] + (NARROW.get(m[0], m[5]),) for m in M]
 BASELINES = [("guard", GUARD), ("shell", SHELL), ("config", CONFIG), ("prepush", PREPUSH), ("flow", FLOW), ("verify", VERIFY),
-             ("receive", RECEIVE), ("backfill", BACKFILL), ("year", YEAR), ("theme", THEME), ("dashboard", DASH)]
+             ("receive", RECEIVE), ("backfill", BACKFILL), ("year", YEAR), ("theme", THEME), ("dashboard", DASH),
+             ("aspects", ASPECTS), ("plain", PLAIN), ("analyze", ANALYZE)]

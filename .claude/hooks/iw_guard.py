@@ -491,7 +491,11 @@ def _autopilot_gate(tool, ti, ctx):
     approvable = list(cfg.get("approvableEfforts") or [])
 
     first_start =st.get("status") == "pending" and not st.get("activated_at")
-    if first_start:                                                 # 啟動後的第一個動作：這時才看得到強度
+    reviewer = ST.is_reviewer_call(ctx.inp, cfg)                    # P3-fix 2.1：審查代理自己的呼叫（agent_id 有值、agent_type 是審查代理）
+    if reviewer:                                                    # 比審查代理的設定；不觸發啟動；主工作階段那一段（下面）原文不動
+        _reviewer_gate(effort, model, approved_models, ctx)
+        effort = model = None                                       # 心跳不把它的強度與模型算進 effort_seen／models_seen（信裡「中途是否切換」看的是主工作階段）
+    elif first_start:                                               # 啟動後的第一個動作：這時才看得到強度
         if effort is not None and effort != need_effort:
             ctx.effects.append(("deactivate", "思考強度是 %s，不是 %s" % (effort, need_effort)))
             raise Block("自動駕駛沒有啟動：思考強度現在是「%s」，規定是「%s（%s）」。\n"
@@ -533,6 +537,28 @@ def _autopilot_gate(tool, ti, ctx):
         raise Block(reason + "\n現在只能做三件事：寫停止報告（.autopilot/runs/%s/）、執行寄信的指令、唯讀地查看。" % ctx.stage,
                     (st.get("stop_required") or st.get("pause") or {}).get("code"))
     ctx.effects.append(("heartbeat", effort, model))
+
+
+def _reviewer_gate(effort, model, approved_models, ctx):
+    """P3-fix 2.1：審查代理自己的呼叫，模型比 reviewer.model、強度比 reviewer.effort。
+    它的強度寫在代理設定（跟 reviewer.effort 一樣，有測試釘住）；接收模式規定主工作階段用另一個強度，拿它去比主工作階段的規定就會誤判——A2a 與 P3-drill 實際發生：
+    交報告（SubagentHandback）那一下被當成「思考強度被改掉」、暫停 code 9。不符照樣擋、暫停、程式寄短信；
+    「放行模型」不適用（審查代理的模型與強度寫死在代理設定，不是 David 選單上的東西）。看不到（None）＝這一次不比。
+    主工作階段已經被記下的模型違規照舊擋（跟主工作階段那一段同一個判斷）。"""
+    st, rv = ctx.state, ctx.cfg["reviewer"]
+    mv = st.get("model_violation")
+    if mv and mv.get("model") not in approved_models:
+        raise Block("模型被換成「%s」，自動駕駛已暫停。要用它繼續，請 David 輸入「放行模型」；"
+                    "或等額度恢復、把模型改回來之後輸入「繼續 %s」。" % (mv.get("model"), st.get("stage")), 9)
+    need_model = ST.norm_model(rv["model"])
+    if model is not None and model != need_model:
+        ctx.effects.append(("pause", "reviewer", "審查代理的模型是 %s（規定 %s）" % (model, need_model), 9, True))
+        raise Block("審查代理的模型是「%s」，規定是 %s（寫在代理設定），自動駕駛已暫停（已寄信）。請 David 看過之後輸入「繼續 %s」。"
+                    % (model, need_model, st.get("stage")), 9)
+    if effort is not None and effort != rv["effort"]:
+        ctx.effects.append(("pause", "reviewer", "審查代理的思考強度是 %s（規定 %s）" % (effort, rv["effort"]), 9, True))
+        raise Block("審查代理的思考強度是「%s」，規定是 %s（寫在代理設定；叫它的時候不要帶 effort），自動駕駛已暫停（已寄信）。"
+                    "請 David 看過之後輸入「繼續 %s」。" % (effort, rv["effort"], st.get("stage")), 9)
 
 
 def _start_word(ctx):
@@ -2483,6 +2509,12 @@ def _receive_git(words, cwd, ctx):
             staged = [f.lower() for f in ctx.git.staged_files(cdir)]
             if staged and set(staged) <= set(_docs_files(ctx)):
                 return                                              # 文件那一筆：只准那兩個檔
+        if in_merge and docs_ok and not ctx.git.staged_files(cdir):
+            # P3-fix 2.2：判斷不改（守門不預測同一行前面的 add）；暫存區是空的＝多半是 git add … && git commit … 寫在同一行
+            # （守門在整行執行之前檢查，那時還沒 add；A2a 實際發生）。訊息直接寫做法。
+            files = " ".join(ctx.cfg["docsFollowupFiles"])
+            raise Block("文件那一筆要分三次下，不要用 && 串在同一行（守門在整行執行之前檢查，那時候還沒有 add，暫存區是空的）："
+                        "先單獨下 git add -- %s，再單獨下 git commit -F <訊息檔>，最後單獨下 git push origin HEAD:%s。" % (files, MAIN), 8)
         raise Block(nope + "（例外只有兩種：放行的那個合併、合併後只改 %s 的文件那一筆）" % "、".join(ctx.cfg["docsFollowupFiles"]), 8)
     if sub == "add":
         files = [a.lower() for a in args if a != "--"]

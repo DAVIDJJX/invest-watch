@@ -2,7 +2,7 @@
   "version": 1,
   "about": "自動駕駛的常數。這個檔是保護檔：生效的是主目錄（main）上的那一份，改它要經過「放行」。說明見 docs/AUTOPILOT.md。",
 
-  "protectionVersion": "P3",
+  "protectionVersion": "P3-fix",
 
   "modelRoles": "模型分工（2026-10-05，P2）：施工（Claude Code）＝requiredModel＋requiredEffort；審查代理＝reviewer.model＋reviewer.effort，固定寫在代理設定，不跟著施工模型換；外部審查（Codex）的模型由 OpenAI 指定，不在這裡。approvableEfforts：施工中途可以由 David 手打「放行模型」臨時放行的思考強度（只有 Max）；其他強度要改回來再「繼續」。",
   "requiredModel": "claude-opus-5-5",

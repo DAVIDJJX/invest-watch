@@ -318,7 +318,7 @@ class TestDocsAndSkill(unittest.TestCase):
             for label in labels:                                                     # 當成字串常數寫死（"…"）才算；句子裡提到不算
                 self.assertNotIn('"%s"' % label, text, "%s 裡寫死了等級「%s」（應該從 config.json 的 stopLevels 讀）" % (os.path.basename(path), label))
                 self.assertNotIn("【%s】" % label, text, os.path.basename(path))
-        self.assertEqual(CFG["protectionVersion"], "P3")
+        self.assertEqual(CFG["protectionVersion"], "P3-fix")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
         guide = read("docs/AUTOPILOT.md")
         for must in labels + ["裁決：", "暫停", "P1-1", "P2", "先退", "--no-verify"]:
             self.assertIn(must, guide, must)
@@ -497,7 +497,7 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertIn(pat, ALLOW["programs"]["ghAllowed"])
         for pat in (["pr", "create"], ["pr", "comment"], ["pr", "edit"], ["pr", "review"], ["api"]):
             self.assertNotIn(pat, ALLOW["programs"]["ghAllowed"])
-        self.assertEqual(CFG["protectionVersion"], "P3")
+        self.assertEqual(CFG["protectionVersion"], "P3-fix")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
 
     def test_the_no_review_flag_is_gone(self):
         import iw_notify as N

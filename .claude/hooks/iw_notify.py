@@ -66,6 +66,8 @@ def level_for(st, cfg, kind=None):
         why = "模型被換掉"
     elif reason == "effort":
         why = "思考強度被改掉"
+    elif reason == "reviewer":                                      # P3-fix 2.1：審查代理自己的呼叫，跟代理設定的模型或強度不符
+        why = "審查代理的模型或思考強度不是規定的"
     elif reason.startswith("api:"):
         why = "用量上限或 API 錯誤"
     elif reason == "usage":
