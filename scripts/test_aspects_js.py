@@ -16,7 +16,7 @@ test_aspects_js.py — 分析系列 A1-7：每張卡的「面向」（位置、�
   5. 匯率卡的位置只掛燈號；細節裡多一行「5 年位置：…（見換匯助手）」並連過去。
   6. 圖示一定有面向名稱與狀態詞並列、有文字替代；細節一定印規則；每個數字下面一行白話、不是空的。
   7. 檔案讀不到寫「分析資料暫時讀不到」；任何輸出沒有帶方向的交易字眼、沒有「幾個面向怎樣」的計數。
-  A2a（趨勢；對照組見 scripts/mutations_pending/a2a_mutations.py 的 W 系列）：
+  A2a（趨勢；對照組見 scripts/mutations/autopilot_mutations.py 的 W 系列）：
   8. 面向變成四個，趨勢排最後；現價高於 200 日均線且 12 個月價格報酬為正＝向上、都相反＝向下、其他＝持平；用色點不用天氣。
   9. 數字由 scripts/analyze.py 在 15:30 那一輪算好放在 risk.json 的 trend，前端只照 JSON 換成三態與白話、不自己算；
      天數照 JSON 的 maDays／retDays；JSON 寫資料不足就照寫原因；risk.json 讀不到是「暫時讀不到」，不是資料不足。

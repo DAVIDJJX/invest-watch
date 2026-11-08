@@ -93,6 +93,8 @@ def pretool(inp, env):
         st = ST.load(env.sd)
     if is_mine:
         inp["_observed_model"] = ST.last_model(inp.get("transcript_path"))
+        if ST.is_reviewer_call(inp, env.cfg):                       # P3-fix 2.1：審查代理自己的呼叫，看它自己的對話紀錄（主工作階段那一份跳過子代理的紀錄）
+            inp["_observed_model"] = ST.reviewer_model(inp)
     locked_before = ST.is_paused(st) or st.get("status") == "awaiting_approval"
     ctx = G.Ctx(env.main_root, st, env.cfg, env.allow, env.git, inp, home=env.home, now=env.t())
     block, effects = G.decide(inp, ctx)
@@ -114,6 +116,7 @@ def pretool(inp, env):
         retries_now = (st_after.get("pause") or {}).get("retries") if st_after.get("pause") else None    # P2 第 7 節：每一筆擋下寫出當時的 retries
         ST.log(env.sd, {"event": "pretool", "tool": tool, "what": str(ti.get("command") or ti.get("file_path") or ti.get("subagent_type") or "")[:300],
                         "blocked": bool(block), "code": block.code if block else None, "reason": block.reason[:200] if block else None,
+                        "agent_has_id": bool(inp.get("agent_id")),          # P3-fix：線上的輸入真的帶了 agent_id 沒有（只記有沒有，不記值）
                         "agent": inp.get("agent_type"), "retries": retries_now})
     if block is not None:
         C.err(block.reason)

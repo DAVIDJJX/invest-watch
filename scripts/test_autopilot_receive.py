@@ -17,6 +17,8 @@ test_autopilot_receive.py — 停點 P3：接收模式、status.json、用量記
   5. 用量：5 小時到 90% 自動駕駛暫停並寄小事；過期、一般模式不擋；7 天到 70% 信多一行。
   6. 三個誤擋：worktree add 的 -b、tier2 已讀綁指紋、ReadNotifications。
   7. 模型：接收模式看 receiveModel／receiveEffort（守門、換模型、開工作階段、啟動訊息、信裡那一行）。
+  8. 停點 P3-fix：審查代理自己的呼叫（頂層 agent_id 有值、agent_type 是審查代理）比 reviewer.model／reviewer.effort，模型看它自己的
+     對話紀錄；主工作階段與其他子代理照舊。文件那一筆寫在同一行被擋時，訊息直接寫「分三次下」的做法。
 """
 import datetime
 import hashlib
@@ -1056,6 +1058,233 @@ class TestDocs(unittest.TestCase):
         self.assertEqual((r["inboxDir"], r["waitMinutes"], r["stableSeconds"], r["binaryMaxBytes"], r["bundleMaxBytes"], r["commentMaxChars"]),
                          ("inbox", 240, 30, 2 * 1024 * 1024, 50 * 1024 * 1024, 600))
         self.assertEqual(ALLOW["tools"]["receiveExclude"], ["WebFetch", "WebSearch"])
+
+
+# ============================================================ 4. 停點 P3-fix：審查代理的強度與模型、文件那一筆的訊息
+
+RV = CFG["reviewer"]
+
+
+class TestReviewerCalls(GuardCase):
+    """P3-fix 2.1：審查代理自己的呼叫（頂層 agent_id 有值、agent_type 是審查代理）比審查代理的設定；主工作階段一字不變；其他子代理照舊。
+    A2a 與 P3-drill 實際發生的：接收模式規定 high，審查代理用代理設定的 xhigh 交報告，被當成「思考強度被改掉」暫停 code 9。"""
+
+    def call(self, tool="SubagentHandback", ti=None, state=None, effort=None, model=None, agent_id="t10", agent_type=None):
+        st = state if state is not None else self.state()
+        inp = {"session_id": "S1", "cwd": WT, "tool_name": tool, "tool_input": ti if ti is not None else {"message": "VERDICT: APPROVE"},
+               "scratchpad_dir": SCRATCH, "permission_mode": "auto", "hook_event_name": "PreToolUse", "_observed_model": model,
+               "effort": {"level": effort}}
+        if agent_id:
+            inp["agent_id"] = agent_id
+        if agent_type:
+            inp["agent_type"] = agent_type
+        ctx = G.Ctx(MAIN, st, CFG, ALLOW, self.git, inp, home=HOME, now=NOW, usage=None)
+        return G.decide(inp, ctx)
+
+    def reviewer(self, **kw):
+        kw.setdefault("agent_type", RV["agentType"])
+        kw.setdefault("effort", RV["effort"])
+        kw.setdefault("model", RV["model"])
+        return self.call(**kw)
+
+    def main_call(self, **kw):
+        kw.setdefault("agent_id", None)
+        kw.setdefault("model", RM)
+        return self.call(**kw)
+
+    @staticmethod
+    def kinds(effects):
+        return [e[0] for e in effects]
+
+    def test_receive_mode_reviewer_at_its_own_effort_is_not_a_pause(self):
+        """規格 2.1 測試第 1 條：接收模式（規定 high）裡審查代理用它自己的 xhigh 交報告 → 放行、不暫停；
+        心跳不把它的強度與模型算進主工作階段的紀錄（不然信裡「中途是否切換」會寫「是」）。"""
+        self.assertNotEqual(RE, RV["effort"])                                                   # 這一條要有意義：兩個規定不一樣
+        effects = self.allowed(self.reviewer())
+        self.assertNotIn("pause", self.kinds(effects))
+        self.assertNotIn("effort_violation", self.kinds(effects))
+        self.assertIn(("heartbeat", None, None), effects)
+        self.allowed(self.reviewer(model=RV["model"] + "[1m]"))                                 # 上下文長度的標記不算換模型
+
+    def test_main_session_at_the_reviewer_effort_still_pauses(self):
+        """規格 2.1 測試第 2 條：主工作階段用 xhigh（接收模式規定 high）照樣暫停 code 9——用交報告那個工具名也一樣。"""
+        for tool, ti in (("Bash", {"command": "ls"}), ("SubagentHandback", {"message": "x"})):
+            block, effects = self.main_call(tool=tool, ti=ti, effort=RV["effort"])
+            self.assertIsNotNone(block, tool)
+            self.assertEqual(block.code, 9)
+            self.assertIn(("pause", "effort"), [e[:2] for e in effects])
+            self.assertIn("思考強度被改成", block.reason)
+
+    def test_reviewer_at_another_effort_is_blocked(self):
+        """規格 2.1 測試第 3 條：審查代理用 high（≠ reviewer.effort）→ 擋、暫停（原因 reviewer、code 9）。兩種模式都一樣。"""
+        for mode in ("receive", "build"):
+            block, effects = self.reviewer(state=self.state(mode=mode), effort=RE)
+            self.assertIsNotNone(block, mode)
+            self.assertEqual(block.code, 9)
+            self.assertIn(("pause", "reviewer"), [e[:2] for e in effects])
+            self.assertIn("審查代理的思考強度", block.reason)
+            self.assertIn(RV["effort"], block.reason)
+
+    def test_reviewer_on_another_model_is_blocked(self):
+        """模型比 reviewer.model；看不到它的模型（對話紀錄找不到）＝這一次不比（事後 posttool／subagentstop 的關卡照舊）。"""
+        block, effects = self.reviewer(model=RM)
+        self.assertIsNotNone(block)
+        self.assertEqual(block.code, 9)
+        self.assertIn(("pause", "reviewer"), [e[:2] for e in effects])
+        self.assertIn("審查代理的模型", block.reason)
+        self.allowed(self.reviewer(model=None))
+
+    def test_agent_type_without_agent_id_is_the_main_session(self):
+        """覆述 4.1 第 3 點：主工作階段用 --agent 開的時候也帶 agent_type，但沒有 agent_id → 照主工作階段比。"""
+        block, effects = self.main_call(agent_type=RV["agentType"], effort=RV["effort"])
+        self.assertIsNotNone(block)
+        self.assertIn(("pause", "effort"), [e[:2] for e in effects])
+
+    def test_other_subagents_are_compared_like_the_main_session(self):
+        """規格 2.1 要求 2：其他種類的子代理維持現狀（照主工作階段比）。"""
+        block, effects = self.call(agent_type="Explore", agent_id="t11", effort=RV["effort"], model=RM)
+        self.assertIsNotNone(block)
+        self.assertIn(("pause", "effort"), [e[:2] for e in effects])
+        self.allowed(self.call(agent_type="Explore", agent_id="t11", effort=RE, model=RM))
+
+    def test_fields_inside_tool_input_do_not_count(self):
+        """覆述 4.1 第 1 點：模型只能決定 tool_input；在裡面塞 agent_type／agent_id 不算審查代理。"""
+        ti = {"message": "x", "agent_type": RV["agentType"], "agent_id": "t10"}
+        self.blocked(self.main_call(ti=ti, effort=RV["effort"]), code=9)
+
+    def test_build_mode_is_unchanged(self):
+        """規格 2.1 測試第 4 條：施工模式行為不變（審查代理 xhigh 本來就過；主工作階段照 requiredEffort 比）。"""
+        self.allowed(self.reviewer(state=self.state(mode="build")))
+        self.allowed(self.main_call(state=self.state(mode="build"), effort=CFG["requiredEffort"], model=CFG["requiredModel"]))
+        self.blocked(self.main_call(state=self.state(mode="build"), effort=RE, model=CFG["requiredModel"]), code=9)
+
+    def test_reviewer_calls_do_not_start_or_resume_the_stage(self):
+        """自定規則 3：審查代理的呼叫不觸發「啟動」（剛啟動、或「繼續」之後主工作階段還沒動作時）；主工作階段的照舊。"""
+        for st in (self.state(status="pending"), self.state(status="pending", activated_at=C.iso(NOW))):
+            effects = self.allowed(self.reviewer(state=st))
+            self.assertNotIn("activate", self.kinds(effects))
+            self.assertNotIn("deactivate", self.kinds(effects))
+        effects = self.allowed(self.main_call(state=self.state(status="pending", activated_at=C.iso(NOW)), effort=RE))
+        self.assertIn("activate", self.kinds(effects))
+
+    def test_a_recorded_model_violation_still_blocks_the_reviewer(self):
+        """主工作階段已經被記下的模型違規照舊擋所有呼叫（審查代理也一樣）。"""
+        for res in (self.reviewer(state=self.state(model_violation={"model": "claude-test-model", "at": C.iso(NOW)})),
+                    self.main_call(state=self.state(model_violation={"model": "claude-test-model", "at": C.iso(NOW)}), effort=RE)):
+            self.blocked(res, code=9, has="模型被換成")
+
+
+class TestReviewerHook(EventsBase):
+    """P3-fix 2.1 的 hook 那一半：審查代理的呼叫，模型看它自己的對話紀錄（<資料夾>/<工作階段>/subagents/agent-<agent_id>.jsonl）；
+    log 記 agent_id 有沒有值；端到端不暫停、主工作階段照樣暫停。"""
+
+    def lines(self, path, models, sidechain=True):
+        d = os.path.dirname(path)
+        if not os.path.isdir(d):
+            os.makedirs(d)
+        with io.open(path, "w", encoding="utf-8") as fh:
+            for m in models:
+                fh.write(json.dumps({"type": "assistant", "isSidechain": sidechain, "message": {"role": "assistant", "model": m}}) + "\n")
+
+    def setUp(self):
+        super(TestReviewerHook, self).setUp()
+        self.lines(self.tp, [RM], sidechain=False)                                              # 主工作階段：接收模式規定的模型
+        self.sub = os.path.join(self.tmp, "S1", "subagents", "agent-t10.jsonl")
+        self.lines(self.sub, [RV["model"], RV["model"]])
+        ST.save(self.sd, {"version": 1, "active": True, "stage": "X1", "status": "running", "session_id": "S1", "epoch": 1, "mode": "receive",
+                          "activated_at": C.iso(), "clock_started_at": C.iso(), "receive": {"started_at": C.iso()}})
+
+    def inp(self, **kw):
+        d = {"session_id": "S1", "transcript_path": self.tp, "cwd": self.main, "permission_mode": "auto", "hook_event_name": "PreToolUse",
+             "tool_name": "SubagentHandback", "tool_input": {"message": "VERDICT: APPROVE"}, "tool_use_id": "tu-1",
+             "agent_id": "t10", "agent_type": RV["agentType"], "effort": {"level": RV["effort"]}}
+        d.update(kw)
+        return dict((k, v) for k, v in d.items() if v is not None)
+
+    def last_log(self):
+        with io.open(os.path.join(self.sd, "log.jsonl"), encoding="utf-8") as fh:
+            return [json.loads(l) for l in fh if l.strip()][-1]
+
+    def test_the_model_comes_from_its_own_transcript(self):
+        self.assertEqual(ST.reviewer_transcript(self.inp()), self.sub)
+        self.assertEqual(ST.reviewer_model(self.inp()), RV["model"])
+        self.assertEqual(ST.last_model(self.tp), RM)
+        self.assertIsNone(ST.last_model(self.sub))                                              # 原本的讀法看不到（每一筆都是 isSidechain）
+        self.assertIsNone(ST.reviewer_model(self.inp(agent_id="t99")))                         # 找不到 → 不比
+        self.assertTrue(ST.is_reviewer_call(self.inp(), CFG))
+        self.assertFalse(ST.is_reviewer_call(self.inp(agent_id=None), CFG))
+        self.assertFalse(ST.is_reviewer_call(self.inp(agent_type="Explore"), CFG))
+
+    def test_ids_that_could_point_elsewhere_are_not_read(self):
+        """自定規則：session_id、agent_id 只收英數字與 - _（拼不出別的路徑）。"""
+        weird = os.path.join(self.tmp, "S1", "subagents", "agent-a", "b.jsonl")
+        self.lines(weird, [RM])
+        self.assertIsNone(ST.reviewer_transcript(self.inp(agent_id="a/b")))
+        self.assertIsNone(ST.reviewer_model(self.inp(agent_id="a/b")))
+        self.lines(os.path.join(self.tmp, "x", "subagents", "agent-t10.jsonl"), [RM])
+        self.assertIsNone(ST.reviewer_transcript(self.inp(session_id="S1/../x")))
+
+    def test_pretool_end_to_end(self):
+        """規格 2.1 測試第 1、2 條（hook 端到端）：接收模式、審查代理 xhigh 交報告 → 回 0、沒有暫停、effort_seen 沒有 xhigh；
+        log 記了 agent_id 有值（合併後第一個接收段，Cowork 從 log.jsonl 確認線上的輸入真的帶了 agent_id）。主工作階段同一個工具、同一個強度 → 暫停 code 9。"""
+        self.assertEqual(E.pretool(self.inp(), self.env()), 0)
+        st = ST.load(self.sd)
+        self.assertIsNone(st.get("pause"))
+        self.assertNotIn(RV["effort"], st.get("effort_seen") or {})
+        self.assertNotIn(RV["model"], st.get("models_seen") or {})
+        last = self.last_log()
+        self.assertEqual((last["tool"], last["agent"], last["agent_has_id"], last["blocked"]), ("SubagentHandback", RV["agentType"], True, False))
+        self.assertEqual(E.pretool(self.inp(agent_id=None, agent_type=None), self.env()), 2)
+        st = ST.load(self.sd)
+        self.assertEqual((st["pause"]["reason"], st["pause"]["code"]), ("effort", 9))
+        self.assertFalse(self.last_log()["agent_has_id"])
+
+    def test_a_wrong_model_in_its_transcript_pauses(self):
+        """審查代理自己的紀錄寫的不是 reviewer.model → 擋、暫停（原因 reviewer）、程式寄短信；信的等級「要你決定」。"""
+        self.lines(self.sub, [RV["model"], RM])
+        self.assertEqual(E.pretool(self.inp(), self.env()), 2)
+        st = ST.load(self.sd)
+        self.assertEqual((st["pause"]["reason"], st["pause"]["code"]), ("reviewer", 9))
+        self.assertEqual(len(self.sent), 1)
+        key, label, why = N.level_for(st, CFG)
+        self.assertEqual((key, label), ("decide", CFG["stopLevels"]["decide"]))
+        self.assertEqual(why, "審查代理的模型或思考強度不是規定的")
+
+
+class TestDocsCommitInThreeCalls(GuardCase):
+    """P3-fix 2.2：判斷不改（守門不預測同一行前面的 add）。分三次下會過；寫在同一行（A2a 那一行）被擋、訊息直接寫正確做法。"""
+
+    def merged(self):
+        return self.cred(self.state(status="merged"), merge={"sha": "d" * 40, "at": C.iso(NOW - datetime.timedelta(minutes=3))})
+
+    def how(self):
+        return ("先單獨下 git add -- " + " ".join(CFG["docsFollowupFiles"]), "再單獨下 git commit", "最後單獨下 git push origin HEAD:main")
+
+    def test_three_separate_calls_pass(self):
+        st = self.merged()
+        self.git.staged = []
+        self.allowed(self.bash("git add -- README.md docs/CHANGELOG.md", state=st, cwd=MERGE_WT))
+        self.git.staged = ["README.md", "docs/CHANGELOG.md"]                                    # add 真的執行過之後
+        self.allowed(self.bash("git commit -F " + RUNS + "/docs-msg.txt", state=st, cwd=MERGE_WT))
+        self.allowed(self.bash("git push origin HEAD:main", state=st, cwd=MERGE_WT))
+
+    def test_one_line_is_blocked_with_the_way_to_do_it(self):
+        st = self.merged()
+        self.git.staged = []
+        a2a = "git add -- README.md docs/CHANGELOG.md && git status --short && git commit -F " + RUNS + "/docs-msg.txt && git push origin HEAD:main"
+        for cmd in ("git add -- README.md docs/CHANGELOG.md && git commit -F " + RUNS + "/docs-msg.txt", a2a, "git commit -a -F " + RUNS + "/docs-msg.txt"):
+            blk = self.blocked(self.bash(cmd, state=st, cwd=MERGE_WT), code=8, msg=cmd)
+            for must in self.how():
+                self.assertIn(must, blk.reason, cmd)
+
+    def test_outside_the_docs_window_the_message_is_unchanged(self):
+        self.git.staged = []
+        late = self.cred(self.state(status="merged"),
+                         merge={"sha": "d" * 40, "at": C.iso(NOW - datetime.timedelta(minutes=CFG["docsFollowupMinutes"] + 5))})
+        for st, cwd in ((late, MERGE_WT), (self.cred(self.state(status="approved")), MERGE_WT), (self.merged(), WT)):
+            blk = self.blocked(self.bash("git commit -F " + RUNS + "/docs-msg.txt", state=st, cwd=cwd), code=8)
+            self.assertNotIn("先單獨下", blk.reason)
+            self.assertIn("接收模式不用這個 git 指令", blk.reason)
 
 
 if __name__ == "__main__":

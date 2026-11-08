@@ -256,6 +256,54 @@ def last_model(transcript_path, max_bytes=600000):
         return None
 
 
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def is_reviewer_call(inp, cfg):
+    """這一次 hook 是不是審查代理自己的工具呼叫（P3-fix 2.1）。只看 hook 輸入的頂層欄位（Claude Code 寫的；模型只能決定 tool_input 裡的東西）。
+    兩個都要：agent_id 有值（官方文件：只有在子代理或同一程序的隊友裡觸發才有）＋ agent_type 是設定檔的審查代理。
+    只看 agent_type 不夠：官方文件說主工作階段用 --agent 開的時候也帶 agent_type。"""
+    inp = inp or {}
+    return bool(inp.get("agent_id")) and inp.get("agent_type") == cfg["reviewer"]["agentType"]
+
+
+def reviewer_transcript(inp):
+    """審查代理自己的對話紀錄（P3-fix 2.1）：<主工作階段那一份的資料夾>/<session_id>/subagents/agent-<agent_id>.jsonl。
+    官方文件：SubagentStop 的 agent_transcript_path「stored in a nested subagents/ folder」、檔名「agent-{agentId}.jsonl」；
+    PreToolUse 沒有這個欄位，只能照這個位置找。session_id、agent_id 只收英數字與 - _（拼不出別的路徑）。找不到回 None。"""
+    inp = inp or {}
+    tp, sid, aid = inp.get("transcript_path"), str(inp.get("session_id") or ""), str(inp.get("agent_id") or "")
+    if not tp or not _ID_RE.match(sid) or not _ID_RE.match(aid):
+        return None
+    p = os.path.join(os.path.dirname(str(tp)), sid, "subagents", "agent-%s.jsonl" % aid)
+    return p if os.path.isfile(p) else None
+
+
+def reviewer_model(inp, max_bytes=600000):
+    """審查代理這一次呼叫實際用的模型：它自己的對話紀錄裡最後一則回覆的模型（那份紀錄每一筆都是 isSidechain，所以不能用 last_model）。
+    讀不到回 None（＝這一次不比模型；審查代理的模型另有事後的關卡：posttool／subagentstop 的 finalize_review）。"""
+    try:
+        p = reviewer_transcript(inp)
+        if p is None:
+            return None
+        found = None
+        for line in _tail_lines(p, max_bytes):
+            if '"assistant"' not in line:
+                continue
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            if o.get("type") != "assistant":
+                continue
+            m = (o.get("message") or {}).get("model")
+            if m and m != "<synthetic>":
+                found = norm_model(m)
+        return found
+    except Exception:
+        return None
+
+
 def models_in(transcript_path, max_bytes=20000000):
     """一份對話紀錄（例如審查代理的）裡出現過的所有模型。"""
     seen = []
