@@ -1,7 +1,7 @@
 {
  "source": "cloud",
- "runAt": "2026-11-08T10:10:39+08:00",
- "runAtText": "2026-11-08 10:10",
+ "runAt": "2026-11-08T12:10:35+08:00",
+ "runAtText": "2026-11-08 12:10",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -87,10 +87,10 @@
    "decimals": 2,
    "priceLabel": "指數",
    "status": "ok",
-   "price": 38952.55,
+   "price": 39934.88,
    "prevClose": 39701.64,
-   "change": -749.09,
-   "changePct": -1.8868,
+   "change": 233.24,
+   "changePct": 0.5875,
    "date": "2026-11-08",
    "points": 290,
    "spark": [
@@ -133,18 +133,18 @@
     42948.91,
     41574.72,
     39701.64,
-    38952.55
+    39934.88
    ],
-   "fetchedAt": "2026-11-08T10:10:33+08:00",
+   "fetchedAt": "2026-11-08T12:10:29+08:00",
    "error": null,
    "open": 38419.09,
-   "high": 39711.35,
+   "high": 40206.5,
    "low": 37934.59,
-   "quoteTime": "10:10:30",
+   "quoteTime": "13:31:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:33+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:33+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:29+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:29+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -157,10 +157,10 @@
    "decimals": 0,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 2100.0,
+   "price": 2110.0,
    "prevClose": 2135.0,
-   "change": -35.0,
-   "changePct": -1.6393,
+   "change": -25.0,
+   "changePct": -1.171,
    "date": "2026-11-08",
    "points": 290,
    "spark": [
@@ -203,18 +203,18 @@
     2260.0,
     2240.0,
     2135.0,
-    2100.0
+    2110.0
    ],
-   "fetchedAt": "2026-11-08T10:10:33+08:00",
+   "fetchedAt": "2026-11-08T12:10:29+08:00",
    "error": null,
    "open": 2020.0,
    "high": 2200.0,
    "low": 2020.0,
-   "quoteTime": "10:09:52",
-   "sourceNote": null,
+   "quoteTime": "12:00:00",
+   "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:33+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:33+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:29+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:29+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -227,10 +227,10 @@
    "decimals": 2,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 76.45,
+   "price": 76.4,
    "prevClose": 76.3,
-   "change": 0.15,
-   "changePct": 0.1966,
+   "change": 0.1,
+   "changePct": 0.1311,
    "date": "2026-11-08",
    "points": 291,
    "spark": [
@@ -273,18 +273,18 @@
     77.8,
     79.55,
     76.3,
-    76.45
+    76.4
    ],
-   "fetchedAt": "2026-11-08T10:10:33+08:00",
+   "fetchedAt": "2026-11-08T12:10:29+08:00",
    "error": null,
    "open": 76.3,
-   "high": 76.45,
+   "high": 76.5,
    "low": 76.3,
-   "quoteTime": "09:54:41",
-   "sourceNote": null,
+   "quoteTime": "12:00:00",
+   "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:33+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:33+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:29+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:29+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -297,10 +297,10 @@
    "decimals": 2,
    "priceLabel": "成交價",
    "status": "ok",
-   "price": 26.7,
+   "price": 26.725,
    "prevClose": 26.89,
-   "change": -0.19,
-   "changePct": -0.7066,
+   "change": -0.165,
+   "changePct": -0.6136,
    "date": "2026-11-08",
    "points": 291,
    "spark": [
@@ -343,18 +343,18 @@
     26.48,
     26.99,
     26.89,
-    26.7
+    26.725
    ],
-   "fetchedAt": "2026-11-08T10:10:33+08:00",
+   "fetchedAt": "2026-11-08T12:10:29+08:00",
    "error": null,
    "open": 26.9,
    "high": 26.95,
-   "low": 26.65,
-   "quoteTime": "10:06:57",
-   "sourceNote": null,
+   "low": 26.5,
+   "quoteTime": "12:00:00",
+   "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:33+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:33+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:29+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:29+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -415,11 +415,11 @@
     181.600006,
     186.64
    ],
-   "fetchedAt": "2026-11-08T10:10:33+08:00",
+   "fetchedAt": "2026-11-08T12:10:29+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:33+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:33+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:29+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:29+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -480,11 +480,11 @@
     7353.72998,
     7376.86
    ],
-   "fetchedAt": "2026-11-08T10:10:35+08:00",
+   "fetchedAt": "2026-11-08T12:10:31+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:35+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:35+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:31+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:31+08:00"
   },
   "btc": {
    "id": "btc",
@@ -497,10 +497,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 75618.34,
+   "price": 75808.27,
    "prevClose": 75661.55,
-   "change": -43.21,
-   "changePct": -0.0571,
+   "change": 146.72,
+   "changePct": 0.1939,
    "date": "2026-11-08",
    "points": 400,
    "spark": [
@@ -543,13 +543,13 @@
     75942.125,
     75746.929688,
     75661.55,
-    75618.34
+    75808.27
    ],
-   "fetchedAt": "2026-11-08T10:10:37+08:00",
+   "fetchedAt": "2026-11-08T12:10:33+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:37+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:37+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:33+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:33+08:00"
   },
   "wti": {
    "id": "wti",
@@ -610,11 +610,11 @@
     90.519997,
     90.83
    ],
-   "fetchedAt": "2026-11-08T10:10:39+08:00",
+   "fetchedAt": "2026-11-08T12:10:35+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-08T10:10:39+08:00",
-   "lastSuccessAt": "2026-11-08T10:10:39+08:00"
+   "lastAttemptAt": "2026-11-08T12:10:35+08:00",
+   "lastSuccessAt": "2026-11-08T12:10:35+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
