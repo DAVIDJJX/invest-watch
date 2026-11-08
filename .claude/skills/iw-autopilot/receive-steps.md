@@ -23,7 +23,7 @@ status.json 由程式在 verify、review-status、驗包、拒收、套包、暫
 
 ## 放行之後
 
-照 merge-steps.md。差別只有文件那一筆：**不跑腳本**。CHANGELOG 的三段式雲端已經放在最後一包裡；合併推上去之後，你用改檔工具改合併用 worktree（`stop<階段>-merge`）裡的 `README.md`（回滾表那一列）與 `docs/CHANGELOG.md`（補合併編號），`git add -- README.md docs/CHANGELOG.md`、commit、推。這兩個檔只在「合併推上去之後、文件推上去之前」改得到。
+照 merge-steps.md。差別只有文件那一筆：**不跑腳本**。CHANGELOG 的三段式雲端已經放在最後一包裡；合併推上去之後，你用改檔工具改合併用 worktree（`stop<階段>-merge`）裡的 `README.md`（回滾表那一列）與 `docs/CHANGELOG.md`（補合併編號），再**分三次工具呼叫**：`git add -- README.md docs/CHANGELOG.md`、`git commit -F …`、`git push origin HEAD:main`（不要用 `&&` 串在同一行：守門在整行執行之前檢查，那時還沒 add，會被擋）。收尾不寫記憶檔（守門擋），留給下次的事寫進報告資料夾的「待辦」段。這兩個檔只在「合併推上去之後、文件推上去之前」改得到。
 
 ## 不要做的事
 

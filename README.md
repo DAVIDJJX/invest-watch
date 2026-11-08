@@ -91,7 +91,6 @@ invest-watch/
 │   ├─ net_policy.py     主機白名單（台銀永遠拒絕），探測腳本與分析程式共用
 │   ├─ backfill_fx_history.py  匯率日線一次性回補到 400 個營業日（A1-6；只增不改、重疊區逐日比對、差超過 0.3% 就停）
 │   ├─ backfill_nav.py   00646 官方淨值一次性回補三年（A1-4；證交所 ETF e添富＋Yahoo 收盤；寫新檔，analyze.py 每天只增不改地併進去）
-│   ├─ mutations_pending/a14_mutations.py  A1-4 的突變定義（自動駕駛期間動不得 scripts/mutations/，下一個一般模式的階段併過去）
 │   ├─ test_analyze.py／test_analysis_guards.py／test_cadence.py／test_analysis_debug_js.py  分析系列的離線測試與守門（擋字串、隱私掃描）
 │   ├─ test_aspects_js.py／test_dashboard_requests_js.py  A1-7：卡片面向的離線測試；真的開瀏覽器量儀表板請求數（自己起一個只聽本機的小伺服器，不連外網）
 │   ├─ test_backfill_nav.py／test_premium_year_js.py／test_theme.py  A1-4：回補（離線、假回應）、成本圖示看近一年、配色與主題切換
