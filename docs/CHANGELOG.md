@@ -785,7 +785,20 @@ git revert -m 1 <第二次合併的 commit> && git revert -m 1 3782bbe && git pu
 - 第一次合併（三個只讀的工具檔）：`git revert -m 1 3782bbe && git push`。沒有任何正式流程引用這三個檔，退回不影響抓取、排程與網站。
 - 標籤 `stopA0` 打在分支上第二次合併前的最後一個 commit（`git log --oneline stopA0 -1` 可查）。
 
-## 2026-11-08 · 停點 P3-fix 接收模式兩個誤擋＋A2a 突變併入（標籤 `stopP3-fix`；一般模式）
+## 2026-11-08 · 停點 P3-fix 接收模式兩個誤擋＋A2a 突變併入（標籤 `stopP3-fix`；一般模式，2026-11-09 合併 1b6c7b5）
+
+**合併紀錄（2026-11-09）**
+
+- David 手打「放行 P3-fix」（一般模式），程式開通行證，只准合併分支 `feat/stopP3-fix` 的頂端 `4f2a046`。合併分兩個指令：先單獨建 worktree，再進去合併。
+- 合併 commit **1b6c7b5**（`--no-ff`；第一個 parent 是 main 的 61d290c，第二個是分支的 4f2a046）。合併在另一個暫時的 worktree 做，主目錄留在 main、排程照跑。
+- 合併後的樹上全套測試 1159 條全綠（Python 3.12、Chrome，有帶鹽）。
+- **外部審查（Codex）**：1 輪（上限 4）。開 PR 自動審（`4f2a046`），沒有任何意見；完成的訊號是它的「Codex Review Summary」留言寫 Completed（`docs/AUTOPILOT.md` 待辦「訊號 B 首次實證」那一列的實際樣子：Commit 欄對得上、`has_any_findings: false`，程式認得）。
+- **驗收機**（`4f2a046`）：1159 條測試（1156 過、3 條跳過＝驗收機上沒有鹽）；突變 515 個、紅 514、存活的只有已知例外 M105（W01～W23、X01～X14 全紅）；七段都在封鎖裡跑、台銀 0。
+- 標籤 `stopP3-fix` 在 `4f2a046`，就是合併的那一個 commit。
+- 舊的 worktree `stopP3-drill` 收掉了；本機分支 `feat/stopP3-drill` 用 `git branch -d` 被 git 拒絕（沒合併進 main），留著（commit 有標籤 `stopP3-drill` 與遠端分支保住）。遠端分支與 PR #4 由 David 自己處理。
+- **合併後要確認的**：第一個接收段實跑時看 `.git/iw-autopilot/log.jsonl` 審查代理那一筆的 `agent_has_id` 是 true（官方文件說子代理的呼叫有 `agent_id`；沒有的話這個修正是空轉、照舊誤擋）。
+- **待辦，等下一個動到保護的一般模式階段**（審查代理驗收時提的，這一段不再動程式）：(1) log 再多記「審查代理自己的對話紀錄找到了沒」（只記有沒有），讓第一個接收段同時確認兩個前提；(2) `iw_state.reviewer_model`（讀它的紀錄）與 `iw_events.reviewer_model`（設定裡規定的模型）同名、意思不同，改名其中一個。
+- 這一筆文件 commit 只改 README 的回滾表與進度、這一段紀錄與下面「怎麼退回」的合併編號；沒有動程式。
 
 A2a（接收模式第一次真合併）實跑時碰到的兩個誤擋，加上把 A2a 的突變併進驗收機跑得到的地方。一般模式（David 在場；保護檔只能這樣改）。覆述經審查代理第一輪批准，建議 6 條採納 5 條、第 6 條照實標在驗收報告。
 
@@ -807,7 +820,7 @@ A2a（接收模式第一次真合併）實跑時碰到的兩個誤擋，加上�
 
 **怎麼退回**
 
-- 合併之後：主目錄 `git revert -m 1 <合併 commit> && git push --no-verify`（David 在主目錄的終端機下；第二道對沒有通行證的 main 推送對誰都擋，`--no-verify` 是給 David 的），再主目錄 `git merge --ff-only origin/main`。舊的保護立刻恢復；突變併入一起退回無害（W 系列回到只有雲端跑過）。要退 P3 得先退 P3-fix。
+- 合併之後：主目錄 `git revert -m 1 1b6c7b5 && git push --no-verify`（David 在主目錄的終端機下；第二道對沒有通行證的 main 推送對誰都擋，`--no-verify` 是給 David 的），再主目錄 `git merge --ff-only origin/main`。舊的保護立刻恢復；突變併入一起退回無害（W 系列回到只有雲端跑過）。要退 P3 得先退 P3-fix。
 
 ## 2026-11-07 · 分析系列 A2a 趨勢面事實顯示（200 日均線＋12 個月報酬）（雲端施工、接收模式；2026-11-07 合併 f86aca2）
 
