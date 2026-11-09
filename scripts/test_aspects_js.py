@@ -203,7 +203,8 @@ class TestAspectsWiring(unittest.TestCase):
         app = self.read("js/app.js")
         self.assertIn("CA.strip(a, CA.aspects(a, {", app)
         ana = self.read("js/analysis.js")
-        self.assertIn("CA.aspects(latest.assets[id], {", ana)
+        # G8B：台銀黃金落後太久時，總覽那一列傳進去的是估算視角（Freshness.estimateCard 做的那一份），仍是同一個 CA.aspects
+        self.assertIn("CA.aspects(views[id] || latest.assets[id], {", ana)
         self.assertIn("CA.cell(x)", ana)
         self.assertIn("CA.detail(x)", ana)
         page = self.read("analysis.html")

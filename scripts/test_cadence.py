@@ -69,7 +69,9 @@ class TestRealAssets(unittest.TestCase):
             self.assertIn(a.get("assetClass"), allowed, aid)
 
     def test_asset_classes_match_the_ruling(self):
+        # G8B：國際換算估算兩項歸 gold_tw（Cowork 裁決 7，以「估算不自成一列」為前提）
         want = {"gold_twd": "gold_tw", "gold_cny": "gold_tw", "gold_bar": "gold_tw", "gold_intl": "commodity",
+                "gold_twd_est": "gold_tw", "gold_cny_est": "gold_tw",
                 "twii": "index", "gspc": "index", "tw2330": "stock", "nvda": "stock",
                 "tw00646": "index_etf", "tw00679b": "bond_etf", "wti": "commodity", "btc": "crypto",
                 "fx_usd": "fx", "fx_cny": "fx"}

@@ -755,12 +755,41 @@ def trend_of(points):
     return out
 
 
-def build_trend(assets, paths=None, problems=None):
+def trading_days_behind(last_day, today):
+    """last_day（YYYY-MM-DD）之後、到 today（含）為止有幾個週一～五（G8B：台銀最後一筆牌告落後幾個交易日）。
+    國定假日不另外判斷。前端 js/freshness.js 的 tradingDaysBehind 是同一條規則（測試餵同一組日期釘住兩邊一樣）。"""
+    if not last_day or today is None:
+        return None
+    d, n = parse_day(last_day) + timedelta(days=1), 0
+    while d <= today:
+        if d.weekday() < 5:
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def load_gold_estimate(paths=None):
+    """assets.json 頂層的 goldEstimate（估算的共用設定，只有這一份）；沒有就是空的。"""
+    try:
+        with open((paths or default_paths())["assets"], encoding="utf-8") as fh:
+            return json.load(fh).get("goldEstimate") or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def build_trend(assets, paths=None, problems=None, now=None):
     """每個 assets.json 的標的一筆（有沒有週線長歷史都算；台銀黃金這一輪更新失敗時，用日線最後一天，through 照實寫）。
-    日線檔在、卻讀不到：那一筆寫 error（數字全是 null、沒有 reason，不寫成「只有 0 天」），並記進 problems（→ risk.json 與 status.json 的錯誤）。"""
+    日線檔在、卻讀不到：那一筆寫 error（數字全是 null、沒有 reason，不寫成「只有 0 天」），並記進 problems（→ risk.json 與 status.json 的錯誤）。
+    G8B：國際換算估算（estimateOf 有值）不自成一筆（Cowork 裁決 5(a)）；它估算的那一項台銀黃金，牌告落後超過
+    goldEstimate.switchAfterTradingDays 個交易日時，趨勢改用估算序列算，並標 series=estimate、label、seriesNote（照實寫算在哪條序列）。"""
     out = {}
+    estimates = {a.get("estimateOf"): a for a in assets if a.get("estimateOf")}
+    gold_est = load_gold_estimate(paths) if estimates else {}
+    today = (now or now_tpe()).date() if estimates else None
     for a in assets:
         aid = a.get("id")
+        if a.get("estimateOf"):
+            continue
         pts, err = load_history_daily_checked(aid, paths)
         if err:
             t = trend_of([])
@@ -776,8 +805,26 @@ def build_trend(assets, paths=None, problems=None):
                       "reason": "台銀不公布條塊的歷史牌價；本站自己累積的只有 %d 個交易日，不夠算 %d 日均線與 12 個月報酬" % (len(pts), TREND_MA_DAYS)})
             out[aid] = t
             continue
-        out[aid] = trend_of(pts)
+        out[aid] = trend_on_estimate(a, pts, estimates.get(aid), gold_est, today, paths) or trend_of(pts)
     return out
+
+
+def trend_on_estimate(a, pts, est, gold_est, today, paths):
+    """台銀黃金的牌告落後超過門檻、而且有它的估算序列時：用估算序列算趨勢，標明算在哪條序列；不符合就回 None（照舊用台銀的日線）。"""
+    if not est or a.get("type") != "bot_gold" or not pts:
+        return None
+    last = pts[-1].get("d")
+    behind = trading_days_behind(last, today)
+    if behind is None or behind <= int(gold_est.get("switchAfterTradingDays", 1)):
+        return None
+    est_pts, est_err = load_history_daily_checked(est.get("id"), paths)
+    if est_err or not est_pts:
+        return None
+    t = trend_of(est_pts)
+    t.update({"series": "estimate", "seriesId": est.get("id"), "label": "國際換算估算", "botThrough": last,
+              "seriesNote": "台銀 %s 之後沒有新牌告（落後 %d 個交易日），趨勢改用國際換算估算的序列算；估算＝國際金價換算，不是台銀牌告"
+                            % (last, behind)})
+    return t
 
 
 def build_risk(series, assets_by_id, now, trend_assets=None, paths=None):
@@ -801,7 +848,7 @@ def build_risk(series, assets_by_id, now, trend_assets=None, paths=None):
            "assets": {}, "correlation": None, "problems": []}
     trend_problems = []
     if trend_assets is not None:
-        out["trend"] = build_trend(trend_assets, paths, trend_problems)
+        out["trend"] = build_trend(trend_assets, paths, trend_problems, now=now)
     for aid, pts in sorted(series.items()):
         a = assets_by_id.get(aid, {})
         rets = weekly_returns(pts)

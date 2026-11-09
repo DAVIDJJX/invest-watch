@@ -102,8 +102,75 @@
     return out;
   }
 
+  /* ---------------------------------------------------------- G8B：台銀黃金被擋時的國際換算估算
+   * 估算（latest.json 裡 estimateOf 有值的那一項）不自成一張卡，只出現在它估算的那一項台銀黃金卡裡（Cowork 裁決 5(a)）。
+   * 台銀最後一筆牌告落後超過 est.switchAfterTradingDays 個交易日（週一～五；國定假日不判斷）時，
+   * 那張卡的走勢線、燈號、展開後的指標改用估算序列，並在畫面上寫出來。
+   * 門檻由 scripts/fetch_data.py 從 data/assets.json 每輪抄進 latest.json（前端不另外抓 assets.json，首屏請求不變）；
+   * scripts/analyze.py 的 trading_days_behind 是同一條規則（測試餵同一組日期釘住兩邊一樣）。 */
+
+  /** lastDay（YYYY-MM-DD）之後、到「現在」的台北日期（含）為止有幾個週一～五；日期讀不懂回 null。 */
+  function tradingDaysBehind(lastDay, now) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(lastDay || ''))) return null;
+    var end = new Date(taipei(now).date + 'T00:00:00Z').getTime();
+    var n = 0;
+    for (var t = new Date(lastDay + 'T00:00:00Z').getTime() + DAY_MS; t <= end; t += DAY_MS) {
+      var w = new Date(t).getUTCDay();
+      if (w !== 0 && w !== 6) n++;
+    }
+    return n;
+  }
+
+  /** 這一項台銀黃金的國際換算估算（latest.json 裡 estimateOf 指向它的那一項）；沒有回 null。 */
+  function estimateFor(a, latest) {
+    var assets = (latest && latest.assets) || {};
+    var found = null;
+    Object.keys(assets).forEach(function (id) {
+      if (a && assets[id] && assets[id].estimateOf === a.id) found = assets[id];
+    });
+    return found;
+  }
+
+  /**
+   * 回傳 { est, lastDay, behind, switched }：
+   *   est      估算那一項（沒有就是 null；條塊不做估算）
+   *   lastDay  台銀最後一筆牌告的日期（更新失敗時取 lastGood.date）
+   *   behind   落後幾個交易日
+   *   switched true＝台銀這一輪失敗、落後超過門檻、估算這一輪是好的：指標改用估算序列
+   * 門檻沒有抄過來（舊的 latest.json）就不切——寧可不切，不可以亂切。
+   */
+  function estimateView(a, latest, now) {
+    var out = { est: null, lastDay: null, behind: null, switched: false };
+    if (!a || a.type !== 'bot_gold') return out;
+    var est = estimateFor(a, latest);
+    if (!est) return out;
+    out.est = est;
+    out.lastDay = a.status === 'ok' ? (a.date || null) : ((a.lastGood || {}).date || null);
+    out.behind = tradingDaysBehind(out.lastDay, now);
+    var gate = est.switchAfterTradingDays;
+    out.switched = a.status !== 'ok' && est.status === 'ok' && typeof gate === 'number' &&
+                   typeof out.behind === 'number' && out.behind > gate && (est.points || 0) > 1;
+    return out;
+  }
+
+  /**
+   * 切到估算序列時，那一項「算指標用的那一份」：名稱、分組、type、id、單位照台銀那一項；狀態、現價、漲跌、日期、走勢線、點數換成估算的；
+   * 標記 estimateView（估算那一項的 id、台銀最後的日期、落後幾天、白話要用的數字）——卡片、圖示列、分析頁的總覽都看這個標記照實寫。
+   * 儀表板（js/app.js）與分析頁（js/analysis.js）共用這一份，兩頁的算法只有一個。
+   */
+  function estimateCard(a, ev) {
+    var est = ev.est, v = {};
+    Object.keys(a).forEach(function (k) { v[k] = a[k]; });
+    ['status', 'price', 'change', 'changePct', 'prevClose', 'date', 'spark', 'points'].forEach(function (k) { v[k] = est[k]; });
+    v.priceLabel = '國際換算估算';
+    v.estimateView = { id: est.id, lastDay: ev.lastDay, behind: ev.behind, typicalErrorPct: est.typicalErrorPct,
+                       backfillThrough: est.backfillThrough };
+    return v;
+  }
+
   var api = { classify: classify, taipei: taipei, fridayBeforeThisWeekend: fridayBeforeThisWeekend,
-              shortTime: shortTime };
+              shortTime: shortTime, tradingDaysBehind: tradingDaysBehind, estimateFor: estimateFor,
+              estimateView: estimateView, estimateCard: estimateCard };
   root.Freshness = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : this);

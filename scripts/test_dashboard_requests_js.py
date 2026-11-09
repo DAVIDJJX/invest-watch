@@ -10,7 +10,8 @@ test_dashboard_requests_js.py — 分析系列 A1-7：真的開瀏覽器量儀�
 ★ 找不到瀏覽器時這一組是【紅】的，不是跳過。要指定瀏覽器：環境變數 IW_BROWSER=完整路徑。
 
 釘住的事（對照組見 docs/CHANGELOG.md A1-7）：
-  1. 首屏畫完之前的請求＝7 個靜態檔＋行情、報告各 1 個＋每個標的 1 個日線檔（現在 14 個標的，所以是 23 個）；一個都不多。
+  1. 首屏畫完之前的請求＝7 個靜態檔＋行情、報告各 1 個＋每張卡最多 1 個日線檔（現在 14 張卡，所以是 23 個）；一個都不多。
+     G8B：國際換算估算不是卡、不另外抓；台銀卡切到估算序列時抓估算的檔代替自己的（TestDashboardWhenGoldIsEstimated）。
      某個標的這一輪抓不到（例如台銀擋下連線、沒有日線）時少幾個就是幾個，照 data/latest.json 算；永遠不超過上限（A1-4）。
   2. 首屏畫完之後最多再 5 個：js/plain.js、js/glossary.js、data/analysis 的 risk／cost／fx。點開卡片、展開「分析」不會再多抓。
   3. 每張卡在標題列與展開區之間有一條圖示列（不在標題列裡面）；每個圖示有圖示、面向名稱、狀態詞、文字替代，規則與數字在點開的細節裡。
@@ -20,6 +21,7 @@ test_dashboard_requests_js.py — 分析系列 A1-7：真的開瀏覽器量儀�
 
 自己跑一次看量測結果：python scripts/test_dashboard_requests_js.py --measure
 """
+import datetime
 import functools
 import html
 import http.server
@@ -51,16 +53,41 @@ PRICE_NAMES = ["本行" + "賣" + "出", "本行買入", "即期" + "賣" + "出
 COUNTING = re.compile(r"[0-9０-９一二兩三四五六七八九十]+\s*(個|項)\s*(面向|指標|燈號|圖示)")
 
 
-def expected_first_screen():
-    """照 js/app.js 的 loadHistories 同一條規則，從 data/latest.json 算出首屏該抓哪些資料檔。"""
-    with open(os.path.join(ROOT, "data", "latest.json"), encoding="utf-8") as fh:
-        latest = json.load(fh)
-    ids = []
-    for aid, a in latest["assets"].items():
-        pts = a.get("points") or 0
-        if a.get("status") == "ok" and (pts > 1 or (a.get("type") == "bot_gold_bar" and pts >= 1)):
+def card_ids(latest):
+    """G8B：國際換算估算（estimateOf 有值）不是一張卡。儀表板上的卡＝latest 裡其餘的每一項。"""
+    return [aid for aid, a in latest["assets"].items() if not a.get("estimateOf")]
+
+
+def card_view(aid, latest, now):
+    """跟 js/freshness.js 的 estimateView 同一條規則：台銀黃金這一輪失敗、落後超過門檻、估算是好的 → 這張卡改用估算（抓估算的日線）。
+    回 (要抓的日線檔的 id, 算首屏用的那一份)。落後幾個交易日用 scripts/analyze.py 的 trading_days_behind（前後端同一條，另有測試釘住）。"""
+    import analyze as A
+    from datetime import datetime as _dt
+    a = latest["assets"][aid]
+    est = next((e for e in latest["assets"].values() if e.get("estimateOf") == aid), None)
+    gate = (est or {}).get("switchAfterTradingDays")
+    if a.get("type") == "bot_gold" and est and a.get("status") != "ok" and est.get("status") == "ok" \
+            and isinstance(gate, (int, float)) and (est.get("points") or 0) > 1:
+        behind = A.trading_days_behind((a.get("lastGood") or {}).get("date"), _dt.fromisoformat(now).date())
+        if behind is not None and behind > gate:
+            return est["id"], est
+    return aid, a
+
+
+def expected_first_screen(latest=None, now=NOW):
+    """照 js/app.js 的 loadHistories 同一條規則，從 data/latest.json 算出首屏該抓哪些資料檔：每張卡最多 1 個日線檔
+    （G8B：估算不是卡、不另外抓；切到估算序列的台銀卡抓估算的檔來代替自己的）。"""
+    if latest is None:
+        with open(os.path.join(ROOT, "data", "latest.json"), encoding="utf-8") as fh:
+            latest = json.load(fh)
+    ids, files = [], []
+    for aid in card_ids(latest):
+        fid, v = card_view(aid, latest, now)
+        pts = v.get("points") or 0
+        if v.get("status") == "ok" and (pts > 1 or (v.get("type") == "bot_gold_bar" and pts >= 1)):
             ids.append(aid)
-    data = ["data/latest.json", "data/report-latest.json"] + ["data/history/%s.json" % i for i in ids]
+            files.append(fid)
+    data = ["data/latest.json", "data/report-latest.json"] + ["data/history/%s.json" % i for i in files]
     return latest, ids, data
 
 
@@ -75,20 +102,30 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if any(path.startswith(b) for b in self.server.block):
             self.send_error(404, "blocked by the test")
             return
+        if path in self.server.override:                            # G8B：這個路徑改送測試準備的內容（不動倉庫裡的檔）
+            body = self.server.override[path]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         super().do_GET()
 
 
 class Site(object):
-    """只聽 127.0.0.1 的小伺服器；block 裡的路徑開頭一律回 404（模擬檔案抓不到）。"""
+    """只聽 127.0.0.1 的小伺服器；block 裡的路徑開頭一律回 404（模擬檔案抓不到）；override：路徑 → 改送的內容（bytes）。"""
 
-    def __init__(self, block=()):
+    def __init__(self, block=(), override=None):
         self.block = tuple(block)
+        self.override = dict(override or {})
 
     def __enter__(self):
         handler = functools.partial(_Handler, directory=ROOT)
         self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
         self.httpd.daemon_threads = True
         self.httpd.seen, self.httpd.block, self.httpd.lock = [], self.block, threading.Lock()
+        self.httpd.override = self.override
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.thread.start()
         self.base = "http://127.0.0.1:%d" % self.httpd.server_address[1]
@@ -105,15 +142,15 @@ class Site(object):
             return list(self.httpd.seen)
 
 
-def measure(block=(), open_card="tw00646"):
+def measure(block=(), open_card="tw00646", override=None, now=NOW):
     """開一次儀表板，回 (瀏覽器那一頁的報告, 伺服器看到的請求路徑清單)。"""
     browser = find_browser()
     if not browser:
         raise AssertionError("找不到 Edge／Chrome，儀表板的請求數量測沒辦法跑（這一組刻意不跳過）。IW_BROWSER 可指定路徑。")
     profile = tempfile.mkdtemp(prefix="iw-browser-")
     try:
-        with Site(block) as site:
-            url = "%s/scripts/test_dashboard_live.html?now=%s&open=%s" % (site.base, NOW.replace("+", "%2B").replace(":", "%3A"), open_card)
+        with Site(block, override) as site:
+            url = "%s/scripts/test_dashboard_live.html?now=%s&open=%s" % (site.base, now.replace("+", "%2B").replace(":", "%3A"), open_card)
             p = subprocess.run([browser, "--headless=new", "--disable-gpu", "--no-first-run", "--window-size=1300,2600",
                                 "--user-data-dir=" + profile, "--virtual-time-budget=30000", "--dump-dom", url],
                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=180)
@@ -165,9 +202,9 @@ class TestDashboardRequests(unittest.TestCase):
         tags = self.report["staticTags"]                                             # 量的時候圖示列已經補完：原本 7 個標籤，後來才多出兩支
         self.assertEqual([t for t in tags if t in STATIC], STATIC)
         self.assertEqual(sorted(tags), sorted(STATIC + DEFERRED[:2]))
-        ceiling = len(STATIC) + 2 + len(self.latest["assets"])                      # 規則的上限：每個標的都有日線檔的時候
+        ceiling = len(STATIC) + 2 + len(card_ids(self.latest))                     # 規則的上限：每張卡都有日線檔的時候（G8B：估算不是卡）
         self.assertLessEqual(len(before), ceiling, "首屏畫完之前超過「靜態檔＋行情、報告＋每個標的 1 個日線檔」")
-        if len(self.latest["assets"]) == 14:                                         # 現在的監控清單：14 個標的
+        if len(card_ids(self.latest)) == 14:                                        # 現在的監控清單：14 張卡（G8B：估算兩項不算）
             self.assertEqual(ceiling, 23)
             if len(self.history_ids) == 14:                                          # 台銀擋住的那天少幾個日線檔，照資料算（上面兩條）；全部抓得到才要剛好 23
                 self.assertEqual(len(before), 23, "首屏畫完之前應該剛好 23 個請求")
@@ -196,7 +233,7 @@ class TestDashboardRequests(unittest.TestCase):
 
     def test_every_card_has_a_strip_between_head_and_body(self):
         cards = self.report["cards"]
-        self.assertEqual(sorted(c["id"] for c in cards), sorted(self.latest["assets"]))
+        self.assertEqual(sorted(c["id"] for c in cards), sorted(card_ids(self.latest)))   # G8B：估算不是卡
         for c in cards:
             self.assertTrue(c["hasStrip"], c["id"])
             self.assertTrue(c["stripBetweenHeadAndBody"], "%s：圖示列要在標題列與展開區之間" % c["id"])
@@ -252,7 +289,7 @@ class TestDashboardRequests(unittest.TestCase):
                 self.assertNotEqual(chip["word"], "不適用", c["id"])
                 self.assertNotEqual(chip["state"], "none", c["id"])
         by_id = dict((c["id"], c) for c in self.report["cards"])
-        for aid, a in self.latest["assets"].items():
+        for aid, a in ((i, self.latest["assets"][i]) for i in card_ids(self.latest)):   # G8B：估算不是卡
             if a.get("type") in ("finmind_fx", "bot_fx"):
                 pos = [d for d in by_id[aid]["details"] if d["aspect"] == "position"][0]
                 self.assertTrue(any(x.startswith("5 年位置：") and x.endswith("（見換匯助手）") for x in pos["extra"]), aid)
@@ -333,6 +370,117 @@ class TestDashboardWhenAnalysisIsUnreachable(unittest.TestCase):
     def test_fold_says_so_too(self):
         self.assertIn("分析資料暫時讀不到", self.report["fold"]["text"])
         self.assertNotIn("這個標的目前沒有分析項目", self.report["fold"]["text"])
+
+
+EST_NOW = "2026-11-09T10:00:00+08:00"          # 星期一；假資料裡台銀最後一筆牌告是 10-28，落後 8 個交易日
+
+
+def estimate_fixture():
+    """G8B：台銀黃金被擋、有國際換算估算時的儀表板（假資料，只送給這一組；倉庫裡的檔不動）。
+    從倉庫現在的 latest.json 出發，把台銀兩項改成「這一輪失敗、上次成功是 10-28」，再加上兩項估算與它們的日線。數字一看就是假的。"""
+    with open(os.path.join(ROOT, "data", "latest.json"), encoding="utf-8") as fh:
+        latest = json.load(fh)
+    assets = dict((k, v) for k, v in latest["assets"].items() if not v.get("estimateOf"))
+    hist = {}
+    for gid, eid, base in (("gold_twd", "gold_twd_est", 3000.0), ("gold_cny", "gold_cny_est", 600.0)):
+        g = dict(assets[gid])
+        g.update({"status": "error", "price": None, "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+                  "errorAt": "2026-11-09T09:30:00+08:00", "spark": None, "points": None, "date": None,
+                  "lastGood": {"price": base, "bars": None, "date": "2026-10-28", "fetchedAt": "2026-10-28T17:00:00+08:00", "quoteTime": "2026/10/28 16:50"}})
+        assets[gid] = g
+        pts, d = [], datetime.date(2025, 9, 24)
+        while d <= datetime.date(2026, 11, 9):
+            if d.weekday() < 5:
+                pts.append({"d": d.isoformat(), "c": round(base + len(pts) % 37, 4), "dateSource": "estimate-backfill"})
+            d += datetime.timedelta(days=1)
+        pts[-1]["dateSource"] = "estimate"
+        hist[eid] = {"id": eid, "points": pts}
+        assets[eid] = {"id": eid, "name": g["name"] + "國際換算估算", "shortName": eid, "group": "貴金屬", "type": "gold_est",
+                       "estimateOf": gid, "currency": g.get("currency"), "unit": g.get("unit"), "decimals": g.get("decimals"),
+                       "priceLabel": "國際換算估算", "status": "ok", "price": pts[-1]["c"], "prevClose": pts[-2]["c"],
+                       "change": round(pts[-1]["c"] - pts[-2]["c"], 4), "changePct": 0.1, "date": pts[-1]["d"], "points": len(pts),
+                       "spark": [p["c"] for p in pts[-40:]], "freshness": "fresh", "switchAfterTradingDays": 1, "typicalErrorPct": 0.6,
+                       "backfillThrough": pts[-2]["d"], "estimate": {"note": "金價取 11-09 09:55、匯率取 11-09 09:58（台北時間）"}}
+    latest["assets"] = assets
+    s = latest.get("summary") or {}
+    bad = [k for k, v in assets.items() if v.get("status") != "ok"]
+    latest["summary"] = dict(s, ok=len(assets) - len(bad), error=len(bad), errorIds=bad, total=len(assets))
+    files = {"data/latest.json": json.dumps(latest, ensure_ascii=False).encode("utf-8")}
+    for eid, h in hist.items():
+        files["data/history/%s.json" % eid] = json.dumps(h, ensure_ascii=False).encode("utf-8")
+    return latest, files
+
+
+class TestDashboardWhenGoldIsEstimated(unittest.TestCase):
+    """G8B（規格 3.3、Cowork 裁決 5(a)）：台銀黃金被擋、落後超過 1 個交易日時——
+    估算不自成一張卡；台銀卡的主數字寫「沿用 <日期> 牌告」、「更新失敗」照舊、下面一行標「國際換算估算」；
+    走勢線、燈號、展開與圖示列的位置改用估算序列並寫出來；首屏仍是每張卡最多 1 個日線檔（抓估算的檔代替台銀的），上限 23 不變；
+    狀態列的計數不算估算那兩項。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.latest, files = estimate_fixture()
+        _l, cls.history_ids, cls.data_files = expected_first_screen(cls.latest, EST_NOW)
+        cls.report, cls.seen = measure(override=files, now=EST_NOW, open_card="gold_twd")
+        cls.cards = dict((c["id"], c) for c in cls.report["cards"])
+
+    def test_page_ran(self):
+        self.assertEqual(self.report.get("problems"), [])
+        self.assertFalse(self.report.get("timedOut"))
+        self.assertEqual(self.report.get("dashboardDone"), "done")
+
+    def test_estimates_are_not_cards(self):
+        self.assertEqual(sorted(self.cards), sorted(card_ids(self.latest)))
+        self.assertNotIn("gold_twd_est", self.cards)
+        self.assertNotIn("gold_cny_est", self.cards)
+        self.assertEqual(len(self.cards), 14)
+
+    def test_first_screen_swaps_the_gold_files_and_keeps_the_ceiling(self):
+        """對照組：估算兩項也各抓一個日線檔（首屏 25）→ 這一條會紅。"""
+        before, _after = split_by_mark(self.report)
+        self.assertEqual(before, sorted(STATIC + self.data_files))
+        for gid, eid in (("gold_twd", "gold_twd_est"), ("gold_cny", "gold_cny_est")):
+            self.assertIn("data/history/%s.json" % eid, before)
+            self.assertNotIn("data/history/%s.json" % gid, before)
+        self.assertLessEqual(len(before), len(STATIC) + 2 + len(card_ids(self.latest)))
+        self.assertEqual(len(STATIC) + 2 + len(card_ids(self.latest)), 23)
+
+    def test_gold_card_says_carried_and_shows_the_estimate_line(self):
+        """對照組：拿掉「國際換算估算」字樣、或主數字不寫沿用 → 這一條會紅。"""
+        for gid in ("gold_twd", "gold_cny"):
+            c = self.cards[gid]
+            self.assertIn("沿用 10-28 牌告", c["headText"], gid)
+            self.assertIn("2026/10/28 16:50 掛牌", c["headText"], gid)
+            self.assertIn("更新失敗", c["headText"], gid)
+            self.assertIn("這一項資料更新失敗", c["headText"], gid)              # 原本的錯誤說明還在（DOM 只增不減）
+            self.assertTrue(c["estLine"], gid)
+            self.assertTrue(c["estLine"].startswith("國際換算估算"), gid)
+            self.assertIn("不是台銀牌告", c["estLine"], gid)
+            self.assertIn("金價取 11-09 09:55、匯率取 11-09 09:58", c["estLine"], gid)
+            self.assertIn("改用國際換算估算的序列", c["estLine"], gid)
+            self.assertIn("2026-10-28", c["estLine"], gid)
+        self.assertIn("條塊不做估算", self.cards["gold_bar"]["estLine"] or "")
+
+    def test_lamp_and_position_follow_the_estimate_series_and_say_so(self):
+        for gid in ("gold_twd", "gold_cny"):
+            c = self.cards[gid]
+            self.assertIsNotNone(c["lamp"], gid)
+            pos = c["chips"][0]
+            self.assertEqual(pos["word"], c["lamp"], gid)
+            d = [x for x in c["details"] if x["aspect"] == "position"][0]
+            self.assertIn("國際換算估算", d["dates"] or "", gid)
+
+    def test_status_counts_leave_the_estimates_out(self):
+        ok_cards = len([i for i in card_ids(self.latest) if self.latest["assets"][i].get("status") == "ok"])
+        self.assertIn("%d 項成功" % ok_cards, self.report["statusText"])
+        self.assertNotIn("估算", self.report["statusText"])
+
+    def test_no_trading_words_on_the_gold_cards(self):
+        for gid in ("gold_twd", "gold_cny", "gold_bar"):
+            text = self.cards[gid]["headText"] or ""
+            for e in PRICE_NAMES:
+                text = text.replace(e, "")
+            self.assertEqual([w for w in JUDGEMENT if w in text], [], gid)
 
 
 class TestDashboardWhenThePlainLayerIsUnreachable(unittest.TestCase):

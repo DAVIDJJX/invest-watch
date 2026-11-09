@@ -49,6 +49,8 @@ CORE_FILES = [
     "js/app.js",
     # A1-4：00646 官方淨值回補與「近一年」的新檔
     "scripts/backfill_nav.py", "scripts/test_backfill_nav.py", "scripts/test_premium_year.html", "scripts/test_premium_year_js.py",
+    # G8B：台銀黃金的國際換算估算與停止硬打
+    "scripts/test_gold_estimate.py",
 ]
 # js/app.js 是分析系列之前就有的檔，A1-7 才納入掃描。它沒有任何豁免：條塊卡上說明「比存摺貴」跟哪個牌價比的那個詞，
 # 驗收時裁決改成台銀牌價欄位的寫法（本行＋賣＋出價），不為它開豁免——豁免清單不可以開始累積。

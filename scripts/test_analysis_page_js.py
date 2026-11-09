@@ -215,6 +215,32 @@ class TestAnalysisDebugJs(unittest.TestCase):
         self.case("storage_exposes_loadFile_and_saveFile")
 
 
+class TestOverviewWithGoldEstimate(unittest.TestCase):
+    """G8B（Cowork 裁決 5(a)）：總覽表不替國際換算估算畫一列；台銀那一列落後超過門檻時，面向改用估算序列並寫出來。
+    同一個測試頁、另一組結果（原本那 39 題不動）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run_page()
+        cls.by_name = dict((r["name"], r) for r in cls.report.get("estimate") or [])
+
+    def case(self, name):
+        self.assertIn(name, self.by_name, "測試頁裡沒有這一題：%s" % name)
+        r = self.by_name[name]
+        self.assertTrue(r["ok"], "%s：%s" % (name, "；".join(r["problems"])))
+
+    def test_both_cases_ran(self):
+        self.assertEqual(sorted(self.by_name), ["market_views_skip_estimates_and_switch_the_stale_gold_row",
+                                                "overview_rows_use_the_estimate_view_and_say_so"])
+
+    def test_market_views_skip_estimates_and_switch_the_stale_gold_row(self):
+        """對照組：總覽也替估算畫一列 → 這一條會紅。"""
+        self.case("market_views_skip_estimates_and_switch_the_stale_gold_row")
+
+    def test_overview_rows_use_the_estimate_view_and_say_so(self):
+        self.case("overview_rows_use_the_estimate_view_and_say_so")
+
+
 class TestPageWiring(unittest.TestCase):
     """檔案有沒有接對線：只看原始碼，不開瀏覽器。"""
 

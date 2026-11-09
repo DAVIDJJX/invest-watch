@@ -119,8 +119,80 @@
     results.push({ name: c.name, ok: problems.length === 0, problems: problems, got: got });
   });
 
+  /* ---- G8B：國際換算估算（tradingDaysBehind、estimateView、estimateCard）。另一組結果，原本那 16 題不動。
+   * 交易日的這一組日期表 scripts/test_gold_estimate.py 也讀（同一份），拿去餵 scripts/analyze.py 的 trading_days_behind：前後端同一條規則。 */
+  /* TRADING-DAY-VECTORS-BEGIN */
+  var TRADING_DAY_VECTORS = [
+    ["2026-10-28", "2026-10-28T10:00:00+08:00", 0],
+    ["2026-10-28", "2026-10-29T09:00:00+08:00", 1],
+    ["2026-10-28", "2026-10-30T09:00:00+08:00", 2],
+    ["2026-10-30", "2026-11-01T12:00:00+08:00", 0],
+    ["2026-10-30", "2026-11-02T08:00:00+08:00", 1],
+    ["2026-10-28", "2026-11-09T10:00:00+08:00", 8],
+    ["2026-11-09", "2026-11-08T23:59:00+08:00", 0],
+    ["2026-10-28", "2026-10-28T23:30:00Z", 1]
+  ];
+  /* TRADING-DAY-VECTORS-END */
+  var est = [];
+  function check(name, fn) {
+    var problems = [];
+    try { fn(problems); } catch (err) { problems.push('丟出例外：' + err); }
+    est.push({ name: name, ok: problems.length === 0, problems: problems });
+  }
+  var F = window.Freshness;
+  check('trading_days_behind_vectors', function (p) {
+    TRADING_DAY_VECTORS.forEach(function (v) {
+      var got = F.tradingDaysBehind(v[0], v[1]);
+      if (got !== v[2]) p.push(v[0] + ' → ' + v[1] + ' 應該是 ' + v[2] + '，實際 ' + got);
+    });
+    if (F.tradingDaysBehind('', '2026-11-09T10:00:00+08:00') !== null) p.push('日期讀不懂要回 null');
+  });
+  function goldErr(over) {
+    var a = { id: 'gold_twd', type: 'bot_gold', status: 'error', price: null, decimals: 0, name: '黃金存摺（台幣）',
+              lastGood: { price: 3000, date: '2026-10-28', fetchedAt: '2026-10-28T17:00:00+08:00' } };
+    for (var k in over) a[k] = over[k];
+    return a;
+  }
+  function estOf(over) {
+    var e = { id: 'gold_twd_est', type: 'gold_est', estimateOf: 'gold_twd', status: 'ok', price: 3010, change: 10, changePct: 0.3,
+              date: '2026-11-09', points: 300, spark: [1, 2, 3], switchAfterTradingDays: 1, typicalErrorPct: 0.6, backfillThrough: '2026-11-06' };
+    for (var k in over) e[k] = over[k];
+    return e;
+  }
+  function latestOf(g, e) { var as = { gold_twd: g }; if (e) as[e.id] = e; return { assets: as }; }
+  var NOV9 = '2026-11-09T10:00:00+08:00', OCT29 = '2026-10-29T10:00:00+08:00';
+  check('estimate_view_switches_after_the_gate', function (p) {
+    var v = F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({})), NOV9);
+    if (!v.switched) p.push('落後 8 個交易日、門檻 1：應該切到估算');
+    if (v.behind !== 8) p.push('behind 應該是 8，實際 ' + v.behind);
+    if (!v.est || v.est.id !== 'gold_twd_est') p.push('應該找到 gold_twd_est');
+    if (v.lastDay !== '2026-10-28') p.push('lastDay 應該取 lastGood.date');
+  });
+  check('estimate_view_waits_within_the_gate', function (p) {
+    if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({})), OCT29).switched) p.push('只落後 1 個交易日（門檻 1）：不切');
+  });
+  check('estimate_view_never_switches_without_a_good_estimate_or_a_gate', function (p) {
+    if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ status: 'error' })), NOV9).switched) p.push('估算這一輪失敗：不切');
+    if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ switchAfterTradingDays: undefined })), NOV9).switched) p.push('沒有門檻（舊的 latest.json）：不切');
+    if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ points: 1 })), NOV9).switched) p.push('估算只有 1 點：不切');
+    var ok = goldErr({ status: 'ok', price: 3000, date: '2026-10-28' });
+    if (F.estimateView(ok, latestOf(ok, estOf({})), NOV9).switched) p.push('台銀這一輪是好的：不切');
+    if (F.estimateView(goldErr({}), latestOf(goldErr({}), null), NOV9).est !== null) p.push('沒有估算那一項：est 是 null');
+    var bar = { id: 'gold_bar', type: 'bot_gold_bar', status: 'error', lastGood: { date: '2026-10-28' } };
+    if (F.estimateView(bar, { assets: { gold_bar: bar, x: estOf({ estimateOf: 'gold_bar' }) } }, NOV9).est !== null) p.push('條塊不做估算');
+  });
+  check('estimate_card_keeps_the_gold_id_and_marks_the_series', function (p) {
+    var g = goldErr({}), ev = F.estimateView(g, latestOf(g, estOf({})), NOV9), v = F.estimateCard(g, ev);
+    if (v.id !== 'gold_twd' || v.name !== '黃金存摺（台幣）' || v.type !== 'bot_gold') p.push('名稱、id、type 照台銀那一項');
+    if (v.status !== 'ok' || v.price !== 3010 || v.points !== 300 || v.date !== '2026-11-09') p.push('狀態、現價、點數、日期換成估算的');
+    if (v.priceLabel !== '國際換算估算') p.push('priceLabel 要標國際換算估算');
+    if (!v.estimateView || v.estimateView.id !== 'gold_twd_est' || v.estimateView.lastDay !== '2026-10-28' || v.estimateView.typicalErrorPct !== 0.6)
+      p.push('estimateView 標記不對：' + JSON.stringify(v.estimateView));
+    if (g.status !== 'error' || g.price !== null) p.push('不可以改到原本那一項');
+  });
+
   document.getElementById('result').textContent =
-    JSON.stringify({ loaded: !!window.Freshness, total: results.length, results: results });
+    JSON.stringify({ loaded: !!window.Freshness, total: results.length, results: results, estimate: est });
 })();
 </script>
 </body>

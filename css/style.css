@@ -470,6 +470,31 @@ a:hover { text-decoration: underline; }
   color: var(--warn);
 }
 
+/* G8B：台銀黃金被擋時的國際換算估算那一行（醒目、但標明是估算，不是台銀牌告） */
+.est-line {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px dashed var(--warn);
+  font-size: 12.5px;
+  color: var(--text);
+}
+.est-line b { font-size: 15px; }
+.est-tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-right: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-size: 11px;
+  font-weight: 700;
+}
+.est-when { font-size: 11px; color: var(--text-faint); margin-left: 4px; }
+.est-switch { display: inline-block; margin-top: 3px; font-size: 11.5px; color: var(--warn); }
+.est-plain { margin: 0 0 8px; }
+
 /* ---------------------------------------------------------- 資料新舊的標示（js/freshness.js） */
 
 .fresh-carried { grid-column: 1 / -1; }

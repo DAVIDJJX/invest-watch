@@ -156,6 +156,43 @@ class TestFreshnessJs(unittest.TestCase):
         self.case("weekday_is_judged_in_taipei_not_in_the_browsers_timezone")
 
 
+class TestEstimateHelpersJs(unittest.TestCase):
+    """G8B：國際換算估算的三個小函式（同一個測試頁、另一組結果；原本那 16 題不動）。
+    交易日那一組日期表 scripts/test_gold_estimate.py 也拿去餵 analyze.py 的 trading_days_behind（前後端同一條規則）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.report = run_page()
+        cls.by_name = dict((r["name"], r) for r in cls.report.get("estimate") or [])
+
+    def case(self, name):
+        self.assertIn(name, self.by_name, "測試頁裡沒有這一題：%s" % name)
+        r = self.by_name[name]
+        self.assertTrue(r["ok"], "%s：%s" % (name, "；".join(r["problems"])))
+
+    def test_all_estimate_cases_ran(self):
+        self.assertEqual(sorted(self.by_name), sorted([
+            "trading_days_behind_vectors", "estimate_view_switches_after_the_gate", "estimate_view_waits_within_the_gate",
+            "estimate_view_never_switches_without_a_good_estimate_or_a_gate", "estimate_card_keeps_the_gold_id_and_marks_the_series"]))
+
+    def test_trading_days_behind_vectors(self):
+        """對照組：週末也算交易日、或不換算成台北日期 → 這一條會紅。"""
+        self.case("trading_days_behind_vectors")
+
+    def test_estimate_view_switches_after_the_gate(self):
+        self.case("estimate_view_switches_after_the_gate")
+
+    def test_estimate_view_waits_within_the_gate(self):
+        """對照組：門檻的比較寫成 >=（落後 1 天就切）→ 這一條會紅。"""
+        self.case("estimate_view_waits_within_the_gate")
+
+    def test_estimate_view_never_switches_without_a_good_estimate_or_a_gate(self):
+        self.case("estimate_view_never_switches_without_a_good_estimate_or_a_gate")
+
+    def test_estimate_card_keeps_the_gold_id_and_marks_the_series(self):
+        self.case("estimate_card_keeps_the_gold_id_and_marks_the_series")
+
+
 class TestCardIsWiredToFreshness(unittest.TestCase):
     """函式寫對了但卡片沒去叫它，等於沒做。這兩條只看原始碼，不開瀏覽器。"""
 
