@@ -805,12 +805,14 @@ def build_trend(assets, paths=None, problems=None, now=None):
                       "reason": "台銀不公布條塊的歷史牌價；本站自己累積的只有 %d 個交易日，不夠算 %d 日均線與 12 個月報酬" % (len(pts), TREND_MA_DAYS)})
             out[aid] = t
             continue
-        out[aid] = trend_on_estimate(a, pts, estimates.get(aid), gold_est, today, paths) or trend_of(pts)
+        out[aid] = trend_on_estimate(a, pts, estimates.get(aid), gold_est, today, paths, problems) or trend_of(pts)
     return out
 
 
-def trend_on_estimate(a, pts, est, gold_est, today, paths):
-    """台銀黃金的牌告落後超過門檻、而且有它的估算序列時：用估算序列算趨勢，標明算在哪條序列；不符合就回 None（照舊用台銀的日線）。"""
+def trend_on_estimate(a, pts, est, gold_est, today, paths, problems=None):
+    """台銀黃金的牌告落後超過門檻、而且有它的估算序列時：用估算序列算趨勢，標明算在哪條序列；不符合就回 None（照舊用台銀的日線）。
+    兩種情況分開（Codex 第 1 輪）：估算還沒有資料（檔案不存在或是空的）＝回 None，照舊用台銀的日線（through 照實寫台銀的最後一天）；
+    估算的檔在、卻讀不到或讀不懂＝這一筆寫 error、記進 problems（→ risk.json 與 status.json 的錯誤），不悄悄退回台銀的舊序列。"""
     if not est or a.get("type") != "bot_gold" or not pts:
         return None
     last = pts[-1].get("d")
@@ -818,7 +820,16 @@ def trend_on_estimate(a, pts, est, gold_est, today, paths):
     if behind is None or behind <= int(gold_est.get("switchAfterTradingDays", 1)):
         return None
     est_pts, est_err = load_history_daily_checked(est.get("id"), paths)
-    if est_err or not est_pts:
+    if est_err:
+        t = trend_of([])
+        t.pop("reason", None)
+        t.update({"days": None, "series": "estimate", "seriesId": est.get("id"), "label": "國際換算估算", "botThrough": last,
+                  "error": "國際換算估算的日線檔 data/history/%s.json %s，這一輪算不出趨勢（台銀 %s 之後沒有新牌告，不退回台銀的舊序列）"
+                           % (est.get("id"), est_err, last)})
+        if problems is not None:
+            problems.append("趨勢 %s：國際換算估算的日線檔 %s，這一輪算不出趨勢" % (a.get("id"), est_err))
+        return t
+    if not est_pts:
         return None
     t = trend_of(est_pts)
     t.update({"series": "estimate", "seriesId": est.get("id"), "label": "國際換算估算", "botThrough": last,

@@ -300,6 +300,34 @@ class TestHandler(unittest.TestCase):
             fd.save_history(EST["gold_twd_est"], [{"d": "2026-11-04", "c": 1.0, "dateSource": "estimate"}])
 
 
+class TestFailedEstimatesStayAttached(unittest.TestCase):
+    """Codex 第 1 輪：估算失敗那一輪、雲端還沒抓過的那幾輪，紀錄也要帶 estimateOf——不然前端、分析頁、報告會把它當成獨立的標的列出來。"""
+
+    def test_error_quote_keeps_estimate_of(self):
+        """對照組：error_quote 不帶 estimateOf → 紅。"""
+        q = fd.error_quote(EST["gold_twd_est"], "Yahoo 沒有回應", {})
+        self.assertEqual((q["status"], q["estimateOf"]), ("error", "gold_twd"))
+        bot = dict((a["id"], a) for a in CFG["assets"])["gold_twd"]
+        self.assertNotIn("estimateOf", fd.error_quote(bot, "x", {}))
+
+    def test_merge_stub_keeps_estimate_of(self):
+        """對照組：merge_latest 的替代紀錄不帶 estimateOf → 紅。"""
+        import merge_latest as ML
+        q = ML.stub_quote(EST["gold_cny_est"], "雲端的資料檔裡沒有這一項", datetime.datetime(2026, 11, 9, 9, 0, tzinfo=TPE))
+        self.assertEqual((q["status"], q["estimateOf"]), ("error", "gold_cny"))
+
+    def test_a_cloud_run_where_yahoo_fails_still_marks_the_estimate(self):
+        with Sandbox() as sb:
+            def failing_get(self, url, **kw):
+                raise fd.FetchError("Yahoo 回應 429（請求過於頻繁）")
+            rc = run_main(["--source", "cloud", "--slot", "light", "--light", "--only", "gold_twd_est,gold_cny_est"], failing_get)
+            self.assertEqual(rc, 2)                                                  # 有標的失敗：照實回 2
+            for eid, gid in (("gold_twd_est", "gold_twd"), ("gold_cny_est", "gold_cny")):
+                e = sb.shard("cloud")["assets"][eid]
+                self.assertEqual((e["status"], e["estimateOf"]), ("error", gid))
+                self.assertIn("429", e["error"])
+
+
 class TestCloudRunWhileTheLaptopIsOff(unittest.TestCase):
     """規格第 5 節的「筆電關機 24 小時」（模擬）：只有雲端在跑。估算每一輪在動、台銀三個檔沒動、一個台銀請求都沒有。"""
 
@@ -474,6 +502,27 @@ class TestTrendAndReport(unittest.TestCase):
         self.assertIn("2026-10-28 之後沒有新牌告", t["seriesNote"])
         self.assertIn("不是台銀牌告", t["seriesNote"])
         self.assertEqual(t["through"], "2026-11-09")
+
+    def test_an_unreadable_estimate_file_is_an_error_not_a_silent_fallback(self):
+        """Codex 第 1 輪：估算的檔在、卻讀不懂＝這一筆寫 error、記進 problems，不悄悄退回台銀的舊序列。對照組：吞掉讀檔錯誤 → 紅。"""
+        with open(os.path.join(self.paths["history"], "gold_twd_est.json"), "w", encoding="utf-8") as fh:
+            fh.write("{ 這不是 JSON")
+        problems = []
+        out = A.build_trend(self.assets, self.paths, problems, now=datetime.datetime(2026, 11, 9, 16, 0, tzinfo=TPE))
+        t = out["gold_twd"]
+        self.assertTrue(t.get("error"))
+        self.assertIn("gold_twd_est.json", t["error"])
+        self.assertEqual((t["series"], t["ma200"], t["days"]), ("estimate", None, None))
+        self.assertEqual(len(problems), 1)
+        self.assertIn("gold_twd", problems[0])
+
+    def test_no_estimate_yet_falls_back_to_the_bot_series_with_its_own_date(self):
+        os.remove(os.path.join(self.paths["history"], "gold_twd_est.json"))
+        problems = []
+        out = A.build_trend(self.assets, self.paths, problems, now=datetime.datetime(2026, 11, 9, 16, 0, tzinfo=TPE))
+        self.assertNotIn("series", out["gold_twd"])
+        self.assertEqual(out["gold_twd"]["through"], "2026-10-28")                  # 日期照實寫台銀的最後一天
+        self.assertEqual(problems, [])
 
     def test_within_the_gate_the_trend_stays_on_the_bot_series(self):
         out = A.build_trend(self.assets, self.paths, [], now=datetime.datetime(2026, 10, 29, 16, 0, tzinfo=TPE))

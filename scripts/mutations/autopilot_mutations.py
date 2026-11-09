@@ -1508,6 +1508,15 @@ M += [
     ("G25", "Python 的切換門檻寫成 >=（落後 1 個交易日就切）", "scripts/analyze.py",
      "    if behind is None or behind <= int(gold_est.get(\"switchAfterTradingDays\", 1)):",
      "    if behind is None or behind < int(gold_est.get(\"switchAfterTradingDays\", 1)):", GEST),
+    # Codex 第 1 輪（兩條 P1）
+    ("G26", "估算失敗那一輪的紀錄不帶 estimateOf（會被當成獨立標的列出來）", F_,
+     "    if asset.get(\"estimateOf\"):\n        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著",
+     "    if False:\n        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著", GEST),
+    ("G27", "合併程式的替代紀錄不帶 estimateOf（雲端還沒抓過的那幾輪）", "scripts/merge_latest.py",
+     "    if asset.get(\"estimateOf\"):\n        # G8B（Codex 第 1 輪）：國際換算估算剛加進來",
+     "    if False:\n        # G8B（Codex 第 1 輪）：國際換算估算剛加進來", GEST),
+    ("G28", "估算檔讀壞時悄悄退回台銀的舊序列（不寫錯誤、不記進 problems）", "scripts/analyze.py",
+     "    if est_err:\n        t = trend_of([])", "    if False:\n        t = trend_of([])", GEST),
 ]
 
 MUTATIONS =[m[:5] + (NARROW.get(m[0], m[5]),) for m in M]

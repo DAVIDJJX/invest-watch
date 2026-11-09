@@ -1558,6 +1558,10 @@ def error_quote(asset, message, prev_assets):
         "errorAt": iso(now_tpe()),
         "fetchedAt": iso(now_tpe()),
     }
+    if asset.get("estimateOf"):
+        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著它估算的是哪一項——前端、分析頁、報告靠這個欄位把它放回台銀卡裡、不自成一列；
+        # 沒有它，失敗的估算會被當成一個獨立的標的列出來，台銀卡上「這一輪沒有估算」那一行反而不見
+        q["estimateOf"] = asset["estimateOf"]
     old = prev_assets.get(asset["id"]) or {}
     src = old if old.get("status") == "ok" else (old.get("lastGood") or {})
     if src.get("price") is not None or src.get("bars"):
