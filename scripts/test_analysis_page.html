@@ -925,6 +925,12 @@
           if (mv.views.gspc) p.push('其他標的不切');
           var early = AnalysisDebug.marketViews(estLatest, '2026-10-29T10:00:00+08:00');
           if (early.views.gold_twd) p.push('只落後 1 個交易日（門檻 1）：不切');
+          /* Codex 第 2 輪：筆電在 10-28 最後一次成功之後關機（那一筆仍是 status ok、只標資料過期）→ 牌告一樣落後，一樣切 */
+          var quietLatest = { updatedAt: estLatest.updatedAt, assets: {
+            gold_twd: ovAsset('gold_twd', '黃金存摺（台幣）', '貴金屬', 'bot_gold', { price: 3000, date: '2026-10-28', decimals: 0, freshness: 'stale' }),
+            gold_twd_est: estLatest.assets.gold_twd_est, gspc: estLatest.assets.gspc } };
+          var quiet = AnalysisDebug.marketViews(quietLatest, EST_NOW);
+          if (!quiet.views.gold_twd || quiet.views.gold_twd.estimateView.lastDay !== '2026-10-28') p.push('筆電成功後關機、牌告落後 8 個交易日：這一列也要切到估算');
         });
         check('overview_rows_use_the_estimate_view_and_say_so', function (p) {
           var mv = AnalysisDebug.marketViews(estLatest, EST_NOW);

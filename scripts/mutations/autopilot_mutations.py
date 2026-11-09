@@ -1517,6 +1517,10 @@ M += [
      "    if False:\n        # G8B（Codex 第 1 輪）：國際換算估算剛加進來", GEST),
     ("G28", "估算檔讀壞時悄悄退回台銀的舊序列（不寫錯誤、不記進 problems）", "scripts/analyze.py",
      "    if est_err:\n        t = trend_of([])", "    if False:\n        t = trend_of([])", GEST),
+    # Codex 第 2 輪（一條 P1）
+    ("G29", "前端切換多要求台銀這一輪失敗（筆電成功後關機就永遠不切，跟趨勢不一致）", "js/freshness.js",
+     "    out.switched = est.status === 'ok' && typeof gate === 'number' &&",
+     "    out.switched = a.status !== 'ok' && est.status === 'ok' && typeof gate === 'number' &&", FRESH),
 ]
 
 MUTATIONS =[m[:5] + (NARROW.get(m[0], m[5]),) for m in M]

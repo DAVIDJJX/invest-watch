@@ -173,7 +173,8 @@ class TestEstimateHelpersJs(unittest.TestCase):
     def test_all_estimate_cases_ran(self):
         self.assertEqual(sorted(self.by_name), sorted([
             "trading_days_behind_vectors", "estimate_view_switches_after_the_gate", "estimate_view_waits_within_the_gate",
-            "estimate_view_never_switches_without_a_good_estimate_or_a_gate", "estimate_card_keeps_the_gold_id_and_marks_the_series"]))
+            "estimate_view_never_switches_without_a_good_estimate_or_a_gate", "estimate_card_keeps_the_gold_id_and_marks_the_series",
+            "estimate_view_switches_when_the_laptop_went_quiet_after_a_success"]))
 
     def test_trading_days_behind_vectors(self):
         """對照組：週末也算交易日、或不換算成台北日期 → 這一條會紅。"""
@@ -191,6 +192,11 @@ class TestEstimateHelpersJs(unittest.TestCase):
 
     def test_estimate_card_keeps_the_gold_id_and_marks_the_series(self):
         self.case("estimate_card_keeps_the_gold_id_and_marks_the_series")
+
+    def test_estimate_view_switches_when_the_laptop_went_quiet_after_a_success(self):
+        """Codex 第 2 輪：筆電在最後一次成功之後關機（status 還是 ok、只標資料過期），牌告一樣落後就要切，跟 analyze.py 的趨勢一致。
+        對照組：切換多要求「台銀這一輪失敗」→ 這一條會紅。"""
+        self.case("estimate_view_switches_when_the_laptop_went_quiet_after_a_success")
 
 
 class TestCardIsWiredToFreshness(unittest.TestCase):

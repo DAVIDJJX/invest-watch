@@ -175,11 +175,21 @@
     if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ status: 'error' })), NOV9).switched) p.push('估算這一輪失敗：不切');
     if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ switchAfterTradingDays: undefined })), NOV9).switched) p.push('沒有門檻（舊的 latest.json）：不切');
     if (F.estimateView(goldErr({}), latestOf(goldErr({}), estOf({ points: 1 })), NOV9).switched) p.push('估算只有 1 點：不切');
-    var ok = goldErr({ status: 'ok', price: 3000, date: '2026-10-28' });
-    if (F.estimateView(ok, latestOf(ok, estOf({})), NOV9).switched) p.push('台銀這一輪是好的：不切');
+    var today = goldErr({ status: 'ok', price: 3000, date: '2026-11-09' });
+    if (F.estimateView(today, latestOf(today, estOf({})), NOV9).switched) p.push('台銀今天有牌告：不切');
     if (F.estimateView(goldErr({}), latestOf(goldErr({}), null), NOV9).est !== null) p.push('沒有估算那一項：est 是 null');
     var bar = { id: 'gold_bar', type: 'bot_gold_bar', status: 'error', lastGood: { date: '2026-10-28' } };
     if (F.estimateView(bar, { assets: { gold_bar: bar, x: estOf({ estimateOf: 'gold_bar' }) } }, NOV9).est !== null) p.push('條塊不做估算');
+  });
+  check('estimate_view_switches_when_the_laptop_went_quiet_after_a_success', function (p) {
+    /* Codex 第 2 輪：筆電在 10-28 最後一次成功之後就關機——那一筆留著 status ok、只標資料過期，牌告一樣落後 8 個交易日。
+     * 對照組：切換多要求「台銀這一輪失敗」→ 這一條會紅。 */
+    var quiet = goldErr({ status: 'ok', price: 3000, date: '2026-10-28', freshness: 'stale', lastGood: undefined });
+    var v = F.estimateView(quiet, latestOf(quiet, estOf({})), NOV9);
+    if (!v.switched) p.push('牌告落後 8 個交易日、估算是好的：不管台銀這一輪有沒有失敗都要切');
+    if (v.lastDay !== '2026-10-28') p.push('lastDay 應該取這一筆自己的日期，實際 ' + v.lastDay);
+    if (v.behind !== 8) p.push('behind 應該是 8，實際 ' + v.behind);
+    if (F.estimateView(quiet, latestOf(quiet, estOf({})), OCT29).switched) p.push('只落後 1 個交易日（門檻 1）：不切');
   });
   check('estimate_card_keeps_the_gold_id_and_marks_the_series', function (p) {
     var g = goldErr({}), ev = F.estimateView(g, latestOf(g, estOf({})), NOV9), v = F.estimateCard(g, ev);

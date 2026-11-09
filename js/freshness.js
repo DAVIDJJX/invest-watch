@@ -136,7 +136,9 @@
    *   est      估算那一項（沒有就是 null；條塊不做估算）
    *   lastDay  台銀最後一筆牌告的日期（更新失敗時取 lastGood.date）
    *   behind   落後幾個交易日
-   *   switched true＝台銀這一輪失敗、落後超過門檻、估算這一輪是好的：指標改用估算序列
+   *   switched true＝台銀最後一筆牌告落後超過門檻、估算這一輪是好的：指標改用估算序列
+   * 只看牌告的日期，不看台銀這一輪是不是失敗（Codex 第 2 輪）：筆電在最後一次成功之後關機或停了，
+   * 合併程式留著那一筆 status ok、只標資料過期——牌告一樣落後，要跟 scripts/analyze.py 的趨勢一樣切。
    * 門檻沒有抄過來（舊的 latest.json）就不切——寧可不切，不可以亂切。
    */
   function estimateView(a, latest, now) {
@@ -148,7 +150,7 @@
     out.lastDay = a.status === 'ok' ? (a.date || null) : ((a.lastGood || {}).date || null);
     out.behind = tradingDaysBehind(out.lastDay, now);
     var gate = est.switchAfterTradingDays;
-    out.switched = a.status !== 'ok' && est.status === 'ok' && typeof gate === 'number' &&
+    out.switched = est.status === 'ok' && typeof gate === 'number' &&
                    typeof out.behind === 'number' && out.behind > gate && (est.points || 0) > 1;
     return out;
   }

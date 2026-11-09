@@ -59,16 +59,18 @@ def card_ids(latest):
 
 
 def card_view(aid, latest, now):
-    """跟 js/freshness.js 的 estimateView 同一條規則：台銀黃金這一輪失敗、落後超過門檻、估算是好的 → 這張卡改用估算（抓估算的日線）。
+    """跟 js/freshness.js 的 estimateView 同一條規則：台銀黃金的牌告落後超過門檻、估算是好的 → 這張卡改用估算（抓估算的日線）。
+    不看台銀這一輪有沒有失敗（Codex 第 2 輪：筆電成功後關機，那一筆仍是 status ok）。
     回 (要抓的日線檔的 id, 算首屏用的那一份)。落後幾個交易日用 scripts/analyze.py 的 trading_days_behind（前後端同一條，另有測試釘住）。"""
     import analyze as A
     from datetime import datetime as _dt
     a = latest["assets"][aid]
     est = next((e for e in latest["assets"].values() if e.get("estimateOf") == aid), None)
     gate = (est or {}).get("switchAfterTradingDays")
-    if a.get("type") == "bot_gold" and est and a.get("status") != "ok" and est.get("status") == "ok" \
+    if a.get("type") == "bot_gold" and est and est.get("status") == "ok" \
             and isinstance(gate, (int, float)) and (est.get("points") or 0) > 1:
-        behind = A.trading_days_behind((a.get("lastGood") or {}).get("date"), _dt.fromisoformat(now).date())
+        last = a.get("date") if a.get("status") == "ok" else (a.get("lastGood") or {}).get("date")
+        behind = A.trading_days_behind(last, _dt.fromisoformat(now).date())
         if behind is not None and behind > gate:
             return est["id"], est
     return aid, a
@@ -375,18 +377,25 @@ class TestDashboardWhenAnalysisIsUnreachable(unittest.TestCase):
 EST_NOW = "2026-11-09T10:00:00+08:00"          # 星期一；假資料裡台銀最後一筆牌告是 10-28，落後 8 個交易日
 
 
-def estimate_fixture():
+def estimate_fixture(quiet=False):
     """G8B：台銀黃金被擋、有國際換算估算時的儀表板（假資料，只送給這一組；倉庫裡的檔不動）。
-    從倉庫現在的 latest.json 出發，把台銀兩項改成「這一輪失敗、上次成功是 10-28」，再加上兩項估算與它們的日線。數字一看就是假的。"""
+    從倉庫現在的 latest.json 出發，把台銀兩項改成「這一輪失敗、上次成功是 10-28」，再加上兩項估算與它們的日線。數字一看就是假的。
+    quiet=True（Codex 第 2 輪）：台銀兩項改成「筆電在 10-28 最後一次成功之後就關機」——那一筆仍是 status ok、只標資料過期。"""
     with open(os.path.join(ROOT, "data", "latest.json"), encoding="utf-8") as fh:
         latest = json.load(fh)
     assets = dict((k, v) for k, v in latest["assets"].items() if not v.get("estimateOf"))
     hist = {}
     for gid, eid, base in (("gold_twd", "gold_twd_est", 3000.0), ("gold_cny", "gold_cny_est", 600.0)):
         g = dict(assets[gid])
-        g.update({"status": "error", "price": None, "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
-                  "errorAt": "2026-11-09T09:30:00+08:00", "spark": None, "points": None, "date": None,
-                  "lastGood": {"price": base, "bars": None, "date": "2026-10-28", "fetchedAt": "2026-10-28T17:00:00+08:00", "quoteTime": "2026/10/28 16:50"}})
+        if quiet:
+            for k in ("error", "errorAt", "lastGood"):
+                g.pop(k, None)
+            g.update({"status": "ok", "price": base, "date": "2026-10-28", "quoteTime": "2026/10/28 16:50", "freshness": "stale",
+                      "fetchedAt": "2026-10-28T17:00:00+08:00", "points": 200, "spark": [base + i % 7 for i in range(40)]})
+        else:
+            g.update({"status": "error", "price": None, "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+                      "errorAt": "2026-11-09T09:30:00+08:00", "spark": None, "points": None, "date": None,
+                      "lastGood": {"price": base, "bars": None, "date": "2026-10-28", "fetchedAt": "2026-10-28T17:00:00+08:00", "quoteTime": "2026/10/28 16:50"}})
         assets[gid] = g
         pts, d = [], datetime.date(2025, 9, 24)
         while d <= datetime.date(2026, 11, 9):
@@ -481,6 +490,40 @@ class TestDashboardWhenGoldIsEstimated(unittest.TestCase):
             for e in PRICE_NAMES:
                 text = text.replace(e, "")
             self.assertEqual([w for w in JUDGEMENT if w in text], [], gid)
+
+
+class TestDashboardWhenTheLaptopWentQuiet(unittest.TestCase):
+    """G8B（Codex 第 2 輪）：筆電在 10-28 最後一次成功之後就關機——台銀兩項仍是 status ok、只標資料過期，
+    牌告一樣落後 8 個交易日。卡片一樣切到估算序列（跟 scripts/analyze.py 的趨勢一致），首屏一樣抓估算的檔代替台銀的。
+    對照組：切換多要求「台銀這一輪失敗」→ 這一組會紅。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.latest, files = estimate_fixture(quiet=True)
+        _l, cls.history_ids, cls.data_files = expected_first_screen(cls.latest, EST_NOW)
+        cls.report, cls.seen = measure(override=files, now=EST_NOW, open_card="gold_twd")
+        cls.cards = dict((c["id"], c) for c in cls.report["cards"])
+
+    def test_page_ran_and_swaps_the_gold_files(self):
+        self.assertEqual(self.report.get("problems"), [])
+        self.assertEqual(self.report.get("dashboardDone"), "done")
+        before, _after = split_by_mark(self.report)
+        self.assertEqual(before, sorted(STATIC + self.data_files))
+        for gid, eid in (("gold_twd", "gold_twd_est"), ("gold_cny", "gold_cny_est")):
+            self.assertIn("data/history/%s.json" % eid, before)
+            self.assertNotIn("data/history/%s.json" % gid, before)
+        self.assertEqual(len(STATIC) + 2 + len(card_ids(self.latest)), 23)
+
+    def test_gold_cards_switch_and_say_so_without_claiming_a_failure(self):
+        for gid in ("gold_twd", "gold_cny"):
+            c = self.cards[gid]
+            self.assertTrue(c["estLine"].startswith("國際換算估算"), gid)
+            self.assertIn("改用國際換算估算的序列", c["estLine"], gid)
+            self.assertIn("2026-10-28", c["estLine"], gid)
+            self.assertNotIn("更新失敗", c["headText"], gid)               # 這一輪沒有失敗，不可以寫失敗
+            self.assertIn("2026-10-28", c["headText"], gid)                # 主數字仍是台銀牌告、日期照實寫
+            d = [x for x in c["details"] if x["aspect"] == "position"][0]
+            self.assertIn("國際換算估算", d["dates"] or "", gid)
 
 
 class TestDashboardWhenThePlainLayerIsUnreachable(unittest.TestCase):
