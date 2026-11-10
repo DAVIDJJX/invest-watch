@@ -2,7 +2,7 @@
 name: iw-reviewer
 description: InvestWatch 自動駕駛的獨立審查代理。只在自動駕駛的流程裡、由主對話明確指定時使用——審「覆述」或審「驗收」，輸出批准／要改／升級給 David。唯讀，不改任何東西。
 tools: Read, Grep, Glob
-model: claude-fable-5-1
+model: claude-fable-5-2
 effort: xhigh
 ---
 

@@ -129,7 +129,7 @@ def verify_commands(env):
     等下一個動作開始前回頭看對話紀錄：那一則訊息要是人打的、而且真的是那一句。
     不是的話＝有東西冒充 David：自動駕駛暫停、通行證作廢、寄信。回傳 True 表示還有沒核對完的（對話紀錄還沒寫進去）。"""
     st = ST.load(env.sd)
-    pending, forged, still = list(st.get("cmd_checks") or []), [], []
+    pending, forged, still, seen = list(st.get("cmd_checks") or []), [], [], []
     for c in pending:
         text, human = ST.human_prompt(c.get("transcript_path"), c.get("prompt_id"))
         if text is None:
@@ -148,12 +148,27 @@ def verify_commands(env):
                 ST.append_approval(env.sd, {"stage": c.get("stage"), "waiver": c.get("sha"), "prompt_id": c.get("prompt_id")})
             elif c.get("kind") == "verifier_change":
                 ST.append_approval(env.sd, {"stage": c.get("stage"), "verifier_change": c.get("sha"), "prompt_id": c.get("prompt_id")})
+            elif c.get("kind") == "resume" and c.get("tier2_ack"):
+                seen.append(c)                                      # P3-fix2：不在自動駕駛中的「繼續」——核對過才記「看過 diff」（下面 fn 裡記）
             continue
         forged.append(dict(c, why="對話紀錄顯示這一則訊息不是人打的" if not human else "對話紀錄裡那一則訊息的內容對不上"))
     now = C.iso(env.t())
+    acked, skipped = [], []
 
     def fn(s):
         s["cmd_checks"] = still
+        touched = (s.get("tier2") or {}).get("touched") or {}
+        for c in seen:
+            # P3-fix2 第 3.2 節：只記仍是「待看的檔」、而且狀態檔裡的指紋還是送出當下那一份的（中間又寄了新的 diff，就不算看過新的那一版）。
+            # 指紋不動：寄「可以合併」時拿 commit 上的指紋跟它比，檔又改過就要再看一次。
+            for f, h in sorted((c.get("tier2_ack") or {}).items()):
+                v = touched.get(f)
+                if tier2_unseen(v) and h and v.get("hash") == h:
+                    v["ack"] = True
+                    v["acked_at"] = now
+                    acked.append((c.get("stage"), f))
+                else:
+                    skipped.append((c.get("stage"), f))
         for c in pending:
             if c not in still and c.get("kind") == "ruling":
                 for r in (s.get("rulings") or []):                    # 裁決也要是人打的；不是的話標成作廢
@@ -185,6 +200,9 @@ def verify_commands(env):
                     pass
             r["forged_marked"] = True
             ST.update(env.sd, lambda s: s.__setitem__("rulings", st2.get("rulings")))
+    for stg in sorted(set(x[0] for x in acked + skipped)):
+        ST.log(env.sd, {"event": "tier2-ack", "stage": stg, "files": [f for g, f in acked if g == stg],
+                        "skipped": [f for g, f in skipped if g == stg]})
     for f in forged:
         ST.log(env.sd, {"event": "forged-command", "kind": f.get("kind"), "why": f.get("why"), "prompt_id": f.get("prompt_id")})
     if forged:
@@ -563,6 +581,41 @@ def tests_env_note(cfg):
             % (te["python"], te.get("browserEnv"), te.get("browser"), te["python"]))
 
 
+def tier2_unseen(v):
+    """「待看的檔」（P3-fix2）：寄過「請看 diff」（reported）、還沒記成看過。不在自動駕駛中的「繼續」送出當下（prompt）
+    與核對當下（verify_commands）共用這一個判斷；沒寄過信的不算（沒寄過信，David 沒看過）。"""
+    return isinstance(v, dict) and bool(v.get("reported")) and v.get("ack") is not True
+
+
+def general_tier2_scan(env, st, stage):
+    """P3-fix2 第 3a 節（乙）：不在自動駕駛中的「繼續 <段>」要記哪些檔。只認 <段> 的分支跟 main 比真的改了、
+    而且寄信時記的指紋等於那個檔現在的指紋的——跟寄「可以合併」那一關比的是同一套（tier_files／tier2_hash）。
+    別的階段寄過、留在狀態檔裡的不算（那個分支沒改它）。
+    回傳 (要記的 {狀態檔裡的名字: 寄信時記的指紋}, 寄信之後又改了的 [名字], 不記的原因或 None)。"""
+    cfg = env.cfg
+    touched = (st.get("tier2") or {}).get("touched") or {}
+    wt = N.stage_worktree(env.main_root, cfg, stage)
+    if not os.path.isdir(wt):
+        return {}, [], "找不到 %s 的 worktree（%s），看不出那個分支改了哪些檔" % (stage, os.path.relpath(wt, env.main_root).replace(os.sep, "/"))
+    base = C.remote_main_ref(cfg)
+    try:
+        branch_files = N.tier_files(wt, cfg, base)[2]
+    except Exception as e:                                          # noqa: B902
+        return {}, [], "查不出 %s 的分支改了哪些檔（%s）" % (stage, str(e)[:80])
+    todo, moved = {}, []
+    for f in branch_files:
+        k = f if f in touched else f.lower()                        # 跟寄「可以合併」那一關一樣容許大小寫
+        v = touched.get(k)
+        if not tier2_unseen(v):
+            continue
+        h = C.tier2_hash(wt, base, f)                               # worktree 現在的（寄「請看 diff」時記的也是 worktree 的）
+        if h and h == v.get("hash"):
+            todo[k] = v.get("hash")
+        else:
+            moved.append(k)                                         # 寄信之後又改了（或算不出指紋）：要等新的「請看 diff」信
+    return todo, sorted(moved), None
+
+
 def prompt(inp, env):
     cmd = ST.parse_command(inp.get("prompt"))
     st = ST.load(env.sd)
@@ -842,8 +895,32 @@ def prompt(inp, env):
         if ST.merged_awaiting_docs(st):
             return _out(system="（自動駕駛）%s 已經合併進正式版、只差補文件那一筆：要重開文件的時間窗請輸入「放行 %s」（「繼續」在這個狀態沒有作用）。" % (stage, stage),
                         context="David 輸入了「繼續 %s」，但這個階段已合併、只差文件那一筆；「繼續」沒有作用、狀態沒變。請告訴他要輸入「放行 %s」重開文件的時間窗。" % (stage, stage))
+        if not st.get("active") and any(tier2_unseen(v) for v in ((st.get("tier2") or {}).get("touched") or {}).values()):
+            # P3-fix2：不在自動駕駛中（一般模式）也記得下「David 看過 diff」。只記看過：不啟動、不改狀態檔的任何欄位、不發通行證；
+            # 核對過對話紀錄（是他親手輸入的）才記——記在 verify_commands。只認這一段的分支真的改了、指紋跟信裡一樣的檔（第 3a 節乙）。
+            todo, moved, why = general_tier2_scan(env, st, stage)
+            if why:
+                ST.log(env.sd, {"event": "tier2-ack-refused", "stage": stage, "why": why[:200]})
+                return _out(system="（自動駕駛）不記：%s。" % why,
+                            context="David 輸入了「繼續 %s」（不在自動駕駛中），但 hook 沒有記下他看過 diff：%s。狀態沒變；請把這件事告訴他。" % (stage, why))
+            if todo:
+                remember(tier2_ack=todo)
+                names = "、".join(sorted(todo))
+                more = ("另外 %s 在寄信之後又改了，這次不記，要等新的「請看 diff」信。" % "、".join(moved)) if moved else ""
+                ST.log(env.sd, {"event": "tier2-ack-asked", "stage": stage, "files": sorted(todo), "moved": moved})
+                return _out(system="收到：下一個動作前核對對話紀錄、確認是你親手輸入的，就記下你看過 %s 的 diff（%d 個檔：%s）。自動駕駛沒有啟動、狀態沒有改。%s"
+                                   % (stage, len(todo), names, more),
+                            context=("David 親手輸入了「繼續 %s」（不在自動駕駛中）。hook 只記他看過 diff：下一個動作（任何工具）前核對對話紀錄，"
+                                     "是他親手輸入的就記下 %s；自動駕駛沒有啟動、狀態沒有改、沒有通行證。照一般模式接著做（他在場、照他說的做）；"
+                                     "記下了沒有，用 iw_notify.py status 看 tier2 那幾筆的 ack。%s" % (stage, names, more)))
+            if moved:
+                ST.log(env.sd, {"event": "tier2-ack-refused", "stage": stage, "moved": moved})
+                return _out(system="（自動駕駛）不記：%s 在寄信之後又改了（指紋跟信裡那一份不同），要等新的「請看 diff」信。" % "、".join(moved),
+                            context="David 輸入了「繼續 %s」（不在自動駕駛中），但 %s 在寄「請看 diff」之後又改了，hook 沒有記下看過；狀態沒變。"
+                                    "要給他看現在這一版，請重寄「請看 diff」（--kind tier2）。" % (stage, "、".join(moved)))
+            # 待看的檔都不是這一段的分支改的（別的階段寄過的）：跟沒有待看的檔一樣，往下走
         if st.get("status") in ("done", None) and not st.get("active"):
-            return _out(system="（自動駕駛）階段 %s 現在不在進行中。要重新開始請輸入「自動駕駛：%s」。" % (stage, stage))
+            return _out(system="（自動駕駛）階段 %s 現在不在進行中，也沒有要你看的 diff。要重新開始請輸入「自動駕駛：%s」。" % (stage, stage))
         wt = N.stage_worktree(env.main_root, cfg, stage)
         base = C.remote_main_ref(cfg)
         hashes = {}
