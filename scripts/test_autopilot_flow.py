@@ -44,7 +44,7 @@ from test_autopilot_prepush import Sandbox, run_git, fake_gh_entries, write_fake
 
 CFG = C.load_json(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude", "autopilot", "config.json"))
 
-FABLE = "claude-fable-5-1"       # 審查代理固定用的模型（config 的 reviewer.model）
+FABLE = "claude-fable-5-2"       # 審查代理固定用的模型（config 的 reviewer.model）
 WORK = "claude-opus-5-5"         # 施工的模型（config 的 requiredModel；2026-10-05 的模型分工）
 OTHER = "claude-sonnet-5-5"      # 測試用的「被換成別的模型」
 PASTED = "<pasted_content id=\"0141\">\n%s\n</pasted_content id=\"0141\">"      # 桌面 App 把貼上的長文字包成這樣（2026-10-02 實測）
@@ -865,7 +865,7 @@ class TestReviews(FlowBase):
         self.assertEqual(self.state()["stop_required"]["code"], 9)
 
     def test_the_reviewer_is_pinned_to_its_own_model_not_the_working_model(self):
-        """2026-10-05 的模型分工：審查代理固定 Fable 5.1（config 的 reviewer.model），不跟著施工模型（Opus 5.5）換。
+        """2026-10-05 的模型分工：審查代理固定 Fable 5.2（2026-11-10 起；config 的 reviewer.model），不跟著施工模型（Opus 5.5）換。
         審查代理跑在施工的模型上＝這一輪不算。對照組：審查代理的模型檢查改看施工模型 → 這一條會紅。"""
         self.assertEqual(E.reviewer_model(self.env().cfg), FABLE)
         self.assertNotEqual(E.reviewer_model(self.env().cfg), self.env().cfg["requiredModel"])
@@ -2051,6 +2051,204 @@ class TestGeneralModeApproval(FlowBase):
         self.assertIsNone(self.state().get("credential"))
 
 
+class TestGeneralModeSecondTierAck(FlowBase):
+    """P3-fix2：不在自動駕駛中（一般模式）手打「繼續 <段>」也記得下「David 看過 diff」——只記看過，其他什麼都不動。
+    要四件都成立：(a) 核對對話紀錄是他親手輸入的、(b) 段名等於狀態檔的階段、(c) 有寄過「請看 diff」還沒看過的檔，
+    而且是這一段的分支真的改了、指紋跟信裡一樣的（別的階段寄過的不算）、(d) 不在自動駕駛中。自動駕駛中的「繼續」照原本的路。
+    對照組：Z01～Z08（scripts/mutations/autopilot_mutations.py）。"""
+    F = "scripts/fetch_data.py"
+    KEEP = ("active", "status", "pause", "credential", "candidate", "epoch", "clock_started_at", "mode", "stop_required",
+            "session_id", "stage", "notified_epoch", "model_violation", "effort_violation", "transcript_path")
+
+    def setUp(self):
+        super().setUp()
+        sb = self.sb
+        self.addCleanup(lambda: run_git(["reset", "-q", "--hard", sb.cand], sb.wt))
+
+    def touch(self, text="# changed\n", path=None):
+        """在 X1 的分支上改一個第二層的檔、commit。回傳新的 HEAD。"""
+        sb = self.sb
+        p = path or self.F
+        sb.write(p, text, sb.wt)
+        run_git(["add", "--", p], sb.wt)
+        run_git(["commit", "-q", "-m", "touch " + p], sb.wt)
+        return sb.rev("HEAD", sb.wt)
+
+    def mail_diff(self):
+        self.assertEqual(self.send("tier2", report=good_report(kind="tier2")), 0, self.errs)
+
+    def rec(self, path=None):
+        return self.state()["tier2"]["touched"][path or self.F]
+
+    def snapshot(self):
+        st = self.state()
+        return dict((k, st.get(k)) for k in self.KEEP)
+
+    def ready_at(self, head):
+        """推上去、審查代理批准、寄「可以合併」的信。回傳寄信的結束碼。"""
+        sb = self.sb
+        run_git(["push", "-q", "--no-verify", "--force", "origin", "feat/stopX1"], sb.wt)
+        self.addCleanup(lambda: run_git(["push", "-q", "--no-verify", "origin", "--delete", "feat/stopX1"], sb.wt, check=False))
+        self.review("acceptance", head)
+        return self.send("ready")
+
+    def closed_stage(self):
+        """跟 G8B 卡住時一樣的狀態檔：上一個階段結案留下的（不在進行中、status done、有舊的登記與通行證）。"""
+        ST.update(self.sb.sd, lambda s: s.update({"active": False, "status": "done", "epoch": 6, "mode": "receive", "pause": None,
+                                                  "clock_started_at": "2026-01-01T00:00:00Z",
+                                                  "candidate": {"branch": "feat/stopX0", "sha": "0" * 40},
+                                                  "credential": {"stage": "X0", "candidate": "0" * 40, "revoked": None}}))
+
+    def test_a_hand_typed_resume_records_only_that_david_saw_the_diff(self):
+        self.closed_stage()
+        head = self.touch()
+        self.mail_diff()
+        h = self.rec()["hash"]
+        self.assertTrue(h)
+        before = self.snapshot()
+        out = self.say("繼續 X1")
+        self.assertIn("收到", out["systemMessage"])
+        self.assertIn("X1 的 diff（1 個檔：scripts/fetch_data.py）", out["systemMessage"])
+        self.assertIn("自動駕駛沒有啟動、狀態沒有改", out["systemMessage"])
+        self.assertIsNot(self.rec().get("ack"), True)                           # 核對之前不記
+        rc, why = self.bash("ls")
+        self.assertEqual(rc, 0, why)
+        self.assertIs(self.rec()["ack"], True)
+        self.assertEqual(self.rec()["hash"], h)                                 # 指紋不動
+        self.assertEqual(self.snapshot(), before)                               # 不啟動、不改 status、不清 pause、不發通行證、不寫登記
+        self.assertEqual(self.state().get("cmd_checks"), [])
+        self.assertEqual(self.ready_at(head), 0, self.errs)                     # 「看過 diff」這一關過了
+
+    def test_not_typed_by_david_records_nothing(self):
+        self.touch()
+        self.mail_diff()
+        self.say("繼續 X1", human=False)
+        self.bash("ls")
+        self.assertIsNot(self.rec().get("ack"), True)
+        self.assertEqual(self.state()["pause"]["reason"], "forged")               # 走原本的冒充處理
+
+    def test_waits_for_the_transcript_before_recording(self):
+        self.touch()
+        self.mail_diff()
+        self.say("繼續 X1", write=False)                                        # 對話紀錄還沒寫進去
+        rc, why = self.bash("ls")
+        self.assertEqual(rc, 2)
+        self.assertIn("正在核對", why)
+        self.assertIsNot(self.rec().get("ack"), True)
+        with io.open(self.tp, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "promptId": "p-%d" % self.n, "message": {"role": "user", "content": "繼續 X1"},
+                                 "origin": {"kind": "human"}, "turnOrigin": "human"}, ensure_ascii=False) + "\n")
+        rc, why = self.bash("ls")
+        self.assertEqual(rc, 0, why)
+        self.assertIs(self.rec()["ack"], True)
+
+    def test_a_different_stage_name_records_nothing(self):
+        self.touch()
+        self.mail_diff()
+        out = self.say("繼續 X2")
+        self.assertIn("沒有作用", out["systemMessage"])
+        self.bash("ls")
+        self.assertIsNot(self.rec().get("ack"), True)
+        self.assertEqual(self.state().get("cmd_checks") or [], [])
+
+    def test_nothing_to_see_says_so_and_changes_nothing(self):
+        self.touch()
+        self.mail_diff()
+        self.say("繼續 X1")
+        self.bash("ls")
+        self.assertIs(self.rec()["ack"], True)
+        before = self.state()
+        out = self.say("繼續 X1")                                               # 看過了，又打一次
+        self.assertIn("沒有要你看的 diff", out["systemMessage"])
+        self.assertEqual(self.state(), before)
+
+    def test_a_file_changed_after_the_mail_is_not_recorded(self):
+        self.touch()
+        self.mail_diff()
+        h1 = self.rec()["hash"]
+        head = self.touch("# changed again\n")                                  # 寄信之後又改了
+        out = self.say("繼續 X1")
+        self.assertIn("不記：scripts/fetch_data.py 在寄信之後又改了", out["systemMessage"])
+        self.assertIn("要等新的「請看 diff」信", out["systemMessage"])
+        self.bash("ls")
+        self.assertIsNot(self.rec().get("ack"), True)
+        self.assertEqual(self.rec()["hash"], h1)
+        self.assertEqual(self.ready_at(head), 3)
+        self.assertIn("看 diff", self.errs[-1])
+
+    def test_a_diff_mailed_by_another_stage_is_not_recorded(self):
+        other = {"scripts/merge_latest.py": {"at": "2026-01-01T00:00:00Z", "ack": False, "hash": "0123456789abcdef", "reported": True}}
+        ST.update(self.sb.sd, lambda s: s.update({"stage": "X1", "tier2": {"touched": dict(other)}}))
+        out = self.say("繼續 X1")                                               # X1 的分支沒改 merge_latest.py：那一筆是別的階段寄的
+        self.assertIn("沒有要你看的 diff", out["systemMessage"])
+        self.bash("ls")
+        self.assertIs(self.rec("scripts/merge_latest.py")["ack"], False)
+        self.touch()                                                            # X1 自己也寄了一封：只記 X1 改的那一個
+        self.mail_diff()
+        out = self.say("繼續 X1")
+        self.assertIn("（1 個檔：scripts/fetch_data.py）", out["systemMessage"])
+        self.assertNotIn("merge_latest", out["systemMessage"])
+        self.bash("ls")
+        self.assertIs(self.rec()["ack"], True)
+        self.assertIs(self.rec("scripts/merge_latest.py")["ack"], False)
+
+    def test_no_worktree_records_nothing(self):
+        self.touch()
+        self.mail_diff()
+        ST.update(self.sb.sd, lambda s: s.update({"stage": "X9"}))              # X9 沒有 worktree
+        out = self.say("繼續 X9")
+        self.assertIn("不記：找不到 X9 的 worktree（.claude/worktrees/stopX9）", out["systemMessage"])
+        self.bash("ls")
+        self.assertIsNot(self.rec().get("ack"), True)
+
+    def test_a_file_never_mailed_is_not_recorded(self):
+        sb = self.sb
+        self.touch()
+        h = C.tier2_hash(sb.wt, C.remote_main_ref(self.env().cfg), self.F)
+        self.assertTrue(h)
+        # X1 的分支真的改了它、指紋也是現在的：唯一擋它的是「沒寄過『請看 diff』」
+        ST.update(sb.sd, lambda s: s.update({"stage": "X1", "tier2": {"touched": {self.F: {"at": "2026-01-01T00:00:00Z", "ack": False, "hash": h}}}}))
+        out = self.say("繼續 X1")
+        self.assertIn("沒有要你看的 diff", out["systemMessage"])
+        self.bash("ls")
+        self.assertIs(self.rec()["ack"], False)
+
+    def test_a_newer_mail_before_the_check_is_not_recorded(self):
+        self.touch()
+        self.mail_diff()
+        self.say("繼續 X1")                                                     # 記下的是第一封信的指紋
+        self.touch("# v2\n")
+        self.mail_diff()                                                        # 核對之前又寄了新的一版（例如別的工作階段寄的）
+        h2 = self.rec()["hash"]
+        self.bash("ls")
+        self.assertIsNot(self.rec().get("ack"), True)                           # 他看的是舊的那一版，不算看過新的
+        self.assertEqual(self.rec()["hash"], h2)
+
+    def test_changed_after_the_ack_the_ready_mail_still_waits(self):
+        self.touch()
+        self.mail_diff()
+        self.say("繼續 X1")
+        self.bash("ls")
+        self.assertIs(self.rec()["ack"], True)
+        head = self.touch("# v2\n")
+        self.assertEqual(self.ready_at(head), 3)
+        self.assertIn("還沒看過現在這一版", self.errs[-1])
+
+    def test_inside_autopilot_resume_works_as_before(self):
+        self.start()
+        self.touch()
+        self.mail_diff()
+        self.assertEqual(self.state()["pause"]["reason"], "tier2")
+        epoch = self.state()["epoch"]
+        out = self.say("繼續 X1")
+        self.assertIn("自動駕駛繼續", out["systemMessage"])
+        st = self.state()
+        self.assertEqual((st["active"], st["status"], st["pause"], st["epoch"]), (True, "pending", None, epoch + 1))
+        self.assertIs(self.rec()["ack"], True)
+        self.bash("ls")
+        self.assertIs(self.rec()["ack"], True)
+
+
 # ============================================================ 15. 已合併、等補文件（P1-1 第 6 節）
 
 class TestMergedAwaitingDocs(FlowBase):
@@ -2158,7 +2356,7 @@ class TestLegacyStateFiles(FlowBase):
               "transcript_path": self.tp, "spec_path": os.path.join(self.sb.sd, "specs", "X1.md"), "reviews": [], "model_approved": [],
               "model_violation": None, "notified_epoch": 3, "stop_required": None, "candidate": {"sha": self.sb.cand, "tag_sha": self.sb.cand,
                                                                                                  "branch": "feat/stopX1", "registered_at": "2026-10-02T05:23:04Z"},
-              "credential": None, "preexisting": {}, "pretool_count": 223, "models_seen": {FABLE: 222}, "effort_seen": {"xhigh": 223},
+              "credential": None, "preexisting": {}, "pretool_count": 223, "models_seen": {"claude-fable-5-1": 222}, "effort_seen": {"xhigh": 223},
               "tripwire_baseline": self.sb.base}
         st.update(kw)                                                           # 注意：沒有 pause 欄位——舊版只有在暫停時才寫
         ST.save(self.sb.sd, st)
