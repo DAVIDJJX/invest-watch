@@ -950,7 +950,7 @@ class TestAutopilotOnly(Base):
                          ({"subagent_type": "general-purpose", "prompt": ok}, 8),
                          ({"prompt": ok}, 8),
                          ({"subagent_type": "iw-reviewer", "prompt": ok, "model": "sonnet"}, 8),
-                         ({"subagent_type": "iw-reviewer", "prompt": ok, "model": "claude-fable-5-1"}, 8),
+                         ({"subagent_type": "iw-reviewer", "prompt": ok, "model": "claude-fable-5-2"}, 8),
                          ({"subagent_type": "iw-reviewer", "prompt": ok, "isolation": "remote"}, 8),
                          ({"subagent_type": "iw-reviewer", "prompt": "請幫我看一下"}, 8),
                          ({"subagent_type": "iw-reviewer", "prompt": ok.replace("X1", "Y9")}, 8)):
@@ -984,7 +984,7 @@ class TestAutopilotOnly(Base):
         self.assertIn("claude-sonnet-5-5", block.reason)
         self.assertIn(CFG["requiredModel"], block.reason)                              # 訊息裡說規定的是哪一個（施工＝Opus 5.5）
         block, effects = self.bash("ls", state=self.state(status="pending"), model=CFG["reviewer"]["model"])
-        self.assertIsNotNone(block, "審查代理的模型（Fable 5.1）不是施工的模型")
+        self.assertIsNotNone(block, "審查代理的模型（Fable 5.2）不是施工的模型")
         self.assertEqual([e[0] for e in effects], ["deactivate"])
 
     def test_model_swap_mid_run_pauses_everything(self):

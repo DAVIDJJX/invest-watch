@@ -98,7 +98,7 @@ class TestModelAndEffortAreWrittenOnce(unittest.TestCase):
         """對照組（規格第 11 節）：把審查代理改成 inherit → 這一條會紅；多給它改檔或執行指令的工具 → 也會紅。"""
         fm, body = frontmatter(read(".claude/agents/iw-reviewer.md"))
         self.assertEqual(fm["name"], CFG["reviewer"]["agentType"])
-        self.assertEqual(CFG["reviewer"]["model"], "claude-fable-5-1")           # 審查代理固定 Fable 5.1，不跟著施工模型換
+        self.assertEqual(CFG["reviewer"]["model"], "claude-fable-5-2")           # 審查代理固定 Fable 5.2（2026-11-10 起），不跟著施工模型換
         self.assertEqual(fm["model"], CFG["reviewer"]["model"])
         self.assertNotEqual(fm["model"], CFG["requiredModel"])                   # 施工與審查不是同一個模型
         self.assertNotIn(fm["model"], ("inherit", "fable", "opus", "sonnet", "haiku", "best", "default"))
@@ -318,7 +318,7 @@ class TestDocsAndSkill(unittest.TestCase):
             for label in labels:                                                     # 當成字串常數寫死（"…"）才算；句子裡提到不算
                 self.assertNotIn('"%s"' % label, text, "%s 裡寫死了等級「%s」（應該從 config.json 的 stopLevels 讀）" % (os.path.basename(path), label))
                 self.assertNotIn("【%s】" % label, text, os.path.basename(path))
-        self.assertEqual(CFG["protectionVersion"], "P3-fix")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
+        self.assertEqual(CFG["protectionVersion"], "P3-fix2")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
         guide = read("docs/AUTOPILOT.md")
         for must in labels + ["裁決：", "暫停", "P1-1", "P2", "先退", "--no-verify"]:
             self.assertIn(must, guide, must)
@@ -497,7 +497,7 @@ class TestThirdPartyGate(unittest.TestCase):
             self.assertIn(pat, ALLOW["programs"]["ghAllowed"])
         for pat in (["pr", "create"], ["pr", "comment"], ["pr", "edit"], ["pr", "review"], ["api"]):
             self.assertNotIn(pat, ALLOW["programs"]["ghAllowed"])
-        self.assertEqual(CFG["protectionVersion"], "P3-fix")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
+        self.assertEqual(CFG["protectionVersion"], "P3-fix2")                       # P3-fix 換版本（P2、P3 當時也改過這兩處）
 
     def test_the_no_review_flag_is_gone(self):
         import iw_notify as N

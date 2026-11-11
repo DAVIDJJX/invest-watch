@@ -58,7 +58,7 @@ M = [
     ("M14", "把設定裡的模型改掉", ".claude/settings.json",
      "\"model\": \"claude-opus-5-5\"", "\"model\": \"claude-sonnet-5-5\"", CONFIG),
     ("M15", "審查代理改成 inherit", ".claude/agents/iw-reviewer.md",
-     "model: claude-fable-5-1", "model: inherit", CONFIG),
+     "model: claude-fable-5-2", "model: inherit", CONFIG),
     ("M16", "審查代理多給它改檔的工具", ".claude/agents/iw-reviewer.md",
      "tools: Read, Grep, Glob", "tools: Read, Grep, Glob, Edit", CONFIG),
     ("M17", "Stop 後援不寄信", H + "iw_events.py",
@@ -570,7 +570,7 @@ M += [
      "    return (cfg.get(\"reviewer\") or {}).get(\"model\") or cfg[\"requiredModel\"]", "    return cfg[\"requiredModel\"]",
      FLOW + ["-k", "review", "-k", "Review"]),
     ("R19", "模型分工：審查代理的設定檔改成施工的模型（Opus 5.5）", ".claude/agents/iw-reviewer.md",
-     "model: claude-fable-5-1", "model: claude-opus-5-5", CONFIG),
+     "model: claude-fable-5-2", "model: claude-opus-5-5", CONFIG),
     ("R20", "模型分工：設定裡施工的模型改回 Fable 5.1", ".claude/autopilot/config.json",
      "\"requiredModel\": \"claude-opus-5-5\"", "\"requiredModel\": \"claude-fable-5-1\"", CONFIG),
     ("R21", "模型分工：「放行模型」可以放行任何思考強度（不只 Max）", H + "iw_events.py",
@@ -1406,6 +1406,37 @@ M += [
     ("W23", "讀不到的檔也吞掉（checked 版本跟原本一樣回空、不給原因）", AN_,
      "        return [], \"讀不懂（%s）\" % e.__class__.__name__\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):",
      "        return [], None\n    if not isinstance(j, dict) or not isinstance(j.get(\"points\"), list):", ANALYZE),
+]
+
+# ---- 停點 P3-fix2（Z 系列）：一般模式手打「繼續 <段>」也記得下「David 看過 diff」（Z01～Z08）；審查代理改用 Fable 5.2（Z09、Z10）。
+# 規格點名的五個：拿掉人打核對＝Z01、段名不比＝Z02、active 時也走新路＝Z03、順手把 status 改成 running＝Z04；
+# 「ack 時把 hash 改成現在 worktree 的」在乙（只記指紋跟信裡一樣的檔）之下是等價突變，換成 Z05、Z06（Cowork 2026-11-10 裁決一）。
+TIER2ACK = FLOW + ["-k", "TestGeneralModeSecondTierAck", "-k", "test_ready_mail_refuses_untouchable_and_unseen_second_tier_files",
+                   "-k", "test_second_tier_file_changed_again_after_david_saw_it"]
+M += [
+    ("Z01", "一般模式記看過 diff：不看核對結果（不是人打的、對話紀錄還沒寫進去的也記）", H + "iw_events.py",
+     "        for c in seen:", "        for c in pending:", TIER2ACK),
+    ("Z02", "一般模式記看過 diff：段名不比（打別段的名字也照樣往下走）", H + "iw_events.py",
+     "    if st.get(\"stage\") != stage:\n        return _out(system=\"（自動駕駛）這句話指的是階段「%s」",
+     "    if False:\n        return _out(system=\"（自動駕駛）這句話指的是階段「%s」", TIER2ACK),
+    ("Z03", "自動駕駛中的「繼續」也走新路（不解除暫停、不重新計時）", H + "iw_events.py",
+     "        if not st.get(\"active\") and any(tier2_unseen(v)", "        if any(tier2_unseen(v)", TIER2ACK),
+    ("Z04", "一般模式記看過 diff：順手把 status 改成 running", H + "iw_events.py",
+     "                remember(tier2_ack=todo)\n",
+     "                remember(tier2_ack=todo)\n                ST.update(env.sd, lambda s: s.__setitem__(\"status\", \"running\"))\n", TIER2ACK),
+    ("Z05", "一般模式記看過 diff：不比指紋就記（寄信之後又改了也算看過）", H + "iw_events.py",
+     "        if h and h == v.get(\"hash\"):", "        if True:", TIER2ACK),
+    ("Z06", "一般模式記看過 diff：不看那個分支有沒有改這個檔（別的階段寄過的也拿來比）", H + "iw_events.py",
+     "    for f in branch_files:", "    for f in sorted(touched):", TIER2ACK),
+    ("Z07", "一般模式記看過 diff：核對時不比指紋（送出之後又寄了新的一版也算看過）", H + "iw_events.py",
+     "                if tier2_unseen(v) and h and v.get(\"hash\") == h:", "                if tier2_unseen(v):", TIER2ACK),
+    ("Z08", "「待看的檔」不看有沒有寄過「請看 diff」（送出與核對兩處一起失效）", H + "iw_events.py",
+     "    return isinstance(v, dict) and bool(v.get(\"reported\")) and v.get(\"ack\") is not True",
+     "    return isinstance(v, dict) and v.get(\"ack\") is not True", TIER2ACK),
+    ("Z09", "審查代理的模型在設定檔改回 Fable 5.1", ".claude/autopilot/config.json",
+     "    \"model\": \"claude-fable-5-2\",", "    \"model\": \"claude-fable-5-1\",", CONFIG),
+    ("Z10", "審查代理的代理設定改回 Fable 5.1（跟設定檔不一致）", ".claude/agents/iw-reviewer.md",
+     "model: claude-fable-5-2", "model: claude-fable-5-1", CONFIG),
 ]
 
 # ---- 停點 P3-fix（X 系列）：審查代理的強度與模型（規格 2.1）、文件那一筆的訊息（規格 2.2）。每條新規則一組「改壞→紅」。
