@@ -194,7 +194,7 @@ class TestChartsAndPages(unittest.TestCase):
             self.assertLess(head.index(m.group(0)), head.index('rel="stylesheet"'), "%s：主題腳本要在樣式表之前" % page)
             self.assertIn('<meta name="theme-color" content="%s">' % light_bg, head, page)
             self.assertIn("'%s' : '%s'" % (dark_bg, light_bg), m.group(0), page)
-            self.assertIn("css/style.css?v=20261107-1", head, page)
+            self.assertIn("css/style.css?v=20261109-1", head, page)                  # G8B 改了 css 與 js，照慣例換版本號
         self.assertEqual(len(set(scripts.values())), 1, "五個頁面的主題腳本要一字不差")
         self.assertIn("iw-theme", scripts["index.html"])
         self.assertIn('id="theme-light"', read("settings.html"))

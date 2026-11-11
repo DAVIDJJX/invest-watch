@@ -903,8 +903,51 @@
           if (box3.innerText.indexOf('讀不到') < 0) p.push('沒有 risk 時沒有說讀不到');
         });
       }
+      /* ---- G8B：國際換算估算在總覽表裡不自成一列；台銀那一列落後太久時，面向改用估算序列（另一組結果，原本的題數不動） */
+      var estimate = [];
+      if (loaded) {
+        var estResults = results;
+        results = estimate;
+        var EST_NOW = '2026-11-09T10:00:00+08:00';
+        var EST_WAVE = ovSeries('wave', 300);
+        var estLatest = { updatedAt: '2026-11-09T10:00:00+08:00', assets: {
+          gold_twd: ovAsset('gold_twd', '黃金存摺（台幣）', '貴金屬', 'bot_gold', { status: 'error', price: null, date: null, decimals: 0,
+                                                                                  lastGood: { price: 3000, date: '2026-10-28' } }),
+          gold_twd_est: ovAsset('gold_twd_est', '黃金存摺（台幣）國際換算估算', '貴金屬', 'gold_est',
+                                { estimateOf: 'gold_twd', price: EST_WAVE[299].c, decimals: 0, date: EST_WAVE[299].d, points: 300,
+                                  switchAfterTradingDays: 1, typicalErrorPct: 0.6 }),
+          gspc: ovAsset('gspc', 'S&P 500 指數', '海外', 'yahoo', { price: OV_UP[259].c, currency: 'USD', date: '2026-09-23' }) } };
+        check('market_views_skip_estimates_and_switch_the_stale_gold_row', function (p) {
+          /* 對照組：總覽也替估算畫一列、或台銀那一列不切到估算 → 這一條會紅。 */
+          var mv = AnalysisDebug.marketViews(estLatest, EST_NOW);
+          same(p, '要畫成列的 id', mv.ids.slice().sort().join('、'), 'gold_twd、gspc');
+          if (!mv.views.gold_twd || !mv.views.gold_twd.estimateView || mv.views.gold_twd.estimateView.id !== 'gold_twd_est') p.push('台銀那一列應該切到 gold_twd_est');
+          if (mv.views.gspc) p.push('其他標的不切');
+          var early = AnalysisDebug.marketViews(estLatest, '2026-10-29T10:00:00+08:00');
+          if (early.views.gold_twd) p.push('只落後 1 個交易日（門檻 1）：不切');
+          /* Codex 第 2 輪：筆電在 10-28 最後一次成功之後關機（那一筆仍是 status ok、只標資料過期）→ 牌告一樣落後，一樣切 */
+          var quietLatest = { updatedAt: estLatest.updatedAt, assets: {
+            gold_twd: ovAsset('gold_twd', '黃金存摺（台幣）', '貴金屬', 'bot_gold', { price: 3000, date: '2026-10-28', decimals: 0, freshness: 'stale' }),
+            gold_twd_est: estLatest.assets.gold_twd_est, gspc: estLatest.assets.gspc } };
+          var quiet = AnalysisDebug.marketViews(quietLatest, EST_NOW);
+          if (!quiet.views.gold_twd || quiet.views.gold_twd.estimateView.lastDay !== '2026-10-28') p.push('筆電成功後關機、牌告落後 8 個交易日：這一列也要切到估算');
+        });
+        check('overview_rows_use_the_estimate_view_and_say_so', function (p) {
+          var mv = AnalysisDebug.marketViews(estLatest, EST_NOW);
+          var rows = AnalysisDebug.overviewRows({ market: { latest: estLatest, histories: { gold_twd: { points: EST_WAVE }, gspc: { points: OV_UP } }, views: mv.views },
+                                                  risk: FIX.risk, cost: FIX.cost, fx: FIX.fx });
+          same(p, '列', rows.map(function (r) { return r.asset.id; }).join('、'), 'gold_twd、gspc');
+          var g = rows[0], pos = g.aspects[0];
+          same(p, '第一個面向', pos.aspect, 'position');
+          if (pos.state.key === 'na') p.push('切到估算序列之後，位置應該算得出來（不是資料不足）');
+          if ((pos.dates || '').indexOf('國際換算估算') < 0) p.push('位置要寫明算在國際換算估算的序列上：' + pos.dates);
+          if (g.asset.status !== 'error') p.push('列本身仍是台銀那一項（現價那一格照舊寫更新失敗）');
+          same(p, '位置的資料日期用估算的日期', (g.view || {}).date, EST_WAVE[299].d);
+        });
+        results = estResults;
+      }
       document.getElementById('result').textContent = JSON.stringify({
-        loaded: loaded, total: results.length, results: results
+        loaded: loaded, total: results.length, results: results, estimate: estimate
       });
     })();
   </script>

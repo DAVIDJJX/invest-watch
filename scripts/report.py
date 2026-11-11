@@ -669,10 +669,21 @@ def update_index(date_str, slot, report, market):
 # ---------------------------------------------------------------- 進入點
 
 
+def without_estimates(latest):
+    """G8B（Cowork 裁決 5(a)）：國際換算估算（estimateOf 有值）不自成一列——報告的失敗警告、觀察句、燈號表、漲跌排行、
+    快照全部從同一份 latest 出來，所以在入口濾一次。它只是台銀黃金的資料來源，不是另一個標的。"""
+    assets = latest.get("assets") or {}
+    if not any((a or {}).get("estimateOf") for a in assets.values()):
+        return latest
+    out = dict(latest)
+    out["assets"] = {aid: a for aid, a in assets.items() if not (a or {}).get("estimateOf")}
+    return out
+
+
 def generate(slot, latest=None):
     """產生並封存一份報告。回傳報告 dict。"""
     now = now_tpe()
-    latest = latest or read_json(os.path.join(DATA_DIR, "latest.json"), {}) or {}
+    latest = without_estimates(latest or read_json(os.path.join(DATA_DIR, "latest.json"), {}) or {})
     assets = latest.get("assets") or {}
     if not assets:
         raise RuntimeError("latest.json 沒有任何標的資料，無法產生報告")

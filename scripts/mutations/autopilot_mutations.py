@@ -1470,7 +1470,92 @@ M += [
     ("X14", "信的等級：審查代理的暫停沒有白話原因", H + "iw_notify.py", "    elif reason == \"reviewer\":", "    elif False:", RVW),
 ]
 
+# ---- G8B（G 系列）：台銀黃金被擋 → 國際換算估算序列＋本機停止硬打。規格第 5 節點名的四個是 G01（估算寫進台銀的歷史檔）、
+# G02～G04／G23（拿掉「估算」標示：卡片、歷史點、趨勢、位置各一個路徑）、G05（連續被擋後仍每輪打）、G06（取值時刻錯開）；其餘是這一段的每條新規則。
+GEST = ["scripts/test_gold_estimate.py"]
+FRESH = ["scripts/test_freshness_js.py"]
+APAGE = ["scripts/test_analysis_page_js.py"]
+DASHE = DASH + ["-k", "TestDashboardWhenGoldIsEstimated"]
+F_ = "scripts/fetch_data.py"
+M += [
+    ("G01", "估算寫進台銀的歷史檔（save_history 不擋估算的點）", F_,
+     "    if asset.get(\"type\") != \"gold_est\" and any(str(p.get(\"dateSource\") or \"\").startswith(\"estimate\") for p in points):",
+     "    if False:", GEST),
+    ("G02", "拿掉估算標示：卡上那一行沒有「國際換算估算」字樣", "js/app.js",
+     "    var h = '<div class=\"est-line\"><span class=\"est-tag\">國際換算估算</span> ';",
+     "    var h = '<div class=\"est-line\"><span class=\"est-tag\"></span> ';", DASHE),
+    ("G03", "拿掉估算標示：歷史點的 dateSource 寫成一般的 Yahoo 與盤中", F_,
+     "    pt = {\"d\": dg, \"c\": round(price, 4), \"dateSource\": \"estimate\" if final else \"estimate-intraday\",",
+     "    pt = {\"d\": dg, \"c\": round(price, 4), \"dateSource\": \"yahoo\" if final else \"intraday\",", GEST),
+    ("G04", "拿掉估算標示：趨勢不寫算在估算序列上", "scripts/analyze.py",
+     "    t.update({\"series\": \"estimate\", \"seriesId\": est.get(\"id\"), \"label\": \"國際換算估算\", \"botThrough\": last,",
+     "    t.update({\"seriesId\": est.get(\"id\"), \"botThrough\": last,", GEST),
+    ("G05", "停止硬打：連續被擋之後仍每輪打", F_,
+     "    if n < BOT_BACKOFF_AFTER:\n        return True, None", "    if True:\n        return True, None", GEST),
+    ("G06", "金價與匯率取值時刻錯開也算（拿掉時刻差檢查，前一天的匯率配今天的金價）", F_,
+     "    if skew > float(cfg[\"maxSkewMinutes\"]):", "    if False:", GEST),
+    ("G07", "點的日期用程式的執行時間（不是報價時刻）", F_,
+     "    dg, dx = tg.strftime(\"%Y-%m-%d\"), tx.strftime(\"%Y-%m-%d\")", "    dg = dx = now_tpe().strftime(\"%Y-%m-%d\")", GEST),
+    ("G08", "停止硬打：降頻中週末也試", F_,
+     "    if now.weekday() >= 5:\n        return False, head", "    if False:\n        return False, head", GEST),
+    ("G09", "停止硬打：成功不歸零", F_,
+     "    if succeeded:\n        return {\"blockedRuns\": 0,", "    if False:\n        return {\"blockedRuns\": 0,", GEST),
+    ("G10", "校正係數改成每輪重算（不用寫死的值）", F_,
+     "    grams = grams_per_troy_ounce()\n    old = load_history(asset[\"id\"])",
+     "    grams = grams_per_troy_ounce()\n    cfg[\"calibration\"] = estimate_calibration(cfg, load_history(asset[\"estimateOf\"]))[0]\n    old = load_history(asset[\"id\"])",
+     GEST),
+    ("G11", "估算畫成獨立的卡", "js/app.js", "      if (a.estimateOf) return;                  // G8B", "      if (false) return;                  // G8B", DASHE),
+    ("G12", "首屏多抓估算的日線檔（估算兩項也各抓一個）", "js/app.js",
+     "      if (latest.assets[id].estimateOf) return;  // G8B", "      if (false) return;  // G8B", DASHE),
+    ("G13", "前端的切換門檻寫成 >=（落後 1 個交易日就切）", "js/freshness.js",
+     "                   typeof out.behind === 'number' && out.behind > gate && (est.points || 0) > 1;",
+     "                   typeof out.behind === 'number' && out.behind >= gate && (est.points || 0) > 1;", FRESH),
+    ("G14", "前端的交易日把週末也算進去", "js/freshness.js", "      if (w !== 0 && w !== 6) n++;", "      n++;", FRESH),
+    ("G15", "Python 的交易日把週末也算進去（前後端不一致）", "scripts/analyze.py",
+     "        if d.weekday() < 5:\n            n += 1", "        if True:\n            n += 1", GEST),
+    ("G16", "報告不濾估算（失敗警告、觀察、燈號表、排行、快照多兩列）", "scripts/report.py",
+     "    latest = without_estimates(latest or read_json(", "    latest = (latest or read_json(", GEST),
+    ("G17", "趨勢替估算自己也算一筆", "scripts/analyze.py",
+     "        if a.get(\"estimateOf\"):\n            continue\n", "        if False:\n            continue\n", GEST),
+    ("G18", "錯誤訊息改回怪雲端的 IP", F_,
+     "                    last_err = \"台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。\"",
+     "                    last_err = \"台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。\"", GEST),
+    ("G19", "狀態列把估算算進計數", "js/app.js",
+     "    var s = { ok: (s0.ok || 0) - (ests.length - estBad.length), error: (s0.error || 0) - estBad.length,",
+     "    var s = { ok: (s0.ok || 0), error: (s0.error || 0) - estBad.length,", DASHE),
+    ("G20", "失敗時 lastGood 不帶當時的掛牌時間", F_,
+     "            \"quoteTime\": src.get(\"quoteTime\"),", "            \"quoteTime\": None,", GEST),
+    ("G21", "主數字不寫沿用哪一天的牌告", "js/app.js",
+     "'<div class=\"card-change\" style=\"color:var(--error)\">更新失敗 · 沿用 ' + esc(shortDay(a.lastGood.date)) + ' 牌告' +",
+     "'<div class=\"card-change\" style=\"color:var(--error)\">更新失敗' +", DASHE),
+    ("G22", "分析頁總覽也替估算畫一列", "js/analysis.js",
+     "    var ids = Object.keys((latest && latest.assets) || {}).filter(function (id) { return !latest.assets[id].estimateOf; });",
+     "    var ids = Object.keys((latest && latest.assets) || {});", APAGE + ["-k", "TestOverviewWithGoldEstimate"]),
+    ("G23", "拿掉估算標示：位置不寫算在估算序列上", "js/card-analysis.js",
+     "      (est ? '算在國際換算估算的序列上（台銀 ' + (est.lastDay || '—') + ' 之後沒有新牌告；估算不是台銀牌告）。' : '');",
+     "      '';", DASHE),
+    ("G24", "估算的現價沒有把切換門檻抄進 latest.json（前端讀不到就永遠不切）", F_,
+     "        \"switchAfterTradingDays\": cfg[\"switchAfterTradingDays\"],\n", "", GEST),
+    ("G25", "Python 的切換門檻寫成 >=（落後 1 個交易日就切）", "scripts/analyze.py",
+     "    if behind is None or behind <= int(gold_est.get(\"switchAfterTradingDays\", 1)):",
+     "    if behind is None or behind < int(gold_est.get(\"switchAfterTradingDays\", 1)):", GEST),
+    # Codex 第 1 輪（兩條 P1）
+    ("G26", "估算失敗那一輪的紀錄不帶 estimateOf（會被當成獨立標的列出來）", F_,
+     "    if asset.get(\"estimateOf\"):\n        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著",
+     "    if False:\n        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著", GEST),
+    ("G27", "合併程式的替代紀錄不帶 estimateOf（雲端還沒抓過的那幾輪）", "scripts/merge_latest.py",
+     "    if asset.get(\"estimateOf\"):\n        # G8B（Codex 第 1 輪）：國際換算估算剛加進來",
+     "    if False:\n        # G8B（Codex 第 1 輪）：國際換算估算剛加進來", GEST),
+    ("G28", "估算檔讀壞時悄悄退回台銀的舊序列（不寫錯誤、不記進 problems）", "scripts/analyze.py",
+     "    if est_err:\n        t = trend_of([])", "    if False:\n        t = trend_of([])", GEST),
+    # Codex 第 2 輪（一條 P1）
+    ("G29", "前端切換多要求台銀這一輪失敗（筆電成功後關機就永遠不切，跟趨勢不一致）", "js/freshness.js",
+     "    out.switched = est.status === 'ok' && typeof gate === 'number' &&",
+     "    out.switched = a.status !== 'ok' && est.status === 'ok' && typeof gate === 'number' &&", FRESH),
+]
+
 MUTATIONS =[m[:5] + (NARROW.get(m[0], m[5]),) for m in M]
 BASELINES = [("guard", GUARD), ("shell", SHELL), ("config", CONFIG), ("prepush", PREPUSH), ("flow", FLOW), ("verify", VERIFY),
              ("receive", RECEIVE), ("backfill", BACKFILL), ("year", YEAR), ("theme", THEME), ("dashboard", DASH),
-             ("aspects", ASPECTS), ("plain", PLAIN), ("analyze", ANALYZE)]
+             ("aspects", ASPECTS), ("plain", PLAIN), ("analyze", ANALYZE),
+             ("goldest", GEST), ("freshness", FRESH), ("analysispage", APAGE)]

@@ -44,6 +44,9 @@ from datetime import datetime, timedelta, timezone
 
 import requests
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import net_policy  # noqa: E402  G8B：國際換算估算對 Yahoo 的請求先過白名單（台銀永遠拒絕）
+
 try:  # Windows 主控台輸出中文
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -83,7 +86,15 @@ BROWSER_HEADERS = {
 
 # 台銀對每個新連線的第一次請求會回一次驗證頁（不是資料），重載同一個網址就會拿到
 # 真內容。這裡做的就是一般瀏覽器都會做的重新載入，沒有去解那道驗證題。
+# 2026-10-29 起重載也過不了：台銀要求真的瀏覽器通過驗證（雲端與筆電都一樣）。程式不去繞它（G8B）。
 BOT_CHALLENGE_MARK = b"Challenge Validation"
+BOT_HOST = "rate.bot.com.tw"
+BOT_TYPES = ("bot_gold", "bot_gold_bar", "bot_fx")       # 直接連台銀的 type（停止硬打管的就是這幾種）
+
+# 停止硬打（G8B）：連續被驗證頁擋下這麼多輪之後，本機只在每個營業日（週一～五）這個時刻以後的第一輪試一次；
+# 成功一次就恢復原頻率。週六、週日在這個狀態下不試。國定假日不另外判斷（多試一次無害）。
+BOT_BACKOFF_AFTER = 3
+BOT_BACKOFF_RETRY_AT = "09:00"
 
 
 class FetchError(Exception):
@@ -140,6 +151,10 @@ DATE_SOURCE = {
     "realtime": "證交所即時報價自己回傳的日期",
     "yahoo":    "Yahoo 日線 K 棒自己的時間戳",
     "finmind":  "FinMind TaiwanExchangeRate 回應自己的 date 欄（台銀每日牌價）",
+    # G8B 國際換算估算（只寫在 *_est 的歷史檔，永遠不寫進台銀的檔）
+    "estimate":          "國際換算估算的定案點：金價與匯率同一時刻的報價時間換成台北日期（15:30 那一輪定案）",
+    "estimate-intraday": "國際換算估算的盤中暫定點：同上的報價時間換成台北日期；15:30 那一輪會蓋過它",
+    "estimate-backfill": "國際換算估算的回補點：GC=F 前一天與當天的收盤平均 × 台銀當天即期中價（FinMind），日期是兩者共同的那一天",
 }
 
 
@@ -225,10 +240,9 @@ class Fetcher:
                         got = True
                         break
                 if not got:
-                    # 一直過不了＝這個來源封鎖了目前這個 IP（GitHub Actions 的
-                    # 資料中心 IP 常被這樣對待）。記下來，本輪不再重試。
-                    last_err = ("台銀擋下了這次連線（回傳機器人驗證頁）。"
-                                "雲端主機的 IP 常被這樣阻擋，本輪不再重試。")
+                    # 一直過不了＝台銀要求真的瀏覽器通過驗證（2026-10-29 起雲端與筆電都一樣），程式不去繞它。
+                    # 記下來，本輪不再重試；連續被擋時本機還會自己降頻（見 bot_backoff_decision）。
+                    last_err = "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。"
                     self.blocked[host] = last_err
                     break
 
@@ -717,6 +731,9 @@ DATE_SOURCE_GRADE = {
     "yahoo": 2,           # Yahoo 已完成的日 K
     "realtime": 2,        # 舊資料的標法（改版前寫的即時價），視同已定案的即時價
     "intraday": 1,        # 盤中價，provisional，之後一定會被覆蓋
+    "estimate": 3,            # G8B：國際換算估算的定案點（15:30 那一輪）
+    "estimate-backfill": 2,   # G8B：回補點（收盤價事後算的）；同一天有定案點時讓給它
+    "estimate-intraday": 1,   # G8B：國際換算估算的盤中暫定點
 }
 
 
@@ -771,6 +788,10 @@ def dump_history(asset, points):
 
 
 def save_history(asset, points):
+    # G8B 鐵則：估算永遠不冒充台銀牌告——帶「估算」日期來源的點只准寫進 type=gold_est 自己的歷史檔，
+    # 寫到別的標的（例如台銀那三個檔）一律擋下，這一項整輪算失敗（主流程接住、保留舊歷史不動）。
+    if asset.get("type") != "gold_est" and any(str(p.get("dateSource") or "").startswith("estimate") for p in points):
+        raise FetchError("估算的點不可以寫進 %s 的歷史檔（估算只寫 *_est 自己的檔，絕不冒充台銀牌告）" % asset["id"])
     os.makedirs(HIST_DIR, exist_ok=True)
     with open(hist_path(asset["id"]), "w", encoding="utf-8", newline="\n") as fh:
         fh.write(dump_history(asset, points))
@@ -1190,6 +1211,209 @@ def handle_yahoo(f, asset, ctx):
     return merged, build_quote(asset, merged, price, extra)
 
 
+# ---------------------------------------------------------------- 國際換算估算（G8B）
+#
+# 台銀黃金 2026-10-29 起被驗證頁擋住（要真的瀏覽器）。我們不繞過它，改在雲端用國際金價與匯率換算一條「估算」序列：
+#     估算 ＝ GC=F（美元／盎司）÷ 每盎司公克數 × 匯率（美元兌台幣 TWD=X／美元兌人民幣 CNY=X）× 校正係數
+# 三條鐵則：
+#   1. 金價與匯率取【同一時刻】的盤中報價（Yahoo 的 regularMarketPrice／regularMarketTime），不用 FinMind 前一天的匯率；
+#      兩者的報價時刻相差超過 maxSkewMinutes 就這一輪不算（沿用上一次、寫原因，不算失敗）。
+#   2. 點的日期＝報價時刻換成台北日期（金價與匯率要同一天、而且是週一～五），不用程式的執行時間；15:30 那一輪定案。
+#   3. 估算只寫自己的歷史檔（*_est），永遠標「估算」，絕不寫進台銀那三個檔（save_history 擋）。
+# 設定（校正係數、來源區間、上限、門檻）只在 data/assets.json：共用的在頂層 goldEstimate，各自的在每一項的 estimate。
+# 每盎司公克數照 Cowork 裁決沿用 scripts/analyze.py 的 GRAMS_PER_TROY_OUNCE（同一個常數只有一份）。
+
+def grams_per_troy_ounce():
+    """每盎司公克數：只有 analyze.py 那一份（裁決 8）。analyze.py 在檔頭 import 這支，所以這裡用到才 import，避免循環。"""
+    import analyze
+    return analyze.GRAMS_PER_TROY_OUNCE
+
+
+def estimate_config(asset, shared):
+    """這一項估算的設定：assets.json 頂層 goldEstimate（共用）＋這一項的 estimate（各自的；同名以各自的為準）。"""
+    cfg = dict(shared or {})
+    cfg.update(asset.get("estimate") or {})
+    return cfg
+
+
+def parse_yahoo_now(j):
+    """Yahoo chart 回應 → {price, at（epoch 秒）, currency}：只拿現價與它的報價時刻（meta.regularMarketPrice／regularMarketTime）。"""
+    err = (j.get("chart") or {}).get("error")
+    if err:
+        raise FetchError("Yahoo 回應錯誤：%s" % err)
+    results = (j.get("chart") or {}).get("result") or []
+    if not results:
+        raise FetchError("Yahoo 沒有回傳 result")
+    meta = results[0].get("meta") or {}
+    price, at = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    if isinstance(price, bool) or not isinstance(price, (int, float)) or price <= 0 \
+            or isinstance(at, bool) or not isinstance(at, (int, float)) or at <= 0:
+        raise FetchError("Yahoo 沒有回傳現價或報價時刻（%s）" % meta.get("symbol"))
+    return {"price": float(price), "at": int(at), "currency": meta.get("currency")}
+
+
+def fetch_yahoo_now(f, symbol):
+    from urllib.parse import quote
+    url = ("https://query1.finance.yahoo.com/v8/finance/chart/%s?range=1d&interval=1d" % quote(symbol, safe=""))
+    net_policy.assert_host_allowed(url)                             # 白名單內才送（台銀永遠拒絕）
+    j = f.get(url, delay=2.0, expect_json=True, headers={"Accept": "application/json, text/plain, */*"})
+    return parse_yahoo_now(j)
+
+
+def yahoo_now_cached(f, ctx, symbol):
+    """同一輪裡同一個代號只問一次（台幣與人民幣兩項共用同一個 GC=F 報價＝同一時刻）。失敗也記住，不重問。"""
+    cache = ctx.setdefault("yahooNow", {})
+    if symbol not in cache:
+        try:
+            cache[symbol] = fetch_yahoo_now(f, symbol)
+        except Exception as e:                                      # noqa: B902
+            cache[symbol] = e
+    v = cache[symbol]
+    if isinstance(v, Exception):
+        raise v
+    return v
+
+
+def tpe_of_epoch(epoch):
+    return datetime.fromtimestamp(int(epoch), TPE)
+
+
+def _mid(p):
+    """台銀即期中價（FinMind 的 spotBuy 與 spotSell 的平均）；少一邊就是 None。"""
+    b, s = p.get("spotBuy"), p.get("spotSell")
+    if isinstance(b, (int, float)) and isinstance(s, (int, float)) and b > 0 and s > 0:
+        return (b + s) / 2.0
+    return None
+
+
+def backfill_fx_table(fx_ids, loader=None):
+    """回補用的匯率表 {日期: 美元兌該幣}：一個 id＝那一條的台銀即期中價（美元兌台幣）；
+    兩個 id＝第一條 ÷ 第二條（美元兌台幣 ÷ 人民幣兌台幣＝美元兌人民幣）。"""
+    loader = loader or load_history
+    tables = []
+    for fid in fx_ids:
+        tables.append({p["d"]: _mid(p) for p in loader(fid) if p.get("d")})
+    out = {}
+    for d, v in tables[0].items():
+        if v is None:
+            continue
+        if len(tables) == 1:
+            out[d] = v
+        else:
+            w = tables[1].get(d)
+            if w:
+                out[d] = v / w
+    return out
+
+
+def raw_estimate_rows(cfg, loader=None):
+    """回補與校正共用：每個「GC=F 有當天與前一天收盤、匯率也有當天」的週一～五，給 (日期, 金價平均, 匯率, 未校正估算)。
+    金價取前一天與當天收盤的平均（台銀是台北白天的報價，夾在兩個收盤之間；規格第 2 節這個對齊誤差最小）。"""
+    loader = loader or load_history
+    grams = grams_per_troy_ounce()
+    gc = {p["d"]: float(p["c"]) for p in loader(cfg["goldHistory"])
+          if p.get("d") and isinstance(p.get("c"), (int, float)) and not p.get("provisional")}
+    days = sorted(gc)
+    fx = backfill_fx_table(cfg["backfillFx"], loader)
+    rows = []
+    for i in range(1, len(days)):
+        d = days[i]
+        if datetime.strptime(d, "%Y-%m-%d").weekday() >= 5 or d not in fx:
+            continue
+        g = (gc[days[i - 1]] + gc[d]) / 2.0
+        rows.append((d, g, fx[d], g / grams * fx[d]))
+    return rows
+
+
+def estimate_calibration(cfg, truth_points, loader=None):
+    """校正係數：台銀被擋前最後 calibrationDays 個交易日（到 calibrationTo 為止）的「台銀本行賣出 ÷ 未校正估算」中位數。
+    這個函式只給測試與文件重算用——正式的估算不重算，用 assets.json 寫死的那個值（規格：台銀沒有新資料，不在每輪重算）。"""
+    import statistics
+    truth = {p["d"]: float(p["c"]) for p in truth_points if p.get("d") and isinstance(p.get("c"), (int, float))}
+    ratios = [(d, truth[d] / raw) for d, _g, _x, raw in raw_estimate_rows(cfg, loader)
+              if d in truth and cfg["calibrationFrom"] <= d <= cfg["calibrationTo"]]
+    tail = ratios[-int(cfg["calibrationDays"]):]
+    return statistics.median(r for _d, r in tail), tail[0][0], tail[-1][0], len(tail)
+
+
+def backfill_estimate(cfg, loader=None):
+    """估算序列第一次跑、歷史檔還是空的時候：只讀倉庫裡已有的檔（GC=F 日線、FinMind 匯率）回補，不打任何外部端點。
+    每一點標 dateSource=estimate-backfill，帶當時用的金價與匯率，之後任何人都對得出來。"""
+    k = float(cfg["calibration"])
+    pts = []
+    for d, g, x, raw in raw_estimate_rows(cfg, loader):
+        if d < cfg["backfillFrom"]:
+            continue
+        pts.append({"d": d, "c": round(raw * k, 4), "dateSource": "estimate-backfill", "g": round(g, 4), "fx": round(x, 6)})
+    return pts[-MAX_POINTS:]
+
+
+class EstimateSkew(Exception):
+    """金價與匯率的報價時刻相差太多：這一輪刻意不算估算（不是失敗）。"""
+
+
+def gold_estimate_now(cfg, gold, fx, slot, grams):
+    """同一時刻的金價與匯率 → (估算, 今天那一點或 None, 說明)。純函式，測試直接餵。
+    時刻差超過上限就丟 EstimateSkew；點的日期取報價時刻的台北日期，兩者不同天或是週末就不寫點。"""
+    skew = abs(int(gold["at"]) - int(fx["at"])) / 60.0
+    if skew > float(cfg["maxSkewMinutes"]):
+        raise EstimateSkew("金價與匯率的報價時刻相差 %.0f 分鐘（上限 %s 分鐘），這一輪不算估算，沿用上一次"
+                           % (skew, cfg["maxSkewMinutes"]))
+    price = gold["price"] / grams * fx["price"] * float(cfg["calibration"])
+    tg, tx = tpe_of_epoch(gold["at"]), tpe_of_epoch(fx["at"])
+    note = "金價取 %s、匯率取 %s（台北時間）" % (tg.strftime("%m-%d %H:%M"), tx.strftime("%m-%d %H:%M"))
+    dg, dx = tg.strftime("%Y-%m-%d"), tx.strftime("%Y-%m-%d")
+    if dg != dx or tg.weekday() >= 5:
+        return price, None, note + "；報價日期 %s／%s%s，這一輪只更新現價、不寫點" % (dg, dx, "（週末）" if tg.weekday() >= 5 else "")
+    final = slot == "review"
+    pt = {"d": dg, "c": round(price, 4), "dateSource": "estimate" if final else "estimate-intraday",
+          "g": round(gold["price"], 4), "fx": round(fx["price"], 6), "gAt": tg.strftime("%H:%M"), "fxAt": tx.strftime("%H:%M")}
+    if not final:
+        pt["provisional"] = True
+    return price, pt, note
+
+
+def handle_gold_est(f, asset, ctx):
+    """國際換算估算（type=gold_est）。只寫自己的歷史檔；設定見 estimate_config。"""
+    cfg = estimate_config(asset, ctx.get("goldEstimate"))
+    if not asset.get("estimateOf") or asset.get("estimateOf") == asset["id"]:
+        raise FetchError("assets.json 的 %s 沒有寫 estimateOf（估算的是哪一項台銀牌價）" % asset["id"])
+    grams = grams_per_troy_ounce()
+    old = load_history(asset["id"])
+    history_note = None
+    if not old:
+        old = backfill_estimate(cfg)
+        history_note = "第一次跑：用倉庫裡的國際金價與台銀匯率回補了 %d 個交易日（收盤價事後算的，標 estimate-backfill）" % len(old)
+    gold = yahoo_now_cached(f, ctx, cfg["goldSymbol"])
+    fx = yahoo_now_cached(f, ctx, cfg["fxSymbol"])
+    try:
+        price, pt, note = gold_estimate_now(cfg, gold, fx, ctx.get("slot"), grams)
+    except EstimateSkew as e:
+        if (ctx.get("prevAssets") or {}).get(asset["id"]):
+            raise SkipAsset(str(e))                                 # 刻意不算：沿用上一次、寫原因，不算失敗
+        raise FetchError(str(e))                                    # 連上一次都沒有：只好照實標失敗
+    merged = merge_points(old, [pt] if pt else [])
+    backfill = [p["d"] for p in merged if p.get("dateSource") == "estimate-backfill"]
+    extra = {
+        "estimateOf": asset["estimateOf"],
+        "sourceLabel": "國際換算估算（不是台銀牌告）",
+        "estimate": {
+            "goldSymbol": cfg["goldSymbol"], "goldUsd": round(gold["price"], 4), "goldAt": iso(tpe_of_epoch(gold["at"])),
+            "fxSymbol": cfg["fxSymbol"], "fx": round(fx["price"], 6), "fxAt": iso(tpe_of_epoch(fx["at"])),
+            "skewMinutes": round(abs(gold["at"] - fx["at"]) / 60.0, 1), "maxSkewMinutes": cfg["maxSkewMinutes"],
+            "calibration": float(cfg["calibration"]), "calibrationFrom": cfg["calibrationFrom"],
+            "calibrationTo": cfg["calibrationTo"], "calibrationDays": cfg["calibrationDays"], "gramsPerTroyOunce": grams,
+            "note": note,
+        },
+        # 前端不抓 assets.json（多一個首屏請求）：切換門檻與白話裡的數字由這裡每輪抄一份過去（來源仍是 assets.json）
+        "switchAfterTradingDays": cfg["switchAfterTradingDays"],
+        "typicalErrorPct": cfg["typicalErrorPct"],
+        "backfillThrough": backfill[-1] if backfill else None,
+        "historyNote": history_note,
+    }
+    return merged, build_quote(asset, merged, price, extra)
+
+
 HANDLERS = {
     "bot_gold": handle_bot_gold,
     "bot_gold_bar": handle_bot_gold_bar,
@@ -1198,6 +1422,7 @@ HANDLERS = {
     "yahoo": handle_yahoo,
     "bot_fx": handle_bot_fx,          # 停點 8 之後沒有標的在用；留著當「直接抓台銀」的備援路徑
     "finmind_fx": handle_finmind_fx,
+    "gold_est": handle_gold_est,      # G8B：國際換算估算（雲端）
 }
 
 
@@ -1274,8 +1499,8 @@ def load_prev_shard(source, enabled):
     return {k: v for k, v in (latest.get("assets") or {}).items() if k in mine}
 
 
-def write_shard(source, slot, mode, assets_map, run_at, requests_count):
-    """寫出這一邊的分片。整檔覆蓋，但只覆蓋自己那一個檔。"""
+def write_shard(source, slot, mode, assets_map, run_at, requests_count, extra=None):
+    """寫出這一邊的分片。整檔覆蓋，但只覆蓋自己那一個檔。extra：額外的頂層欄位（G8B：本機的 botBackoff）。"""
     os.makedirs(SOURCES_DIR, exist_ok=True)
     payload = {
         "source": source,
@@ -1289,6 +1514,8 @@ def write_shard(source, slot, mode, assets_map, run_at, requests_count):
         "count": len(assets_map),
         "assets": assets_map,
     }
+    if extra:
+        payload.update(extra)
     with open(shard_path(source), "w", encoding="utf-8", newline="\n") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=1)
         fh.write("\n")
@@ -1331,6 +1558,10 @@ def error_quote(asset, message, prev_assets):
         "errorAt": iso(now_tpe()),
         "fetchedAt": iso(now_tpe()),
     }
+    if asset.get("estimateOf"):
+        # G8B（Codex 第 1 輪）：估算失敗的那一輪也要帶著它估算的是哪一項——前端、分析頁、報告靠這個欄位把它放回台銀卡裡、不自成一列；
+        # 沒有它，失敗的估算會被當成一個獨立的標的列出來，台銀卡上「這一輪沒有估算」那一行反而不見
+        q["estimateOf"] = asset["estimateOf"]
     old = prev_assets.get(asset["id"]) or {}
     src = old if old.get("status") == "ok" else (old.get("lastGood") or {})
     if src.get("price") is not None or src.get("bars"):
@@ -1339,8 +1570,53 @@ def error_quote(asset, message, prev_assets):
             "bars": src.get("bars"),
             "date": src.get("date"),
             "fetchedAt": src.get("fetchedAt"),
+            "quoteTime": src.get("quoteTime"),                      # G8B：卡片寫「沿用 <日期> 牌告」時一起寫當時的掛牌時間
         }
     return q
+
+
+# ---------------------------------------------------------------- 停止硬打（G8B）
+#
+# 台銀 2026-10-29 起要真的瀏覽器才過得了驗證頁。我們不繞過它，也不要每 30 分鐘一直去敲：
+# 連續被擋 BOT_BACKOFF_AFTER 輪之後，本機只在週一～五 BOT_BACKOFF_RETRY_AT 以後的第一輪試一次；成功一次就恢復原頻率。
+# 狀態記在本機分片 data/sources/local.json 的頂層 botBackoff（這支程式自己寫的檔；推送照舊只動那 5 個檔）。
+# 排程與 update_local.ps1 一字不改：它照樣每輪叫這支程式，是這支程式自己決定這一輪不連台銀。
+
+def read_bot_backoff(source):
+    return dict(read_json_file(shard_path(source)).get("botBackoff") or {})
+
+
+def bot_backoff_decision(state, now):
+    """這一輪要不要連台銀：(要不要, 不要的話寫給人看的原因)。now 是台北時間。"""
+    n = int((state or {}).get("blockedRuns") or 0)
+    if n < BOT_BACKOFF_AFTER:
+        return True, None
+    hh, mm = (int(x) for x in BOT_BACKOFF_RETRY_AT.split(":"))
+    head = "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 %d 輪，" % n
+    if now.weekday() >= 5:
+        return False, head + "週六、週日不試，下一個營業日 %s 以後再試一次（這一輪沒有連台銀）" % BOT_BACKOFF_RETRY_AT
+    if (now.hour, now.minute) < (hh, mm):
+        return False, head + "今天 %s 以後再試一次（這一輪沒有連台銀）" % BOT_BACKOFF_RETRY_AT
+    if (state or {}).get("lastTryDate") == now.strftime("%Y-%m-%d"):
+        return False, head + "今天已經試過一次，下一個營業日 %s 以後再試（這一輪沒有連台銀）" % BOT_BACKOFF_RETRY_AT
+    return True, None
+
+
+def bot_backoff_after(state, now, attempted, blocked, succeeded):
+    """這一輪結束後的狀態。有試才更新：被驗證頁擋＝連續次數＋1；成功＝歸零（恢復原頻率）；其他錯誤（連線失敗）不算、也不歸零。"""
+    new = dict(state or {})
+    if not attempted:
+        return new
+    new["lastTryAt"] = iso(now)
+    new["lastTryDate"] = now.strftime("%Y-%m-%d")
+    if succeeded:
+        return {"blockedRuns": 0, "lastTryAt": new["lastTryAt"], "lastTryDate": new["lastTryDate"]}
+    if blocked:
+        n = int(new.get("blockedRuns") or 0)
+        if n == 0:
+            new["since"] = iso(now)
+        new["blockedRuns"] = n + 1
+    return new
 
 
 def main():
@@ -1414,7 +1690,8 @@ def main():
     print("=" * 62)
 
     f = Fetcher()
-    ctx = {"light": light}
+    # slot：估算的點在 15:30 那一輪（review）定案；goldEstimate：估算的共用設定（G8B）
+    ctx = {"light": light, "slot": slot, "goldEstimate": cfg.get("goldEstimate")}
     # 上一次的結果一律讀「自己的分片」。--source all 時兩邊都要讀進來。
     if source == "all":
         prev_assets = {}
@@ -1424,10 +1701,18 @@ def main():
         prev_assets = load_prev_shard(source, enabled)
     ctx["prevAssets"] = prev_assets      # 讓 handler 能判斷上次是否成功
 
+    # --- 停止硬打（G8B）：連續被台銀的驗證頁擋下之後，這一輪要不要連台銀，由上一輪記在本機分片的狀態決定 ---
+    bot_assets = [a for a in assets if a["type"] in BOT_TYPES]
+    backoff_prev = read_bot_backoff("local") if source in ("local", "all") else {}
+    bot_try, bot_skip = bot_backoff_decision(backoff_prev, started) if bot_assets else (True, None)
+    if not bot_try:
+        ctx["botSkip"] = bot_skip
+        print("! 停止硬打：%s" % bot_skip)
+
     # --- 先抓多個標的共用的來源，抓一次大家一起用 ---
     types = set(a["type"] for a in assets)
 
-    if "bot_gold" in types or "bot_gold_bar" in types:
+    if ("bot_gold" in types or "bot_gold_bar" in types) and bot_try:
         try:
             qt, gbuy, gsell = fetch_gold_page(f)
             ctx["goldQuoteTime"] = qt
@@ -1467,6 +1752,8 @@ def main():
             print("    x 未知的 type")
             continue
         try:
+            if a["type"] in BOT_TYPES and ctx.get("botSkip"):
+                raise SkipAsset(ctx["botSkip"])                     # 停止硬打：這一輪一個請求都不給台銀
             reason = skip_for_cadence(a, light, prev_assets.get(a["id"]))
             if reason:
                 raise SkipAsset(reason)
@@ -1540,12 +1827,20 @@ def main():
     # 遷移前的舊資料沒有 source，用它判斷會把本機的標的錯放進雲端分片。
     owner_map = {a["id"]: owner_of(a) for a in enabled}
     targets = ["cloud", "local"] if source == "all" else [source]
+    # 停止硬打的狀態：有試才更新（被驗證頁擋＝連續次數＋1、成功＝歸零）；沒試（降頻中、或這一輪不含台銀）就原樣留著
+    shard_extra = {}
+    if source in ("local", "all"):
+        tried_ok = any((results.get(a["id"]) or {}).get("status") == "ok" and not (results.get(a["id"]) or {}).get("carriedOver")
+                       for a in bot_assets)
+        backoff_new = bot_backoff_after(backoff_prev, started, bool(bot_assets) and bot_try, BOT_HOST in f.blocked, tried_ok)
+        if backoff_new:
+            shard_extra["local"] = {"botBackoff": backoff_new}
     for s in targets:
         mine = {aid: q for aid, q in results.items()
                 if owner_map.get(aid) == s}
         if source == "all" and not mine:
             continue
-        write_shard(s, slot, mode, mine, finished, f.count)
+        write_shard(s, slot, mode, mine, finished, f.count, shard_extra.get(s))
         print("\n. 已寫出分片 data/sources/%s.json（%d 項）" % (s, len(mine)))
 
     print("\n" + "=" * 62)

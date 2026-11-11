@@ -12,7 +12,8 @@
   'use strict';
 
   var GROUP_ORDER = ['貴金屬', '台股', '海外', '匯率'];
-  var state = { latest: null, history: {}, historyFailed: {}, openId: null, analysis: null };
+  // view：每張卡「算指標用的那一份」（G8B：台銀黃金落後太久時換成國際換算估算，見 estimateCard）；卡片 id → 物件
+  var state = { latest: null, history: {}, historyFailed: {}, openId: null, analysis: null, view: {} };
 
   // 這一支自己的版本號（index.html 的 script 標籤上那個 ?v=）：首屏之後才載入的程式用同一個，瀏覽器才不會拿到舊檔
   var ASSET_VER = (function () {
@@ -100,7 +101,12 @@
     // 只改寫 chips 那一段——刷新按鈕和它同在 .status-bar 裡，不能被蓋掉
     var bar = $('#status-chips') || $('#status-bar');
     if (!bar) return;
-    var s = latest.summary || {};
+    var s0 = latest.summary || {};
+    // G8B：國際換算估算不是一張卡（它的狀況寫在台銀卡的那一行），計數與失敗名單都不算它，跟畫面上的卡數一致
+    var ests = Object.keys(latest.assets || {}).filter(function (id) { return latest.assets[id] && latest.assets[id].estimateOf; });
+    var estBad = ests.filter(function (id) { return (s0.errorIds || []).indexOf(id) >= 0; });
+    var s = { ok: (s0.ok || 0) - (ests.length - estBad.length), error: (s0.error || 0) - estBad.length,
+              errorIds: (s0.errorIds || []).filter(function (id) { return ests.indexOf(id) < 0; }) };
     var bad = (s.error || 0) > 0;
 
     var html = '';
@@ -230,15 +236,59 @@
     return isNaN(new Date(v).getTime()) ? null : v;
   })();
 
+  /* ---------------------------------------------------------- G8B：台銀黃金被擋時的國際換算估算
+   * 估算那一項不自成一張卡（render 跳過 estimateOf 有值的）；它只出現在它估算的那張台銀卡裡：
+   *   * 主數字仍是台銀牌告：這一輪失敗時寫「沿用 <日期> 牌告」（日期取 lastGood.date），「更新失敗」與錯誤說明照舊；
+   *   * 下面一行標「國際換算估算」：估算值、金價與匯率的取值時刻；
+   *   * 台銀落後超過門檻（Freshness.estimateView）時，走勢線、燈號、展開後的指標改用估算序列，畫面寫出來。
+   * 「算指標用的那一份」（Freshness.estimateCard）記在 state.view[卡片 id]；它的日線檔是估算的檔（見 historyFile）。 */
+
+  /** 這張卡的日線要抓哪個檔：切到估算序列的卡抓估算的檔，其餘就是自己的。首屏每張卡最多一個日線檔。 */
+  function historyFile(id) {
+    var v = state.view[id];
+    return 'data/history/' + ((v && v.estimateView) ? v.estimateView.id : id) + '.json';
+  }
+
+  function shortDay(d) {                       // 2026-10-28 → 10-28
+    var m = /^\d{4}-(\d{2}-\d{2})/.exec(String(d || ''));
+    return m ? m[1] : String(d || '—');
+  }
+
+  function estimateLineHtml(a, ev) {
+    var est = ev.est;
+    if (a.type === 'bot_gold_bar') {
+      return '<div class="est-line"><span class="est-tag">國際換算估算</span> 條塊不做估算；要看國際換算，看「黃金存摺（台幣）」那張卡。</div>';
+    }
+    if (!est) return '';
+    var e = est.estimate || {};
+    var h = '<div class="est-line"><span class="est-tag">國際換算估算</span> ';
+    if (est.status === 'ok' && typeof est.price === 'number') {
+      h += '<b>' + num(est.price, a.decimals) + '</b> ' + esc(a.unit || '') +
+           '<span class="est-when">' + esc(e.note || '') + (est.carriedOver ? '；' + esc(est.carriedReason || '這一輪沿用上一次') : '') + '</span>';
+    } else {
+      h += '這一輪沒有估算（' + esc(est.error || '原因不明') + '）';
+    }
+    h += '<br><span class="est-when">估算＝國際金價換算，不是台銀牌告；實際交易以台銀為準。</span>';
+    if (ev.switched) {
+      h += '<br><span class="est-switch">台銀 ' + esc(ev.lastDay || '—') + ' 之後沒有新牌告（落後 ' + ev.behind +
+           ' 個交易日），走勢線、燈號與展開後的指標改用國際換算估算的序列。</span>';
+    }
+    return h + '</div>';
+  }
+
   function makeCard(a, latest) {
     var card = el('article', 'card');
     card.dataset.id = a.id;
     if (a.status !== 'ok') card.classList.add('is-error');
 
     var isBar = a.type === 'bot_gold_bar';
+    var ev = window.Freshness.estimateView(a, latest, NOW_OVERRIDE || new Date());
+    var v = ev.switched ? window.Freshness.estimateCard(a, ev) : a;   // 算指標用的那一份（G8B）
+    state.view[a.id] = v;
+    var staleGold = (a.type === 'bot_gold' || isBar) && a.status !== 'ok' && a.lastGood;
     // 條塊卡也能展開：台銀不公布條塊歷史牌價，展開後先用黃金存摺的走勢代表金價，
     // 等本站自己累積夠天數再換成條塊自己的線。
-    var hasHistory = a.status === 'ok' && (isBar || (a.points || 0) > 1);
+    var hasHistory = v.status === 'ok' && (isBar || (v.points || 0) > 1);
 
     /* --- 頭部 --- */
     var head = el('div', 'card-head');
@@ -277,10 +327,19 @@
     var right = el('div', 'card-price-box');
     if (isBar) {
       var top = (a.bars || [])[0];
+      var lgTop = (!top && staleGold) ? (a.lastGood.bars || [])[0] : null;     // G8B：這一輪失敗就沿用上次的掛牌，日期照實寫
       right.innerHTML =
-        '<div class="card-price">' + (top ? num(top.sell, 0) : '—') +
+        '<div class="card-price"' + (lgTop ? ' style="color:var(--text-faint)"' : '') + '>' +
+          (top ? num(top.sell, 0) : (lgTop ? num(lgTop.sell, 0) : '—')) +
         '<span class="cur">TWD</span></div>' +
-        '<div class="card-change flat">1 公斤掛牌</div>';
+        '<div class="card-change flat">1 公斤掛牌' + (lgTop ? ' · 沿用 ' + esc(shortDay(a.lastGood.date)) + ' 掛牌' : '') + '</div>';
+    } else if (staleGold && typeof a.lastGood.price === 'number') {
+      // G8B：台銀這一輪失敗：主數字仍是台銀牌告（上次成功的那一筆），寫明沿用哪一天的；「更新失敗」照舊
+      right.innerHTML =
+        '<div class="card-price" style="color:var(--text-faint)">' + num(a.lastGood.price, a.decimals) +
+        '<span class="cur">' + esc(a.currency || '') + '</span></div>' +
+        '<div class="card-change" style="color:var(--error)">更新失敗 · 沿用 ' + esc(shortDay(a.lastGood.date)) + ' 牌告' +
+          (a.lastGood.quoteTime ? '（' + esc(a.lastGood.quoteTime) + ' 掛牌）' : '') + '</div>';
     } else if (a.status === 'ok' && fr.hidePrice) {
       // 後端說無法判斷這筆資料的新舊：不知道新舊的數字不該被當成現價，原因寫在下面的紅色標示
       right.innerHTML =
@@ -320,15 +379,17 @@
     /* --- 位置燈號（要有歷史才算得出來） --- */
     if (hasHistory) {
       var spark = el('div', 'spark');
-      // 線的顏色跟當日漲跌一致，避免同一張卡出現兩種相反的紅綠訊號
-      spark.innerHTML = window.Charts.sparkline(a.spark || [], {
-        color: typeof a.change === 'number' && a.change !== 0
-          ? (a.change > 0 ? window.Charts.COLORS.up : window.Charts.COLORS.down)
+      // 線的顏色跟當日漲跌一致，避免同一張卡出現兩種相反的紅綠訊號（G8B：切到估算序列時畫的是估算的線）
+      spark.innerHTML = window.Charts.sparkline(v.spark || [], {
+        color: typeof v.change === 'number' && v.change !== 0
+          ? (v.change > 0 ? window.Charts.COLORS.up : window.Charts.COLORS.down)
           : null
       });
       head.appendChild(spark);
     }
 
+    // G8B：國際換算估算那一行（醒目、標「國際換算估算」）；條塊寫「不做估算、去看台幣那張卡」
+    if (ev.est || (isBar && staleGold)) head.appendChild(el('div', null, estimateLineHtml(a, ev)));
     if (a.status !== 'ok') head.appendChild(el('div', null, errorHtml(a)));
     if (a.sourceNote) {
       head.appendChild(el('div', 'note-box', '註：' + esc(a.sourceNote)));
@@ -361,17 +422,27 @@
       var body = el('div', 'card-body');
       body.innerHTML = '<div class="loading">載入歷史資料中…</div>';
       card.appendChild(body);
-      head.addEventListener('click', function () { toggleCard(card, a); });
+      head.addEventListener('click', function () { toggleCard(card, v); });
       head.setAttribute('role', 'button');
       head.setAttribute('tabindex', '0');
       head.addEventListener('keydown', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          toggleCard(card, a);
+          toggleCard(card, v);
         }
       });
     }
     return card;
+  }
+
+  /** 切到估算序列的卡，展開時最上面的白話（G8B；數字從 latest.json 抄過來的那一份組字，不在這裡寫死）。 */
+  function estimatePlainHtml(a) {
+    var e = a.estimateView;
+    if (!e) return '';
+    var pct = typeof e.typicalErrorPct === 'number' ? num(e.typicalErrorPct, 1) : '—';
+    return '<div class="note-box est-plain">下面的圖與指標用的是國際換算估算的序列（台銀 ' + esc(e.lastDay || '—') +
+           ' 之後沒有新牌告）。估算平常和台銀差約 ' + pct + '%，金價大波動時可能差好幾 %。' +
+           (e.backfillThrough ? esc(e.backfillThrough) + ' 以前的估算是用收盤價事後算的。' : '') + '</div>';
   }
 
   /* ---------------------------------------------------------- 展開：圖表＋指標 */
@@ -509,7 +580,7 @@
     var ind = window.Indicators.computeAll(points, a.price);
     var canvasId = 'chart-' + a.id;
 
-    body.innerHTML =
+    body.innerHTML = estimatePlainHtml(a) +
       '<div class="chart-box"><canvas id="' + canvasId + '"></canvas></div>' +
       '<div class="chart-legend">' +
         '<span><i style="background:' + window.Charts.COLORS.line + '"></i>' +
@@ -613,7 +684,8 @@
     if (window.performance && window.performance.mark) window.performance.mark('iw-first-screen');
     return loadDeferred().then(function (data) {
       if (state.latest !== latest) return;          // 這段期間又按了一次「重新讀取」：交給新的那一輪畫
-      Object.keys(latest.assets).forEach(function (id) { renderGlance(latest.assets[id], data); });
+      // G8B：圖示列用「算指標用的那一份」（state.view；台銀落後太久時是估算序列）；估算那一項沒有卡，renderGlance 會自己略過
+      Object.keys(latest.assets).forEach(function (id) { renderGlance(state.view[id] || latest.assets[id], data); });
       if (window.Glossary) window.Glossary.upgrade(document);
       var root = $('#dashboard');
       if (root) root.setAttribute('data-glance', 'done');
@@ -691,7 +763,7 @@
   function ensureHistories(ids) {
     return Promise.all(ids.map(function (id) {
       if (state.history[id]) return Promise.resolve(state.history[id]);
-      return fetchJSON('data/history/' + id + '.json')
+      return fetchJSON(historyFile(id))
         .then(function (h) { state.history[id] = h; return h; })
         .catch(function () { return null; });
     }));
@@ -709,9 +781,11 @@
     root.innerHTML = '';
     root.removeAttribute('data-glance');       // 圖示列要等首屏畫完才補上；補完會標 done（見 afterFirstScreen）
 
+    state.view = {};
     var byGroup = {};
     Object.keys(latest.assets).forEach(function (id) {
       var a = latest.assets[id];
+      if (a.estimateOf) return;                  // G8B：國際換算估算不自成一張卡，只出現在它估算的那張台銀卡裡
       var g = a.group || '其他';
       (byGroup[g] = byGroup[g] || []).push(a);
     });
@@ -747,11 +821,12 @@
   function loadHistories(latest) {
     var jobs = [];
     Object.keys(latest.assets).forEach(function (id) {
-      var a = latest.assets[id];
+      if (latest.assets[id].estimateOf) return;  // G8B：估算不是卡，不另外抓；切到估算序列的台銀卡抓它的檔來代替自己的（每張卡最多一個）
+      var a = state.view[id] || latest.assets[id];
       var isBar = a.type === 'bot_gold_bar';
       if (a.status !== 'ok') return;
       if (!(a.points > 1) && !(isBar && a.points >= 1)) return;
-      jobs.push(fetchJSON('data/history/' + id + '.json')
+      jobs.push(fetchJSON(historyFile(id))
         .then(function (h) {
           state.history[id] = h;
           updateSignal(a, h);

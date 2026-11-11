@@ -137,7 +137,7 @@ def stub_quote(asset, message, when):
     欄位形狀刻意跟 fetch_data.py 的 error_quote 一致——前端已經會處理那個形狀了，
     這裡多發明一種格式只會多一個壞掉的可能。
     """
-    return {
+    q = {
         "id": asset["id"],
         "name": asset["name"],
         "shortName": asset.get("shortName") or asset["name"],
@@ -156,6 +156,11 @@ def stub_quote(asset, message, when):
         "lastAttemptAt": None,
         "lastSuccessAt": None,
     }
+    if asset.get("estimateOf"):
+        # G8B（Codex 第 1 輪）：國際換算估算剛加進來、雲端還沒抓過的那幾輪也要帶著它估算的是哪一項，
+        # 前端、分析頁、報告才不會把它當成一個獨立的標的列出來（跟 fetch_data.py 的 error_quote 同一個形狀）
+        q["estimateOf"] = asset["estimateOf"]
+    return q
 
 
 # --------------------------------------------------------------------------

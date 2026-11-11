@@ -31,11 +31,16 @@
         });
         out.staticTags = list(doc, 'link[rel="stylesheet"], script[src]').map(function (n) { return (n.getAttribute('href') || n.getAttribute('src')).split('?')[0]; });
         out.dashboardDone = doc.getElementById('dashboard').getAttribute('data-glance');
+        var chipsBar = doc.getElementById('status-chips') || doc.getElementById('status-bar');
+        out.statusText = chipsBar ? text(chipsBar) : null;                               // G8B：計數不算估算那兩項
         out.cards = list(doc, '.card').map(function (card) {
           var glance = card.querySelector('.card-glance');
           var lamp = card.querySelector('.card-name .signal');
+          var est = card.querySelector('.est-line');
           return {
             id: card.getAttribute('data-id'),
+            headText: text(card.querySelector('.card-head')),                              // G8B：沿用、更新失敗、國際換算估算那一行
+            estLine: est ? text(est) : null,
             lamp: lamp ? text(lamp) : null,
             hasStrip: !!glance,
             stripBetweenHeadAndBody: !!glance && glance.previousElementSibling === card.querySelector('.card-head') &&
@@ -52,6 +57,7 @@
             }) : [],
             details: glance ? list(glance, '.asp-detail').map(function (d) {
               return { id: d.id, aspect: d.getAttribute('data-aspect'), hidden: d.hidden, because: text(d.querySelector('.asp-because')), rule: text(d.querySelector('.asp-rule')),
+                       dates: text(d.querySelector('.asp-dates')),
                        facts: d.querySelectorAll('.asp-fact').length, emptyPlain: list(d, '.plain-line').filter(function (l) { return !text(l); }).length,
                        extra: list(d, '.asp-extra').map(text), links: list(d, '.asp-extra a').map(function (a) { return a.getAttribute('href'); }) };
             }) : []

@@ -302,10 +302,12 @@
     var first = I.windowStart(points, r.days);
     var win = I.windowName(r), since = I.windowSince(r, first);
     out.state = Pl.lampState(ind.signal, I.signalRule(r, first));
-    out.facts.push({ term: '區間位置', k: win + '區間位置', v: '第 ' + r.percentile.toFixed(0) + ' 百分位', label: '日線', date: asset.date || '',
+    var est = asset.estimateView;                // G8B：台銀落後太久時，這張卡的指標算在國際換算估算的序列上——照實寫出來
+    out.facts.push({ term: '區間位置', k: win + '區間位置', v: '第 ' + r.percentile.toFixed(0) + ' 百分位', label: est ? '國際換算估算' : '日線', date: asset.date || '',
                      note: '最低 ' + num(r.low, asset.decimals || 0) + '、最高 ' + num(r.high, asset.decimals || 0) + (since ? '；' + since : ''),
                      plain: Pl.sentence('lamp', { pct: r.percentile, window: win }) });
-    out.dates = '位置的資料日期：' + (asset.date || '—') + '（日線）。';
+    out.dates = '位置的資料日期：' + (asset.date || '—') + '（日線）。' +
+      (est ? '算在國際換算估算的序列上（台銀 ' + (est.lastDay || '—') + ' 之後沒有新牌告；估算不是台銀牌告）。' : '');
     if (FX_TYPES[asset.type]) out.extra.push(fxFiveYear(asset, ctx));
     return out;
   }
@@ -524,7 +526,8 @@
     out.facts.push({ term: '12 個月報酬', k: '12 個月報酬（不含息）', v: signedPct(t.ret12mPct), label: t.label || '單一來源', date: t.through,
                      note: '起算日 ' + (t.from12 || '—') + '（' + t.retDays + ' 個交易日前的收盤）；只算價格，不含配息',
                      plain: Pl.sentence('trendReturn', { pct: t.ret12mPct, days: t.retDays, from: t.from12 }) });
-    out.dates = '趨勢的資料日期：' + (t.through || '—') + '（日線，每天 15:30 那一輪算）。';
+    out.dates = '趨勢的資料日期：' + (t.through || '—') + '（日線，每天 15:30 那一輪算）。' +
+      (t.series === 'estimate' ? (t.seriesNote || '算在國際換算估算的序列上') + '。' : '');   // G8B：算在哪條序列照實寫
     return out;
   }
 

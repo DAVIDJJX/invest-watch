@@ -9,10 +9,23 @@
     "yahoo": "Yahoo Finance chart API（PLAN 7.6），symbol 填 Yahoo 代號",
     "bot_fx": "台銀即期匯率，直接抓台銀（PLAN 7.3），symbol 填幣別代碼。只有家用電腦抓得到；2026-09-18 起沒有標的在用，留著當備援",
     "finmind_fx": "台銀每日匯率，經 FinMind TaiwanExchangeRate（PLAN 7.11），symbol 填幣別代碼。雲端抓得到；一天一筆，所以 cadence 要寫 full",
+    "gold_est": "國際換算估算（G8B，2026-11 加的）：台銀黃金被驗證頁擋住期間，雲端用國際金價（GC=F）與同一時刻的匯率（Yahoo）換算台銀黃金的估算，再乘校正係數。永遠標「估算」、只寫自己的歷史檔、不是台銀牌告。estimateOf 填它估算的那一項台銀黃金；估算不自成一張卡或一列，只在那一項台銀黃金裡出現。共用設定在頂層 goldEstimate，各自的在 estimate。",
     "market": "台股專用：tse=上市、otc=上櫃（不填視為上市）。前綴錯了證交所會回一筆空資料不報錯，而且上櫃股沒有官方月檔，歷史走 Yahoo。",
-    "owner": "誰負責抓這一項：cloud=GitHub Actions、local=家用電腦。不是自己的 owner 就完全不碰（不抓、不寫 history、不寫進分片）。直接抓台銀的那幾項（黃金存摺、實體條塊）只有家用電腦抓得到（雲端的資料中心 IP 被擋），所以歸 local；匯率改經 FinMind 之後歸 cloud。",
+    "owner": "誰負責抓這一項：cloud=GitHub Actions、local=家用電腦。不是自己的 owner 就完全不碰（不抓、不寫 history、不寫進分片）。直接抓台銀的那幾項（黃金存摺、實體條塊）歸 local（停點 6 量過：雲端的資料中心 IP 拿到的都是驗證頁；2026-10-29 起台銀要求真的瀏覽器通過驗證，筆電的程式也過不了，見 G8B）；匯率改經 FinMind 之後歸 cloud。",
     "cadence": "選填，這一項走 data/schedule.json 裡的哪一種排程：full=只算完整更新那幾個時間點、light=完整更新加上盤中每半小時。不寫的話預設是『該 owner 有 light 排程就用 light，沒有就用 full』。只有跟同組其他標的節奏不同的才需要寫。 2026-09-24 起 fetch_data.py 對所有 type 一律照這個欄位辦事：cadence=full 的標的在盤中輕量更新時沿用上次結果（上次失敗的才重抓）。目前寫 full 的：gold_bar、fx_usd、fx_cny、gold_intl。",
-    "assetClass": "分析系列（docs/ANALYSIS.md）用的資產分類，決定套用哪一組分析方法；跟 type（資料來源種類）並存、互不取代。目前的值：stock 個股、index 指數（參考序列，不是可持有的部位）、index_etf 廣泛指數 ETF、bond_etf 債券 ETF、commodity 商品（含國際金價與原油這類參考序列）、crypto 加密貨幣、fx 匯率、gold_tw 台銀黃金（存摺與條塊）。"
+    "assetClass": "分析系列（docs/ANALYSIS.md）用的資產分類，決定套用哪一組分析方法；跟 type（資料來源種類）並存、互不取代。目前的值：stock 個股、index 指數（參考序列，不是可持有的部位）、index_etf 廣泛指數 ETF、bond_etf 債券 ETF、commodity 商品（含國際金價與原油這類參考序列）、crypto 加密貨幣、fx 匯率、gold_tw 台銀黃金（存摺與條塊；含它們的國際換算估算 gold_est，估算不自成一列）。"
+  },
+  "goldEstimate": {
+    "about": "國際換算估算（type=gold_est，G8B）的共用設定；只有這一份，fetch_data.py 與 analyze.py 直接讀，前端讀 fetch_data.py 每輪抄進 latest.json 的副本（前端不另外抓這個檔）。估算＝GC=F（美元／盎司）÷ 每盎司公克數（scripts/analyze.py 的 GRAMS_PER_TROY_OUNCE）× 匯率 × 校正係數（各項的 estimate.calibration）。maxSkewMinutes：金價與匯率的報價時刻最多相差幾分鐘，超過就這一輪不算、沿用上一次（Cowork 裁決 6）。switchAfterTradingDays：台銀最後一筆牌告落後超過這麼多個交易日（週一～五），卡片的指標與趨勢才改用估算序列。typicalErrorPct：卡片白話裡的「平常差約幾 %」，出自 docs/ANALYSIS.md 的誤差實測（2025-09～2026-10 中位誤差約 0.6%）。校正係數＝台銀被擋前最後 calibrationDays 個交易日（calibrationFrom～calibrationTo）的「台銀本行賣出 ÷ 未校正估算」中位數，未校正估算用 GC=F 前一天與當天收盤的平均、匯率用台銀即期中價（FinMind）；寫死、不在每輪重算（台銀沒有新資料）。backfillFrom：估算序列第一次跑時，用倉庫裡的 goldHistory 與 backfillFx 回補到這一天。",
+    "goldSymbol": "GC=F",
+    "goldHistory": "gold_intl",
+    "maxSkewMinutes": 60,
+    "switchAfterTradingDays": 1,
+    "typicalErrorPct": 0.6,
+    "calibrationFrom": "2026-09-24",
+    "calibrationTo": "2026-10-28",
+    "calibrationDays": 20,
+    "backfillFrom": "2025-09-24"
   },
   "assets": [
     {
@@ -60,6 +73,48 @@
       "priceLabel": "本行賣出",
       "enabled": true,
       "cadence": "full"
+    },
+    {
+      "id": "gold_twd_est",
+      "name": "黃金存摺（台幣）國際換算估算",
+      "shortName": "黃金 TWD 估算",
+      "group": "貴金屬",
+      "assetClass": "gold_tw",
+      "owner": "cloud",
+      "type": "gold_est",
+      "estimateOf": "gold_twd",
+      "symbol": "TWD",
+      "currency": "TWD",
+      "unit": "元 / 公克",
+      "decimals": 0,
+      "priceLabel": "國際換算估算",
+      "enabled": true,
+      "estimate": {
+        "fxSymbol": "TWD=X",
+        "backfillFx": ["fx_usd"],
+        "calibration": 1.005767
+      }
+    },
+    {
+      "id": "gold_cny_est",
+      "name": "黃金存摺（人民幣）國際換算估算",
+      "shortName": "黃金 CNY 估算",
+      "group": "貴金屬",
+      "assetClass": "gold_tw",
+      "owner": "cloud",
+      "type": "gold_est",
+      "estimateOf": "gold_cny",
+      "symbol": "CNY",
+      "currency": "CNY",
+      "unit": "人民幣 / 公克",
+      "decimals": 2,
+      "priceLabel": "國際換算估算",
+      "enabled": true,
+      "estimate": {
+        "fxSymbol": "CNY=X",
+        "backfillFx": ["fx_usd", "fx_cny"],
+        "calibration": 1.003326
+      }
     },
     {
       "id": "gold_intl",

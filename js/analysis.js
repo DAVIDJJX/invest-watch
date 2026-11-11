@@ -974,7 +974,9 @@
   function overviewRows(data) {
     var m = data.market || {}, latest = m.latest, CA = window.CardAnalysis;
     if (!latest || !latest.assets || !CA || !CA.aspects) return [];
-    var ids = Object.keys(latest.assets);
+    // G8B：估算不自成一列（裁決 5(a)）；台銀那一列落後太久時，面向用「算指標用的那一份」（loadMarket 的 views）
+    var ids = Object.keys(latest.assets).filter(function (id) { return !latest.assets[id].estimateOf; });
+    var views = m.views || {};
     function groupOf(id) { return latest.assets[id].group || '其他'; }
     var groups = OV_GROUPS.filter(function (g) { return ids.some(function (id) { return groupOf(id) === g; }); });
     ids.forEach(function (id) { if (groups.indexOf(groupOf(id)) < 0) groups.push(groupOf(id)); });
@@ -983,8 +985,8 @@
       ids.forEach(function (id) {
         if (groupOf(id) !== g) return;
         var hist = (m.histories || {})[id];
-        rows.push({ asset: latest.assets[id], order: rows.length,
-                    aspects: CA.aspects(latest.assets[id], { points: (hist && hist.points) || [], historyFailed: !hist,
+        rows.push({ asset: latest.assets[id], view: views[id] || null, order: rows.length,
+                    aspects: CA.aspects(views[id] || latest.assets[id], { points: (hist && hist.points) || [], historyFailed: !hist,
                                                              risk: data.risk, cost: data.cost, fx: data.fx,
                                                              staticCosts: data.staticCosts }) });   // 不適用的成本：細節裡列固定的費用
       });
@@ -1027,7 +1029,7 @@
            '<tr class="ov-row">' +
              '<td class="ov-name"><button type="button" class="ov-toggle" aria-expanded="false">' + esc(a.name) + '</button>' +
                '<div class="muted">' + esc(a.group || '') + '</div></td>' +
-             priceCell(a) + dateCell(a.date) +
+             priceCell(a) + dateCell((r.view || a).date) +
              r.aspects.map(function (x) { return '<td class="ov-asp" data-aspect="' + esc(x.aspect) + '">' + CA.cell(x) + '</td>'; }).join('') +
            '</tr>' +
            '<tr class="ov-detail" hidden><td colspan="' + (3 + r.aspects.length) + '"><div class="ov-detail-grid">' +
@@ -1277,14 +1279,29 @@
   }
 
   /* 總覽表要的行情與日線：latest.json ＋ 每個標的一檔日線（位置的燈號跟儀表板用同一份資料、同一個函式算） */
+  /* G8B（Cowork 裁決 5(a)）：國際換算估算不自成一列、不另外抓；它估算的那一項台銀黃金落後太久時，
+     那一列改用估算序列（跟儀表板同一個判斷：Freshness.estimateView）。回 { ids：要畫成列的 id, views：切到估算的那幾列 }。純函式，測試直接餵。 */
+  function marketViews(latest, now) {
+    var F = window.Freshness, views = {};
+    var ids = Object.keys((latest && latest.assets) || {}).filter(function (id) { return !latest.assets[id].estimateOf; });
+    ids.forEach(function (id) {
+      var ev = F && F.estimateView ? F.estimateView(latest.assets[id], latest, now) : { switched: false };
+      if (ev.switched) views[id] = F.estimateCard(latest.assets[id], ev);
+    });
+    return { ids: ids, views: views };
+  }
+
   function loadMarket() {
     return fetchJSON('data/latest.json').then(function (latest) {
       if (!latest || !latest.assets) return { latest: null, histories: {} };
-      var ids = Object.keys(latest.assets);
-      return Promise.all(ids.map(function (id) { return fetchJSON('data/history/' + id + '.json'); })).then(function (hs) {
+      var mv = marketViews(latest, new Date()), ids = mv.ids, views = mv.views;   // 切到估算的列抓估算的日線來代替自己的
+      return Promise.all(ids.map(function (key) {
+        var id = views[key] ? views[key].estimateView.id : key;
+        return fetchJSON('data/history/' + id + '.json');
+      })).then(function (hs) {
         var histories = {};
         ids.forEach(function (id, i) { histories[id] = hs[i]; });
-        return { latest: latest, histories: histories };
+        return { latest: latest, histories: histories, views: views };
       });
     });
   }
@@ -1316,5 +1333,6 @@
                            fxGlance: fxGlance, fxDecision: fxDecision, currentMonth: currentMonth,
                            // A1-7：總覽表與狀態橫幅
                            renderOverview: renderOverview, overviewRows: overviewRows, sortOverview: sortOverview, wireOverview: wireOverview,
+                           marketViews: marketViews,
                            statusBanner: statusBanner, adhocGlance: adhocGlance, corrSentences: corrSentences };
 })();
