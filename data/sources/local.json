@@ -1,7 +1,7 @@
 {
  "source": "local",
- "runAt": "2026-11-11T22:42:37+08:00",
- "runAtText": "2026-11-11 22:42",
+ "runAt": "2026-11-12T09:00:12+08:00",
+ "runAtText": "2026-11-12 09:00",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -21,17 +21,18 @@
    "priceLabel": "本行賣出",
    "status": "error",
    "price": null,
-   "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-11-11T22:42:37+08:00",
-   "fetchedAt": "2026-11-11T22:42:37+08:00",
+   "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+   "errorAt": "2026-11-12T09:00:12+08:00",
+   "fetchedAt": "2026-11-12T09:00:12+08:00",
    "lastGood": {
     "price": 4255.0,
     "bars": null,
     "date": "2026-10-28",
-    "fetchedAt": "2026-10-28T17:00:21+08:00"
+    "fetchedAt": "2026-10-28T17:00:21+08:00",
+    "quoteTime": null
    },
    "source": "local",
-   "lastAttemptAt": "2026-11-11T22:42:37+08:00",
+   "lastAttemptAt": "2026-11-12T09:00:12+08:00",
    "lastSuccessAt": "2026-10-28T17:00:21+08:00"
   },
   "gold_cny": {
@@ -46,17 +47,18 @@
    "priceLabel": "本行賣出",
    "status": "error",
    "price": null,
-   "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-11-11T22:42:37+08:00",
-   "fetchedAt": "2026-11-11T22:42:37+08:00",
+   "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+   "errorAt": "2026-11-12T09:00:12+08:00",
+   "fetchedAt": "2026-11-12T09:00:12+08:00",
    "lastGood": {
     "price": 869.2,
     "bars": null,
     "date": "2026-10-28",
-    "fetchedAt": "2026-10-28T17:00:24+08:00"
+    "fetchedAt": "2026-10-28T17:00:24+08:00",
+    "quoteTime": null
    },
    "source": "local",
-   "lastAttemptAt": "2026-11-11T22:42:37+08:00",
+   "lastAttemptAt": "2026-11-12T09:00:12+08:00",
    "lastSuccessAt": "2026-10-28T17:00:24+08:00"
   },
   "gold_bar": {
@@ -71,9 +73,9 @@
    "priceLabel": "本行賣出",
    "status": "error",
    "price": null,
-   "error": "台銀擋下了這次連線（回傳機器人驗證頁）。雲端主機的 IP 常被這樣阻擋，本輪不再重試。",
-   "errorAt": "2026-11-11T22:42:37+08:00",
-   "fetchedAt": "2026-11-11T22:42:37+08:00",
+   "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+   "errorAt": "2026-11-12T09:00:12+08:00",
+   "fetchedAt": "2026-11-12T09:00:12+08:00",
    "lastGood": {
     "price": null,
     "bars": [
@@ -119,11 +121,18 @@
      }
     ],
     "date": "2026-10-28",
-    "fetchedAt": "2026-10-28T15:05:26+08:00"
+    "fetchedAt": "2026-10-28T15:05:26+08:00",
+    "quoteTime": null
    },
    "source": "local",
-   "lastAttemptAt": "2026-11-11T22:42:37+08:00",
+   "lastAttemptAt": "2026-11-12T09:00:12+08:00",
    "lastSuccessAt": "2026-10-28T15:05:26+08:00"
   }
+ },
+ "botBackoff": {
+  "lastTryAt": "2026-11-12T09:00:04+08:00",
+  "lastTryDate": "2026-11-12",
+  "since": "2026-11-12T09:00:04+08:00",
+  "blockedRuns": 1
  }
 }
