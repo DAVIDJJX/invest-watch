@@ -1,12 +1,12 @@
 {
  "source": "local",
- "runAt": "2026-11-12T10:00:11+08:00",
- "runAtText": "2026-11-12 10:00",
+ "runAt": "2026-11-12T10:05:03+08:00",
+ "runAtText": "2026-11-12 10:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
- "requests": 3,
+ "mode": "full",
+ "requests": 0,
  "count": 3,
  "assets": {
   "gold_twd": {
@@ -33,7 +33,9 @@
    },
    "source": "local",
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
-   "lastSuccessAt": "2026-10-28T17:00:21+08:00"
+   "lastSuccessAt": "2026-10-28T17:00:21+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -59,7 +61,9 @@
    },
    "source": "local",
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
-   "lastSuccessAt": "2026-10-28T17:00:24+08:00"
+   "lastSuccessAt": "2026-10-28T17:00:24+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -126,7 +130,9 @@
    },
    "source": "local",
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
-   "lastSuccessAt": "2026-10-28T15:05:26+08:00"
+   "lastSuccessAt": "2026-10-28T15:05:26+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）"
   }
  },
  "botBackoff": {
