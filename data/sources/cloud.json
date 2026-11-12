@@ -1,12 +1,12 @@
 {
  "source": "cloud",
- "runAt": "2026-11-12T09:10:42+08:00",
- "runAtText": "2026-11-12 09:10",
+ "runAt": "2026-11-12T09:31:05+08:00",
+ "runAtText": "2026-11-12 09:31",
  "timezone": "Asia/Taipei (UTC+8)",
- "slot": "light",
- "slotLabel": "盤中更新（只更新現價）",
- "mode": "light",
- "requests": 8,
+ "slot": "morning",
+ "slotLabel": "晨報（了解今天狀況）",
+ "mode": "full",
+ "requests": 15,
  "count": 13,
  "assets": {
   "gold_twd_est": {
@@ -20,10 +20,10 @@
    "decimals": 0,
    "priceLabel": "國際換算估算",
    "status": "ok",
-   "price": 4255.929901,
+   "price": 4252.904458,
    "prevClose": 4329.1135,
-   "change": -73.183599,
-   "changePct": -1.6905,
+   "change": -76.209042,
+   "changePct": -1.7604,
    "date": "2026-11-12",
    "points": 271,
    "spark": [
@@ -66,19 +66,19 @@
     4338.4401,
     4354.8588,
     4329.1135,
-    4255.9299
+    4252.9045
    ],
-   "fetchedAt": "2026-11-12T09:10:32+08:00",
+   "fetchedAt": "2026-11-12T09:30:42+08:00",
    "error": null,
    "estimateOf": "gold_twd",
    "sourceLabel": "國際換算估算（不是台銀牌告）",
    "estimate": {
     "goldSymbol": "GC=F",
-    "goldUsd": 4000.1,
-    "goldAt": "2026-11-12T09:00:28+08:00",
+    "goldUsd": 4002.0,
+    "goldAt": "2026-11-12T09:20:36+08:00",
     "fxSymbol": "TWD=X",
-    "fx": 32.903,
-    "fxAt": "2026-11-12T09:10:31+08:00",
+    "fx": 32.864,
+    "fxAt": "2026-11-12T09:30:41+08:00",
     "skewMinutes": 10.1,
     "maxSkewMinutes": 60,
     "calibration": 1.005767,
@@ -86,15 +86,15 @@
     "calibrationTo": "2026-10-28",
     "calibrationDays": 20,
     "gramsPerTroyOunce": 31.1035,
-    "note": "金價取 11-12 09:00、匯率取 11-12 09:10（台北時間）"
+    "note": "金價取 11-12 09:20、匯率取 11-12 09:30（台北時間）"
    },
    "switchAfterTradingDays": 1,
    "typicalErrorPct": 0.6,
    "backfillThrough": "2026-11-10",
    "historyNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:32+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:32+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:42+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:42+08:00"
   },
   "gold_cny_est": {
    "id": "gold_cny_est",
@@ -107,10 +107,10 @@
    "decimals": 2,
    "priceLabel": "國際換算估算",
    "status": "ok",
-   "price": 859.765441,
+   "price": 860.302915,
    "prevClose": 875.8075,
-   "change": -16.042059,
-   "changePct": -1.8317,
+   "change": -15.504585,
+   "changePct": -1.7703,
    "date": "2026-11-12",
    "points": 271,
    "spark": [
@@ -153,35 +153,35 @@
     880.7307,
     881.3734,
     875.8075,
-    859.7654
+    860.3029
    ],
-   "fetchedAt": "2026-11-12T09:10:34+08:00",
+   "fetchedAt": "2026-11-12T09:30:44+08:00",
    "error": null,
    "estimateOf": "gold_cny",
    "sourceLabel": "國際換算估算（不是台銀牌告）",
    "estimate": {
     "goldSymbol": "GC=F",
-    "goldUsd": 4000.1,
-    "goldAt": "2026-11-12T09:00:28+08:00",
+    "goldUsd": 4002.0,
+    "goldAt": "2026-11-12T09:20:36+08:00",
     "fxSymbol": "CNY=X",
-    "fx": 6.6631,
-    "fxAt": "2026-11-12T08:32:25+08:00",
-    "skewMinutes": 28.1,
+    "fx": 6.6641,
+    "fxAt": "2026-11-12T09:20:20+08:00",
+    "skewMinutes": 0.3,
     "maxSkewMinutes": 60,
     "calibration": 1.003326,
     "calibrationFrom": "2026-09-24",
     "calibrationTo": "2026-10-28",
     "calibrationDays": 20,
     "gramsPerTroyOunce": 31.1035,
-    "note": "金價取 11-12 09:00、匯率取 11-12 08:32（台北時間）"
+    "note": "金價取 11-12 09:20、匯率取 11-12 09:20（台北時間）"
    },
    "switchAfterTradingDays": 1,
    "typicalErrorPct": 0.6,
    "backfillThrough": "2026-11-10",
    "historyNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:34+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:34+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:44+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:44+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -194,10 +194,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 4071.3,
+   "price": 4001.0,
    "prevClose": 4030.199951,
-   "change": 41.100049,
-   "changePct": 1.0198,
+   "change": -29.199951,
+   "changePct": -0.7245,
    "date": "2026-11-11",
    "points": 302,
    "spark": [
@@ -240,15 +240,13 @@
     4127.8,
     4114.5,
     4030.199951,
-    4071.3
+    4001.0
    ],
-   "fetchedAt": "2026-11-11T15:30:52+08:00",
+   "fetchedAt": "2026-11-12T09:30:46+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-11T15:30:52+08:00",
-   "lastSuccessAt": "2026-11-11T15:30:52+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-11-12T09:30:46+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:46+08:00"
   },
   "twii": {
    "id": "twii",
@@ -261,10 +259,10 @@
    "decimals": 2,
    "priceLabel": "指數",
    "status": "ok",
-   "price": 44040.15,
+   "price": 44181.51,
    "prevClose": 44257.15,
-   "change": -217.0,
-   "changePct": -0.4903,
+   "change": -75.64,
+   "changePct": -0.1709,
    "date": "2026-11-12",
    "points": 294,
    "spark": [
@@ -307,18 +305,18 @@
     41661.7,
     42711.92,
     44257.15,
-    44040.15
+    44181.51
    ],
-   "fetchedAt": "2026-11-12T09:10:34+08:00",
+   "fetchedAt": "2026-11-12T09:30:47+08:00",
    "error": null,
    "open": 44180.46,
    "high": 44427.51,
    "low": 43878.52,
-   "quoteTime": "09:10:00",
+   "quoteTime": "09:30:05",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:34+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:34+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:47+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:47+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -379,16 +377,16 @@
     2395.0,
     2370.0
    ],
-   "fetchedAt": "2026-11-12T09:10:34+08:00",
+   "fetchedAt": "2026-11-12T09:30:50+08:00",
    "error": null,
    "open": 2385.0,
    "high": 2385.0,
    "low": 2355.0,
-   "quoteTime": "09:10:00",
+   "quoteTime": "09:30:24",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:34+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:34+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:50+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:50+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -449,16 +447,16 @@
     78.3,
     78.55
    ],
-   "fetchedAt": "2026-11-12T09:10:34+08:00",
+   "fetchedAt": "2026-11-12T09:30:56+08:00",
    "error": null,
    "open": 78.6,
    "high": 78.6,
    "low": 78.5,
-   "quoteTime": "09:10:07",
+   "quoteTime": "09:29:59",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:34+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:34+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:56+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:56+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -516,19 +514,19 @@
     26.725,
     26.719999,
     26.76,
-    26.39,
+    26.389999,
     26.53
    ],
-   "fetchedAt": "2026-11-12T09:10:34+08:00",
+   "fetchedAt": "2026-11-12T09:30:56+08:00",
    "error": null,
    "open": 26.5,
    "high": 26.57,
    "low": 26.49,
-   "quoteTime": "09:10:04",
+   "quoteTime": "09:30:02",
    "sourceNote": "該時點無成交，暫以當日最高最低均價顯示",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:34+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:34+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:56+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:56+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -589,11 +587,11 @@
     168.889999,
     173.73
    ],
-   "fetchedAt": "2026-11-12T09:10:36+08:00",
+   "fetchedAt": "2026-11-12T09:30:58+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:36+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:36+08:00"
+   "lastAttemptAt": "2026-11-12T09:30:58+08:00",
+   "lastSuccessAt": "2026-11-12T09:30:58+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -654,11 +652,11 @@
     7520.930176,
     7619.38
    ],
-   "fetchedAt": "2026-11-12T09:10:38+08:00",
+   "fetchedAt": "2026-11-12T09:31:00+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:38+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:38+08:00"
+   "lastAttemptAt": "2026-11-12T09:31:00+08:00",
+   "lastSuccessAt": "2026-11-12T09:31:00+08:00"
   },
   "btc": {
    "id": "btc",
@@ -671,10 +669,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 73687.44,
+   "price": 73557.86,
    "prevClose": 74352.72,
-   "change": -665.28,
-   "changePct": -0.8948,
+   "change": -794.86,
+   "changePct": -1.069,
    "date": "2026-11-12",
    "points": 400,
    "spark": [
@@ -717,13 +715,13 @@
     75223.148438,
     73720.117188,
     74352.72,
-    73687.44
+    73557.86
    ],
-   "fetchedAt": "2026-11-12T09:10:40+08:00",
+   "fetchedAt": "2026-11-12T09:31:02+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:40+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:40+08:00"
+   "lastAttemptAt": "2026-11-12T09:31:02+08:00",
+   "lastSuccessAt": "2026-11-12T09:31:02+08:00"
   },
   "wti": {
    "id": "wti",
@@ -736,10 +734,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 86.13,
+   "price": 85.77,
    "prevClose": 86.040001,
-   "change": 0.089999,
-   "changePct": 0.1046,
+   "change": -0.270001,
+   "changePct": -0.3138,
    "date": "2026-11-11",
    "points": 317,
    "spark": [
@@ -782,13 +780,13 @@
     91.21,
     86.849998,
     86.040001,
-    86.13
+    85.77
    ],
-   "fetchedAt": "2026-11-12T09:10:42+08:00",
+   "fetchedAt": "2026-11-12T09:31:04+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-12T09:10:42+08:00",
-   "lastSuccessAt": "2026-11-12T09:10:42+08:00"
+   "lastAttemptAt": "2026-11-12T09:31:04+08:00",
+   "lastSuccessAt": "2026-11-12T09:31:04+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -801,14 +799,13 @@
    "decimals": 3,
    "priceLabel": "即期賣出",
    "status": "ok",
-   "price": 32.925,
-   "prevClose": 32.94,
-   "change": -0.015,
-   "changePct": -0.0455,
-   "date": "2026-11-10",
+   "price": 32.92,
+   "prevClose": 32.925,
+   "change": -0.005,
+   "changePct": -0.0152,
+   "date": "2026-11-11",
    "points": 400,
    "spark": [
-    31.6,
     31.69,
     31.75,
     31.9,
@@ -847,21 +844,20 @@
     32.93,
     32.82,
     32.94,
-    32.925
+    32.925,
+    32.92
    ],
-   "fetchedAt": "2026-11-11T15:31:08+08:00",
+   "fetchedAt": "2026-11-12T09:31:04+08:00",
    "error": null,
-   "spotBuy": 32.825,
-   "spotSell": 32.925,
-   "cashBuy": 32.475,
-   "cashSell": 33.145,
-   "historyNote": "FinMind 還沒有比 2026-11-10 更新的資料（當天那一筆要等它發布），這一輪沒有新增歷史點",
+   "spotBuy": 32.82,
+   "spotSell": 32.92,
+   "cashBuy": 32.47,
+   "cashSell": 33.14,
+   "historyNote": null,
    "sourceLabel": "台銀每日匯率（經 FinMind）",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-11T15:31:08+08:00",
-   "lastSuccessAt": "2026-11-11T15:31:08+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-11-12T09:31:04+08:00",
+   "lastSuccessAt": "2026-11-12T09:31:04+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -874,14 +870,13 @@
    "decimals": 3,
    "priceLabel": "即期賣出",
    "status": "ok",
-   "price": 4.956,
-   "prevClose": 4.954,
-   "change": 0.002,
-   "changePct": 0.0404,
-   "date": "2026-11-10",
+   "price": 4.953,
+   "prevClose": 4.956,
+   "change": -0.003,
+   "changePct": -0.0605,
+   "date": "2026-11-11",
    "points": 400,
    "spark": [
-    4.73,
     4.74,
     4.75,
     4.768,
@@ -920,21 +915,20 @@
     4.954,
     4.939,
     4.954,
-    4.956
+    4.956,
+    4.953
    ],
-   "fetchedAt": "2026-11-11T15:31:08+08:00",
+   "fetchedAt": "2026-11-12T09:31:05+08:00",
    "error": null,
-   "spotBuy": 4.906,
-   "spotSell": 4.956,
-   "cashBuy": 4.834,
-   "cashSell": 4.996,
-   "historyNote": "FinMind 還沒有比 2026-11-10 更新的資料（當天那一筆要等它發布），這一輪沒有新增歷史點",
+   "spotBuy": 4.903,
+   "spotSell": 4.953,
+   "cashBuy": 4.831,
+   "cashSell": 4.993,
+   "historyNote": null,
    "sourceLabel": "台銀每日匯率（經 FinMind）",
    "source": "cloud",
-   "lastAttemptAt": "2026-11-11T15:31:08+08:00",
-   "lastSuccessAt": "2026-11-11T15:31:08+08:00",
-   "carriedOver": true,
-   "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果"
+   "lastAttemptAt": "2026-11-12T09:31:05+08:00",
+   "lastSuccessAt": "2026-11-12T09:31:05+08:00"
   }
  }
 }
