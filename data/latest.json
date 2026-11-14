@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-11-14T09:45:44+08:00",
- "updatedAtText": "2026-11-14 09:45",
+ "updatedAt": "2026-11-14T10:05:30+08:00",
+ "updatedAtText": "2026-11-14 10:05",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -43,10 +43,10 @@
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
    "lastSuccessAt": "2026-10-28T17:00:21+08:00",
    "carriedOver": true,
-   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，週六、週日不試，下一個營業日 09:00 以後再試一次（這一輪沒有連台銀）",
    "freshness": "stale",
-   "lastDueAt": "2026-11-13T17:00:00+08:00",
-   "nextDueAt": "2026-11-14T10:05:00+08:00"
+   "lastDueAt": "2026-11-14T10:05:00+08:00",
+   "nextDueAt": "2026-11-14T13:05:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -74,10 +74,10 @@
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
    "lastSuccessAt": "2026-10-28T17:00:24+08:00",
    "carriedOver": true,
-   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，週六、週日不試，下一個營業日 09:00 以後再試一次（這一輪沒有連台銀）",
    "freshness": "stale",
-   "lastDueAt": "2026-11-13T17:00:00+08:00",
-   "nextDueAt": "2026-11-14T10:05:00+08:00"
+   "lastDueAt": "2026-11-14T10:05:00+08:00",
+   "nextDueAt": "2026-11-14T13:05:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -146,10 +146,10 @@
    "lastAttemptAt": "2026-11-12T10:00:11+08:00",
    "lastSuccessAt": "2026-10-28T15:05:26+08:00",
    "carriedOver": true,
-   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 3 輪，週六、週日不試，下一個營業日 09:00 以後再試一次（這一輪沒有連台銀）",
    "freshness": "stale",
-   "lastDueAt": "2026-11-13T15:05:00+08:00",
-   "nextDueAt": "2026-11-14T10:05:00+08:00"
+   "lastDueAt": "2026-11-14T10:05:00+08:00",
+   "nextDueAt": "2026-11-14T13:05:00+08:00"
   },
   "gold_twd_est": {
    "id": "gold_twd_est",
@@ -1126,19 +1126,19 @@
    "ok": 13,
    "error": 0,
    "requests": 8,
-   "ageMinutes": 0,
+   "ageMinutes": 19,
    "nextDueAt": "2026-11-14T10:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-11-12T17:00:04+08:00",
+   "runAt": "2026-11-14T10:05:30+08:00",
    "slot": "light",
-   "mode": "light",
+   "mode": "full",
    "ok": 0,
    "error": 3,
    "requests": 0,
-   "ageMinutes": 2445,
-   "nextDueAt": "2026-11-14T10:05:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-11-14T13:05:00+08:00",
    "status": "ok"
   }
  }
