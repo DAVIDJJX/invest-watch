@@ -3,8 +3,8 @@
   "name": "元大 S&P500 00646",
   "currency": "TWD",
   "unit": "元",
-  "count": 296,
-  "updatedAt": "2026-11-16T08:40:43+08:00",
+  "count": 297,
+  "updatedAt": "2026-11-16T09:10:35+08:00",
   "points": [
     {"d":"2025-09-01","c":61.75},
     {"d":"2025-09-02","c":61.799999},
@@ -301,6 +301,7 @@
     {"d":"2026-11-10","c":78.2,"dateSource":"official"},
     {"d":"2026-11-11","c":78.3,"dateSource":"official"},
     {"d":"2026-11-12","c":78.65,"dateSource":"official"},
-    {"d":"2026-11-13","c":78.6,"dateSource":"official"}
+    {"d":"2026-11-13","c":78.6,"dateSource":"official"},
+    {"d":"2026-11-16","c":78.475,"dateSource":"intraday","provisional":true}
   ]
 }
