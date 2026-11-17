@@ -1,5 +1,5 @@
 {
- "generatedAt": "2026-11-16T15:31:02+08:00",
+ "generatedAt": "2026-11-17T15:31:19+08:00",
  "slot": "review",
  "labels": {
   "估算": "由公式或不同時點的資料推算出來的值，不是任何來源直接給的數字",
@@ -50,20 +50,20 @@
    "label": "有對照",
    "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）",
    "latest": {
-    "d": "2026-11-13",
-    "spotSell": 32.89,
+    "d": "2026-11-16",
+    "spotSell": 32.94,
     "dateSource": "finmind"
    },
    "percentiles": {
     "1y": {
-     "pct": 98.0,
+     "pct": 100.0,
      "n": 252,
-     "from": "2025-11-05",
-     "through": "2026-11-13",
-     "value": 32.89,
-     "valueDate": "2026-11-13",
-     "low": 30.985,
-     "lowDate": "2025-11-05",
+     "from": "2025-11-06",
+     "through": "2026-11-16",
+     "value": 32.94,
+     "valueDate": "2026-11-16",
+     "low": 30.995,
+     "lowDate": "2025-11-06",
      "high": 32.94,
      "highDate": "2026-11-09",
      "window": "252 個交易日（日線）"
@@ -73,8 +73,8 @@
      "n": 260,
      "from": "2021-10-29",
      "through": "2026-11-13",
-     "value": 32.89,
-     "valueDate": "2026-11-13",
+     "value": 32.94,
+     "valueDate": "2026-11-16",
      "low": 27.66,
      "lowDate": "2022-01-14",
      "high": 33.15,
@@ -86,8 +86,8 @@
      "n": 520,
      "from": "2016-10-28",
      "through": "2026-11-13",
-     "value": 32.89,
-     "valueDate": "2026-11-13",
+     "value": 32.94,
+     "valueDate": "2026-11-16",
      "low": 27.66,
      "lowDate": "2021-06-11",
      "high": 33.15,
@@ -96,37 +96,37 @@
     }
    },
    "distance1y": {
-    "fromLowPct": 6.15,
-    "fromHighPct": -0.15
+    "fromLowPct": 6.28,
+    "fromHighPct": 0.0
    },
    "spreads": {
     "note": "網銀或大額換匯的優惠不在計算內",
     "label": "有對照",
     "spot": {
-     "d": "2026-11-13",
-     "buy": 32.79,
-     "sell": 32.89,
-     "spreadPct": 0.305
+     "d": "2026-11-16",
+     "buy": 32.84,
+     "sell": 32.94,
+     "spreadPct": 0.304
     },
     "spotSpread1y": {
      "n": 252,
-     "from": "2025-11-05",
-     "through": "2026-11-13",
+     "from": "2025-11-06",
+     "through": "2026-11-16",
      "medianPct": 0.316,
      "minPct": 0.304,
      "maxPct": 0.323
     },
     "cash": {
-     "d": "2026-11-13",
-     "buy": 32.44,
-     "sell": 33.11,
-     "spreadPct": 2.044
+     "d": "2026-11-16",
+     "buy": 32.49,
+     "sell": 33.16,
+     "spreadPct": 2.041
     },
     "cashVsSpot": {
-     "d": "2026-11-13",
-     "cashSell": 33.11,
-     "spotSell": 32.89,
-     "pct": 0.669
+     "d": "2026-11-16",
+     "cashSell": 33.16,
+     "spotSell": 32.94,
+     "pct": 0.668
     }
    },
    "rule": {
@@ -142,20 +142,20 @@
    "label": "有對照",
    "originNote": "原始出處：臺灣銀行牌告匯率（每日一筆，經 FinMind TaiwanExchangeRate 取得）",
    "latest": {
-    "d": "2026-11-13",
-    "spotSell": 4.946,
+    "d": "2026-11-16",
+    "spotSell": 4.956,
     "dateSource": "finmind"
    },
    "percentiles": {
     "1y": {
-     "pct": 98.0,
+     "pct": 100.0,
      "n": 252,
-     "from": "2025-11-05",
-     "through": "2026-11-13",
-     "value": 4.946,
-     "valueDate": "2026-11-13",
-     "low": 4.362,
-     "lowDate": "2025-11-05",
+     "from": "2025-11-06",
+     "through": "2026-11-16",
+     "value": 4.956,
+     "valueDate": "2026-11-16",
+     "low": 4.367,
+     "lowDate": "2025-11-06",
      "high": 4.956,
      "highDate": "2026-11-10",
      "window": "252 個交易日（日線）"
@@ -165,8 +165,8 @@
      "n": 260,
      "from": "2021-10-29",
      "through": "2026-11-13",
-     "value": 4.946,
-     "valueDate": "2026-11-13",
+     "value": 4.956,
+     "valueDate": "2026-11-16",
      "low": 4.063,
      "lowDate": "2025-07-04",
      "high": 4.946,
@@ -178,8 +178,8 @@
      "n": 520,
      "from": "2016-10-28",
      "through": "2026-11-13",
-     "value": 4.946,
-     "valueDate": "2026-11-13",
+     "value": 4.956,
+     "valueDate": "2026-11-16",
      "low": 4.063,
      "lowDate": "2025-07-04",
      "high": 4.946,
@@ -188,37 +188,37 @@
     }
    },
    "distance1y": {
-    "fromLowPct": 13.39,
-    "fromHighPct": -0.2
+    "fromLowPct": 13.49,
+    "fromHighPct": 0.0
    },
    "spreads": {
     "note": "網銀或大額換匯的優惠不在計算內",
     "label": "有對照",
     "spot": {
-     "d": "2026-11-13",
-     "buy": 4.896,
-     "sell": 4.946,
-     "spreadPct": 1.016
+     "d": "2026-11-16",
+     "buy": 4.906,
+     "sell": 4.956,
+     "spreadPct": 1.014
     },
     "spotSpread1y": {
      "n": 252,
-     "from": "2025-11-05",
-     "through": "2026-11-13",
+     "from": "2025-11-06",
+     "through": "2026-11-16",
      "medianPct": 1.077,
      "minPct": 1.014,
-     "maxPct": 1.153
+     "maxPct": 1.152
     },
     "cash": {
-     "d": "2026-11-13",
-     "buy": 4.824,
-     "sell": 4.986,
-     "spreadPct": 3.303
+     "d": "2026-11-16",
+     "buy": 4.834,
+     "sell": 4.996,
+     "spreadPct": 3.296
     },
     "cashVsSpot": {
-     "d": "2026-11-13",
-     "cashSell": 4.986,
-     "spotSell": 4.946,
-     "pct": 0.809
+     "d": "2026-11-16",
+     "cashSell": 4.996,
+     "spotSell": 4.956,
+     "pct": 0.807
     }
    },
    "rule": {
@@ -297,6 +297,8 @@
   "notes": [
    "這些視窗逐月往後移、彼此大量重疊，不是獨立樣本；勝率的參考價值要打折",
    "人民幣匯率受人民銀行每日中間價管理，政策影響大，依歷史資料訂的規則可靠度低於股票"
-  ]
+  ],
+  "reused": true,
+  "reusedOn": "2026-11-17"
  }
 }
