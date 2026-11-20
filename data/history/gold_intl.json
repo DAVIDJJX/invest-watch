@@ -3,8 +3,8 @@
   "name": "國際金價（COMEX 近月期貨）",
   "currency": "USD",
   "unit": "美元 / 盎司",
-  "count": 309,
-  "updatedAt": "2026-11-20T11:30:43+08:00",
+  "count": 310,
+  "updatedAt": "2026-11-20T13:35:29+08:00",
   "points": [
     {"d":"2025-09-23","c":3815.699951,"dateSource":"yahoo"},
     {"d":"2025-09-24","c":3768.100098,"dateSource":"yahoo"},
@@ -314,6 +314,7 @@
     {"d":"2026-11-16","c":3853.0,"dateSource":"yahoo"},
     {"d":"2026-11-17","c":3864.199951,"dateSource":"yahoo"},
     {"d":"2026-11-18","c":3741.899902,"dateSource":"yahoo"},
-    {"d":"2026-11-19","c":3685.5,"dateSource":"yahoo"}
+    {"d":"2026-11-19","c":3685.5,"dateSource":"yahoo"},
+    {"d":"2026-11-20","c":3526.0,"dateSource":"intraday","provisional":true}
   ]
 }
