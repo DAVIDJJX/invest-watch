@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-11-20T16:00:15+08:00",
- "updatedAtText": "2026-11-20 16:00",
+ "updatedAt": "2026-11-20T16:10:40+08:00",
+ "updatedAtText": "2026-11-20 16:10",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -162,10 +162,10 @@
    "decimals": 0,
    "priceLabel": "國際換算估算",
    "status": "ok",
-   "price": 3784.429769,
+   "price": 3804.014531,
    "prevClose": 3981.9331,
-   "change": -197.503331,
-   "changePct": -4.96,
+   "change": -177.918569,
+   "changePct": -4.4681,
    "date": "2026-11-20",
    "points": 277,
    "spark": [
@@ -210,36 +210,36 @@
     3981.9331,
     3789.4961
    ],
-   "fetchedAt": "2026-11-20T15:40:45+08:00",
+   "fetchedAt": "2026-11-20T16:10:30+08:00",
    "error": null,
    "estimateOf": "gold_twd",
    "sourceLabel": "國際換算估算（不是台銀牌告）",
    "estimate": {
     "goldSymbol": "GC=F",
-    "goldUsd": 3552.3,
-    "goldAt": "2026-11-20T15:30:40+08:00",
+    "goldUsd": 3569.6,
+    "goldAt": "2026-11-20T16:00:27+08:00",
     "fxSymbol": "TWD=X",
-    "fx": 32.946,
-    "fxAt": "2026-11-20T15:40:43+08:00",
-    "skewMinutes": 10.1,
+    "fx": 32.956,
+    "fxAt": "2026-11-20T16:09:42+08:00",
+    "skewMinutes": 9.2,
     "maxSkewMinutes": 60,
     "calibration": 1.005767,
     "calibrationFrom": "2026-09-24",
     "calibrationTo": "2026-10-28",
     "calibrationDays": 20,
     "gramsPerTroyOunce": 31.1035,
-    "note": "金價取 11-20 15:30、匯率取 11-20 15:40（台北時間）"
+    "note": "金價取 11-20 16:00、匯率取 11-20 16:09（台北時間）"
    },
    "switchAfterTradingDays": 1,
    "typicalErrorPct": 0.6,
    "backfillThrough": "2026-11-10",
    "historyNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:45+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:45+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:30+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:30+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "gold_cny_est": {
    "id": "gold_cny_est",
@@ -252,10 +252,10 @@
    "decimals": 2,
    "priceLabel": "國際換算估算",
    "status": "ok",
-   "price": 763.574401,
+   "price": 768.51363,
    "prevClose": 804.094,
-   "change": -40.519599,
-   "changePct": -5.0392,
+   "change": -35.58037,
+   "changePct": -4.4249,
    "date": "2026-11-20",
    "points": 277,
    "spark": [
@@ -300,36 +300,36 @@
     804.094,
     765.4896
    ],
-   "fetchedAt": "2026-11-20T15:40:47+08:00",
+   "fetchedAt": "2026-11-20T16:10:32+08:00",
    "error": null,
    "estimateOf": "gold_cny",
    "sourceLabel": "國際換算估算（不是台銀牌告）",
    "estimate": {
     "goldSymbol": "GC=F",
-    "goldUsd": 3552.3,
-    "goldAt": "2026-11-20T15:30:40+08:00",
+    "goldUsd": 3569.6,
+    "goldAt": "2026-11-20T16:00:27+08:00",
     "fxSymbol": "CNY=X",
-    "fx": 6.6636,
-    "fxAt": "2026-11-20T15:40:39+08:00",
-    "skewMinutes": 10.0,
+    "fx": 6.6742,
+    "fxAt": "2026-11-20T16:10:09+08:00",
+    "skewMinutes": 9.7,
     "maxSkewMinutes": 60,
     "calibration": 1.003326,
     "calibrationFrom": "2026-09-24",
     "calibrationTo": "2026-10-28",
     "calibrationDays": 20,
     "gramsPerTroyOunce": 31.1035,
-    "note": "金價取 11-20 15:30、匯率取 11-20 15:40（台北時間）"
+    "note": "金價取 11-20 16:00、匯率取 11-20 16:10（台北時間）"
    },
    "switchAfterTradingDays": 1,
    "typicalErrorPct": 0.6,
    "backfillThrough": "2026-11-10",
    "historyNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:47+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:47+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:32+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:32+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -460,7 +460,7 @@
     38426.89,
     36033.29
    ],
-   "fetchedAt": "2026-11-20T15:40:47+08:00",
+   "fetchedAt": "2026-11-20T16:10:32+08:00",
    "error": null,
    "open": 37646.13,
    "high": 37646.13,
@@ -468,11 +468,11 @@
    "quoteTime": "13:33:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:47+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:47+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:32+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:32+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -533,7 +533,7 @@
     2100.0,
     2000.0
    ],
-   "fetchedAt": "2026-11-20T15:40:47+08:00",
+   "fetchedAt": "2026-11-20T16:10:32+08:00",
    "error": null,
    "open": 2035.0,
    "high": 2060.0,
@@ -541,11 +541,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:47+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:47+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:32+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:32+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -606,7 +606,7 @@
     76.6,
     74.05
    ],
-   "fetchedAt": "2026-11-20T15:40:47+08:00",
+   "fetchedAt": "2026-11-20T16:10:32+08:00",
    "error": null,
    "open": 74.55,
    "high": 74.6,
@@ -614,11 +614,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:47+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:47+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:32+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:32+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -679,7 +679,7 @@
     26.360001,
     26.15
    ],
-   "fetchedAt": "2026-11-20T15:40:47+08:00",
+   "fetchedAt": "2026-11-20T16:10:32+08:00",
    "error": null,
    "open": 26.25,
    "high": 26.26,
@@ -687,11 +687,11 @@
    "quoteTime": "13:30:00",
    "sourceNote": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:47+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:47+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:32+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:32+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -752,14 +752,14 @@
     150.960007,
     145.98
    ],
-   "fetchedAt": "2026-11-20T15:40:49+08:00",
+   "fetchedAt": "2026-11-20T16:10:34+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:49+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:49+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:34+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:34+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -820,14 +820,14 @@
     7323.629883,
     7175.83
    ],
-   "fetchedAt": "2026-11-20T15:40:51+08:00",
+   "fetchedAt": "2026-11-20T16:10:36+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:51+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:51+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:36+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:36+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "btc": {
    "id": "btc",
@@ -840,10 +840,10 @@
    "decimals": 0,
    "priceLabel": "現價",
    "status": "ok",
-   "price": 61661.72,
+   "price": 61941.37,
    "prevClose": 61901.820312,
-   "change": -240.100312,
-   "changePct": -0.3879,
+   "change": 39.549688,
+   "changePct": 0.0639,
    "date": "2026-11-20",
    "points": 400,
    "spark": [
@@ -886,16 +886,16 @@
     64893.945312,
     62987.265625,
     61901.820312,
-    61661.72
+    61941.37
    ],
-   "fetchedAt": "2026-11-20T15:40:53+08:00",
+   "fetchedAt": "2026-11-20T16:10:38+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:53+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:53+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:38+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:38+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "wti": {
    "id": "wti",
@@ -908,10 +908,10 @@
    "decimals": 2,
    "priceLabel": "近月期貨",
    "status": "ok",
-   "price": 83.05,
+   "price": 82.69,
    "prevClose": 83.209999,
-   "change": -0.159999,
-   "changePct": -0.1923,
+   "change": -0.519999,
+   "changePct": -0.6249,
    "date": "2026-11-20",
    "points": 325,
    "spark": [
@@ -954,16 +954,16 @@
     86.010002,
     83.260002,
     83.209999,
-    83.05
+    82.69
    ],
-   "fetchedAt": "2026-11-20T15:40:55+08:00",
+   "fetchedAt": "2026-11-20T16:10:40+08:00",
    "error": null,
    "source": "cloud",
-   "lastAttemptAt": "2026-11-20T15:40:55+08:00",
-   "lastSuccessAt": "2026-11-20T15:40:55+08:00",
+   "lastAttemptAt": "2026-11-20T16:10:40+08:00",
+   "lastSuccessAt": "2026-11-20T16:10:40+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-20T15:40:00+08:00",
-   "nextDueAt": "2026-11-20T16:10:00+08:00"
+   "lastDueAt": "2026-11-20T16:10:00+08:00",
+   "nextDueAt": "2026-11-20T16:40:00+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -1120,14 +1120,14 @@
  },
  "sources": {
   "cloud": {
-   "runAt": "2026-11-20T15:40:55+08:00",
+   "runAt": "2026-11-20T16:10:40+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 13,
    "error": 0,
    "requests": 8,
-   "ageMinutes": 19,
-   "nextDueAt": "2026-11-20T16:10:00+08:00",
+   "ageMinutes": 0,
+   "nextDueAt": "2026-11-20T16:40:00+08:00",
    "status": "ok"
   },
   "local": {
@@ -1137,7 +1137,7 @@
    "ok": 0,
    "error": 3,
    "requests": 0,
-   "ageMinutes": 0,
+   "ageMinutes": 10,
    "nextDueAt": "2026-11-20T16:30:00+08:00",
    "status": "ok"
   }
