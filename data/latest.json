@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-11-22T16:10:43+08:00",
- "updatedAtText": "2026-11-22 16:10",
+ "updatedAt": "2026-11-22T16:31:45+08:00",
+ "updatedAtText": "2026-11-22 16:31",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -1128,18 +1128,18 @@
    "ok": 13,
    "error": 0,
    "requests": 8,
-   "ageMinutes": 0,
+   "ageMinutes": 21,
    "nextDueAt": "2026-11-22T18:10:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-11-22T13:05:20+08:00",
+   "runAt": "2026-11-22T16:31:45+08:00",
    "slot": "light",
    "mode": "full",
    "ok": 0,
    "error": 3,
    "requests": 0,
-   "ageMinutes": 185,
+   "ageMinutes": 0,
    "nextDueAt": "2026-11-23T09:00:00+08:00",
    "status": "ok"
   }
