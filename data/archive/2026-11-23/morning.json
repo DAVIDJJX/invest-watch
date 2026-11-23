@@ -1,0 +1,444 @@
+{
+ "date": "2026-11-23",
+ "slot": "morning",
+ "slotLabel": "晨報（了解今天狀況）",
+ "title": "晨報：了解今天狀況",
+ "generatedAt": "2026-11-23T09:31:23+08:00",
+ "generatedAtText": "2026-11-23 09:31",
+ "market": {
+  "date": "2026-11-23",
+  "twTradingDay": true,
+  "twPhase": "open",
+  "twNote": null,
+  "goldQuoteTime": null,
+  "goldQuoteDate": null,
+  "goldFresh": false,
+  "fxDate": "2026-11-20",
+  "fxFresh": false,
+  "simplified": false
+ },
+ "dataStatus": {
+  "total": 16,
+  "ok": 13,
+  "error": 3,
+  "errorNames": [
+   "黃金存摺（台幣）",
+   "黃金存摺（人民幣）",
+   "台銀實體黃金條塊"
+  ]
+ },
+ "sections": [
+  {
+   "type": "quotes",
+   "id": "intl",
+   "title": "隔夜美股與國際行情",
+   "items": [
+    {
+     "id": "nvda",
+     "name": "NVIDIA",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元",
+     "priceLabel": "收盤價",
+     "price": 125.53,
+     "priceText": "125.53",
+     "change": -20.449996,
+     "changeText": "-20.45",
+     "changePct": -14.0088,
+     "changePctText": "-14.01%",
+     "dir": "down",
+     "date": "2026-11-20",
+     "text": "NVIDIA 125.53 下跌（-14.01%）"
+    },
+    {
+     "id": "gspc",
+     "name": "S&P 500 指數",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "點",
+     "priceLabel": "指數",
+     "price": 6910.39,
+     "priceText": "6,910.39",
+     "change": -265.440078,
+     "changeText": "-265.44",
+     "changePct": -3.6991,
+     "changePctText": "-3.70%",
+     "dir": "down",
+     "date": "2026-11-20",
+     "text": "S&P 500 指數 6,910.39 下跌（-3.70%）"
+    },
+    {
+     "id": "btc",
+     "name": "比特幣",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元",
+     "priceLabel": "現價",
+     "price": 61126.07,
+     "priceText": "61,126",
+     "change": 491.58,
+     "changeText": "492",
+     "changePct": 0.8107,
+     "changePctText": "+0.81%",
+     "dir": "up",
+     "date": "2026-11-23",
+     "text": "比特幣 61,126 上漲（+0.81%）"
+    },
+    {
+     "id": "wti",
+     "name": "WTI 原油",
+     "status": "ok",
+     "currency": "USD",
+     "unit": "美元 / 桶",
+     "priceLabel": "近月期貨",
+     "price": 83.22,
+     "priceText": "83.22",
+     "change": -0.760003,
+     "changeText": "-0.76",
+     "changePct": -0.905,
+     "changePctText": "-0.91%",
+     "dir": "down",
+     "date": "2026-11-22",
+     "text": "WTI 原油 83.22 下跌（-0.91%）"
+    }
+   ],
+   "subtitle": "台灣早上看到的美股是前一個交易日的收盤；比特幣則是 24 小時連續交易。"
+  },
+  {
+   "type": "quotes",
+   "id": "bot",
+   "title": "今早台銀金價與匯率掛牌",
+   "items": [
+    {
+     "id": "gold_twd",
+     "name": "黃金存摺（台幣）",
+     "status": "error",
+     "currency": "TWD",
+     "unit": "元 / 公克",
+     "priceLabel": "本行賣出",
+     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+     "errorAt": "2026-11-23T09:00:29+08:00",
+     "lastGoodText": "上次成功 2026-10-28：4,255",
+     "text": "資料更新失敗，這一項沒有今天的價格。"
+    },
+    {
+     "id": "gold_cny",
+     "name": "黃金存摺（人民幣）",
+     "status": "error",
+     "currency": "CNY",
+     "unit": "人民幣 / 公克",
+     "priceLabel": "本行賣出",
+     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+     "errorAt": "2026-11-23T09:00:29+08:00",
+     "lastGoodText": "上次成功 2026-10-28：869.20",
+     "text": "資料更新失敗，這一項沒有今天的價格。"
+    },
+    {
+     "id": "gold_bar",
+     "name": "台銀實體黃金條塊",
+     "status": "error",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "本行賣出",
+     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
+     "errorAt": "2026-11-23T09:00:29+08:00",
+     "text": "資料更新失敗，這一項沒有今天的價格。"
+    },
+    {
+     "id": "fx_usd",
+     "name": "美元 / 台幣",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "台幣 / 1 美元",
+     "priceLabel": "即期賣出",
+     "price": 32.99,
+     "priceText": "32.990",
+     "change": -0.005,
+     "changeText": "-0.005",
+     "changePct": -0.0152,
+     "changePctText": "-0.02%",
+     "dir": "down",
+     "date": "2026-11-20",
+     "text": "美元 / 台幣 32.990 下跌（-0.02%）",
+     "extra": [
+      {
+       "k": "即期買入",
+       "v": "32.890"
+      },
+      {
+       "k": "即期賣出",
+       "v": "32.990"
+      },
+      {
+       "k": "現金買入",
+       "v": "32.540"
+      },
+      {
+       "k": "現金賣出",
+       "v": "33.210"
+      },
+      {
+       "k": "資料來源",
+       "v": "台銀每日匯率（經 FinMind）"
+      },
+      {
+       "k": "資料日期",
+       "v": "2026-11-20"
+      }
+     ]
+    },
+    {
+     "id": "fx_cny",
+     "name": "人民幣 / 台幣",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "台幣 / 1 人民幣",
+     "priceLabel": "即期賣出",
+     "price": 4.957,
+     "priceText": "4.957",
+     "change": -0.01,
+     "changeText": "-0.010",
+     "changePct": -0.2013,
+     "changePctText": "-0.20%",
+     "dir": "down",
+     "date": "2026-11-20",
+     "text": "人民幣 / 台幣 4.957 下跌（-0.20%）",
+     "extra": [
+      {
+       "k": "即期買入",
+       "v": "4.907"
+      },
+      {
+       "k": "即期賣出",
+       "v": "4.957"
+      },
+      {
+       "k": "現金買入",
+       "v": "4.835"
+      },
+      {
+       "k": "現金賣出",
+       "v": "4.997"
+      },
+      {
+       "k": "資料來源",
+       "v": "台銀每日匯率（經 FinMind）"
+      },
+      {
+       "k": "資料日期",
+       "v": "2026-11-20"
+      }
+     ]
+    }
+   ],
+   "subtitle": "台銀今日尚未掛牌（或今日無掛牌），以下是最近一次掛牌的牌價。"
+  },
+  {
+   "type": "quotes",
+   "id": "tw",
+   "title": "台股開盤狀況",
+   "items": [
+    {
+     "id": "twii",
+     "name": "台股加權指數",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "點",
+     "priceLabel": "指數",
+     "price": 35946.09,
+     "priceText": "35,946.09",
+     "change": -87.2,
+     "changeText": "-87.20",
+     "changePct": -0.242,
+     "changePctText": "-0.24%",
+     "dir": "down",
+     "date": "2026-11-23",
+     "text": "台股加權指數 35,946.09 下跌（-0.24%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:30:35"
+      }
+     ]
+    },
+    {
+     "id": "tw2330",
+     "name": "台積電 2330",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 2007.5,
+     "priceText": "2,008",
+     "change": 7.5,
+     "changeText": "8",
+     "changePct": 0.375,
+     "changePctText": "+0.38%",
+     "dir": "up",
+     "date": "2026-11-23",
+     "text": "台積電 2330 2,008 上漲（+0.38%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:30:05"
+      }
+     ]
+    },
+    {
+     "id": "tw00646",
+     "name": "元大 S&P500 00646",
+     "status": "ok",
+     "currency": "TWD",
+     "unit": "元",
+     "priceLabel": "成交價",
+     "price": 73.25,
+     "priceText": "73.25",
+     "change": -0.8,
+     "changeText": "-0.80",
+     "changePct": -1.0804,
+     "changePctText": "-1.08%",
+     "dir": "down",
+     "date": "2026-11-23",
+     "text": "元大 S&P500 00646 73.25 下跌（-1.08%）",
+     "extra": [
+      {
+       "k": "報價時間",
+       "v": "09:29:58"
+      }
+     ]
+    }
+   ],
+   "subtitle": "台股盤中即時報價。"
+  },
+  {
+   "type": "notes",
+   "id": "observations",
+   "title": "今日觀察",
+   "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
+   "items": [
+    {
+     "level": "warn",
+     "id": "gold_twd",
+     "text": "黃金存摺（台幣） 這次資料更新失敗（台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。），下面的內容不包含它的今日數據。"
+    },
+    {
+     "level": "warn",
+     "id": "gold_cny",
+     "text": "黃金存摺（人民幣） 這次資料更新失敗（台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。），下面的內容不包含它的今日數據。"
+    },
+    {
+     "level": "warn",
+     "id": "gold_bar",
+     "text": "台銀實體黃金條塊 這次資料更新失敗（台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。），下面的內容不包含它的今日數據。"
+    },
+    {
+     "level": "down",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 位於 52 週區間第 6 百分位，接近一年來的低點（區間 3,515.40 ～ 5,318.40）。"
+    },
+    {
+     "level": "down",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 的 RSI(14) 為 20.2，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "up",
+     "id": "gold_intl",
+     "text": "國際金價（COMEX 近月期貨） 今天上漲 2.92%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "twii",
+     "text": "台股加權指數 的 RSI(14) 為 30.0，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 位於 52 週區間第 0 百分位，接近一年來的低點（區間 125.53 ～ 239.24）。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 的 RSI(14) 為 13.7，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "nvda",
+     "text": "NVIDIA 今天下跌 14.01%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "gspc",
+     "text": "S&P 500 指數 的 RSI(14) 為 29.2，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "gspc",
+     "text": "S&P 500 指數 今天下跌 3.70%，變動幅度較大。"
+    },
+    {
+     "level": "down",
+     "id": "btc",
+     "text": "比特幣 位於 52 週區間第 9 百分位，接近一年來的低點（區間 58,559 ～ 86,603）。"
+    },
+    {
+     "level": "down",
+     "id": "btc",
+     "text": "比特幣 的 RSI(14) 為 17.5，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "down",
+     "id": "wti",
+     "text": "WTI 原油 的 RSI(14) 為 27.5，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 位於 52 週區間第 99 百分位，接近一年來的高點（區間 31.105 ～ 33.000）。"
+    },
+    {
+     "level": "up",
+     "id": "fx_usd",
+     "text": "美元 / 台幣 的 RSI(14) 為 71.4，進入一般所稱的超買區（70 以上）。這只是指標描述，不代表該賣。"
+    },
+    {
+     "level": "up",
+     "id": "fx_cny",
+     "text": "人民幣 / 台幣 位於 52 週區間第 98 百分位，接近一年來的高點（區間 4.386 ～ 4.968）。"
+    }
+   ]
+  }
+ ],
+ "quoteSnapshot": {
+  "gold_intl": 3618.2,
+  "twii": 35946.09,
+  "tw2330": 2007.5,
+  "tw00646": 73.25,
+  "tw00679b": 26.23,
+  "nvda": 125.53,
+  "gspc": 6910.39,
+  "btc": 61126.07,
+  "wti": 83.22,
+  "fx_usd": 32.99,
+  "fx_cny": 4.957
+ },
+ "signalSnapshot": {
+  "gold_intl": "low",
+  "twii": "mid",
+  "tw2330": "mid",
+  "tw00646": "mid",
+  "tw00679b": "mid",
+  "nvda": "low",
+  "gspc": "mid",
+  "btc": "low",
+  "wti": "mid",
+  "fx_usd": "high",
+  "fx_cny": "high"
+ },
+ "disclaimer": "本報告是把公開市場數據依固定規則整理成白話句子，所有描述都是客觀指標的陳述，未經歷史回測驗證，不構成投資建議，也不保證未來走勢。",
+ "producedBy": {
+  "host": "github-actions",
+  "event": "workflow_dispatch",
+  "runId": "45094944393"
+ }
+}
