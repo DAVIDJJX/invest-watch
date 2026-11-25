@@ -3,10 +3,10 @@
   "symbol": "00679B",
   "source": "證交所 all_etf.txt（15:30 那一輪抓一次）",
   "note": "estNav／estPremiumPct 是投信的盤中預估（標「預估」）；officialNav 是前一營業日的官方淨值、隔天才拿得到、回填到那一天（標「確定」）；折溢價＝(價格 − 淨值) ÷ 淨值。最多留 800 列。",
-  "count": 42,
+  "count": 43,
   "firstDate": "2026-09-23",
-  "lastDate": "2026-11-24",
-  "updatedAt": "2026-11-24T15:31:14+08:00",
+  "lastDate": "2026-11-25",
+  "updatedAt": "2026-11-25T15:31:04+08:00",
   "rows": [
     {"d":"2026-09-23","officialNav":25.2393,"officialClose":25.68,"officialPremiumPct":1.746,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-09-24"},
     {"d":"2026-09-24","time":"17:00:00","price":25.28,"estNav":25.1281,"estPremiumPct":0.605,"estTag":"預估","estLabel":"估算","units":6188192000.0,"unitsChange":-4000000.0,"officialNav":24.9962,"officialClose":25.280001,"officialPremiumPct":1.135,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-09-29"},
@@ -49,6 +49,7 @@
     {"d":"2026-11-19","time":"15:30:30","price":26.36,"estNav":26.3504,"estPremiumPct":0.036,"estTag":"預估","estLabel":"估算","units":5861692000.0,"unitsChange":-6500000.0,"officialNav":26.3672,"officialClose":26.360001,"officialPremiumPct":-0.027,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-11-20"},
     {"d":"2026-11-20","time":"15:30:30","price":26.15,"estNav":26.2146,"estPremiumPct":-0.246,"estTag":"預估","estLabel":"估算","units":5826192000.0,"unitsChange":-8500000.0,"officialNav":26.4762,"officialClose":26.15,"officialPremiumPct":-1.232,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-11-23"},
     {"d":"2026-11-23","time":"15:31:15","price":26.33,"estNav":26.3465,"estPremiumPct":-0.063,"estTag":"預估","estLabel":"估算","units":5784192000.0,"unitsChange":-35500000.0,"officialNav":26.4876,"officialClose":26.33,"officialPremiumPct":-0.595,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-11-24"},
-    {"d":"2026-11-24","time":"15:30:30","price":26.47,"estNav":26.528,"estPremiumPct":-0.219,"estTag":"預估","estLabel":"估算","units":5778692000.0,"unitsChange":-42000000.0}
+    {"d":"2026-11-24","time":"15:30:30","price":26.47,"estNav":26.528,"estPremiumPct":-0.219,"estTag":"預估","estLabel":"估算","units":5778692000.0,"unitsChange":-42000000.0,"officialNav":26.4531,"officialClose":26.469999,"officialPremiumPct":0.064,"officialTag":"確定","officialLabel":"單一來源","officialNavSeenOn":"2026-11-25"},
+    {"d":"2026-11-25","time":"15:30:30","price":26.54,"estNav":26.8528,"estPremiumPct":-1.165,"estTag":"預估","estLabel":"估算","units":5749192000.0,"unitsChange":-5500000.0}
   ]
 }
