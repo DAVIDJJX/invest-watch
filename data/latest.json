@@ -1,6 +1,6 @@
 {
- "updatedAt": "2026-11-26T09:10:52+08:00",
- "updatedAtText": "2026-11-26 09:10",
+ "updatedAt": "2026-11-26T09:30:13+08:00",
+ "updatedAtText": "2026-11-26 09:30",
  "timezone": "Asia/Taipei (UTC+8)",
  "slot": "light",
  "slotLabel": "盤中更新（只更新現價）",
@@ -15,7 +15,7 @@
    "gold_bar"
   ]
  },
- "requests": 11,
+ "requests": 8,
  "assets": {
   "gold_twd": {
    "id": "gold_twd",
@@ -42,9 +42,11 @@
    "source": "local",
    "lastAttemptAt": "2026-11-26T09:00:27+08:00",
    "lastSuccessAt": "2026-10-28T17:00:21+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 12 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
    "freshness": "stale",
-   "lastDueAt": "2026-11-26T09:00:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T10:00:00+08:00"
   },
   "gold_cny": {
    "id": "gold_cny",
@@ -71,9 +73,11 @@
    "source": "local",
    "lastAttemptAt": "2026-11-26T09:00:27+08:00",
    "lastSuccessAt": "2026-10-28T17:00:24+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 12 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
    "freshness": "stale",
-   "lastDueAt": "2026-11-26T09:00:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T10:00:00+08:00"
   },
   "gold_bar": {
    "id": "gold_bar",
@@ -141,6 +145,8 @@
    "source": "local",
    "lastAttemptAt": "2026-11-26T09:00:27+08:00",
    "lastSuccessAt": "2026-10-28T15:05:26+08:00",
+   "carriedOver": true,
+   "carriedReason": "台銀要求瀏覽器驗證、程式過不了；已經連續被擋 12 輪，今天已經試過一次，下一個營業日 09:00 以後再試（這一輪沒有連台銀）",
    "freshness": "stale",
    "lastDueAt": "2026-11-25T15:05:00+08:00",
    "nextDueAt": "2026-11-26T10:05:00+08:00"
@@ -232,8 +238,8 @@
    "lastAttemptAt": "2026-11-26T09:10:42+08:00",
    "lastSuccessAt": "2026-11-26T09:10:42+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "gold_cny_est": {
    "id": "gold_cny_est",
@@ -324,8 +330,8 @@
    "carriedOver": true,
    "carriedReason": "金價與匯率的報價時刻相差 128 分鐘（上限 60 分鐘），這一輪不算估算，沿用上一次",
    "freshness": "stale",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "gold_intl": {
    "id": "gold_intl",
@@ -393,9 +399,9 @@
    "lastSuccessAt": "2026-11-25T15:30:45+08:00",
    "carriedOver": true,
    "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
-   "freshness": "fresh",
-   "lastDueAt": "2026-11-25T15:30:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "freshness": "stale",
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T11:30:00+08:00"
   },
   "twii": {
    "id": "twii",
@@ -467,8 +473,8 @@
    "lastAttemptAt": "2026-11-26T09:10:44+08:00",
    "lastSuccessAt": "2026-11-26T09:10:44+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "tw2330": {
    "id": "tw2330",
@@ -540,8 +546,8 @@
    "lastAttemptAt": "2026-11-26T09:10:44+08:00",
    "lastSuccessAt": "2026-11-26T09:10:44+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "tw00646": {
    "id": "tw00646",
@@ -613,8 +619,8 @@
    "lastAttemptAt": "2026-11-26T09:10:44+08:00",
    "lastSuccessAt": "2026-11-26T09:10:44+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "tw00679b": {
    "id": "tw00679b",
@@ -686,8 +692,8 @@
    "lastAttemptAt": "2026-11-26T09:10:44+08:00",
    "lastSuccessAt": "2026-11-26T09:10:44+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "nvda": {
    "id": "nvda",
@@ -754,8 +760,8 @@
    "lastAttemptAt": "2026-11-26T09:10:46+08:00",
    "lastSuccessAt": "2026-11-26T09:10:46+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "gspc": {
    "id": "gspc",
@@ -822,8 +828,8 @@
    "lastAttemptAt": "2026-11-26T09:10:48+08:00",
    "lastSuccessAt": "2026-11-26T09:10:48+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "btc": {
    "id": "btc",
@@ -890,8 +896,8 @@
    "lastAttemptAt": "2026-11-26T09:10:50+08:00",
    "lastSuccessAt": "2026-11-26T09:10:50+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "wti": {
    "id": "wti",
@@ -958,8 +964,8 @@
    "lastAttemptAt": "2026-11-26T09:10:52+08:00",
    "lastSuccessAt": "2026-11-26T09:10:52+08:00",
    "freshness": "fresh",
-   "lastDueAt": "2026-11-26T09:10:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T09:40:00+08:00"
   },
   "fx_usd": {
    "id": "fx_usd",
@@ -1033,9 +1039,9 @@
    "lastSuccessAt": "2026-11-25T15:31:01+08:00",
    "carriedOver": true,
    "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
-   "freshness": "fresh",
-   "lastDueAt": "2026-11-25T15:30:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "freshness": "stale",
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T11:30:00+08:00"
   },
   "fx_cny": {
    "id": "fx_cny",
@@ -1109,9 +1115,9 @@
    "lastSuccessAt": "2026-11-25T15:31:02+08:00",
    "carriedOver": true,
    "carriedReason": "cadence=full：只在完整更新抓，盤中的輕量更新沿用上次結果",
-   "freshness": "fresh",
-   "lastDueAt": "2026-11-25T15:30:00+08:00",
-   "nextDueAt": "2026-11-26T09:30:00+08:00"
+   "freshness": "stale",
+   "lastDueAt": "2026-11-26T09:30:00+08:00",
+   "nextDueAt": "2026-11-26T11:30:00+08:00"
   }
  },
  "sources": {
@@ -1122,19 +1128,19 @@
    "ok": 13,
    "error": 0,
    "requests": 8,
-   "ageMinutes": 0,
-   "nextDueAt": "2026-11-26T09:30:00+08:00",
+   "ageMinutes": 19,
+   "nextDueAt": "2026-11-26T09:40:00+08:00",
    "status": "ok"
   },
   "local": {
-   "runAt": "2026-11-26T09:00:27+08:00",
+   "runAt": "2026-11-26T09:30:13+08:00",
    "slot": "light",
    "mode": "light",
    "ok": 0,
    "error": 3,
-   "requests": 3,
-   "ageMinutes": 10,
-   "nextDueAt": "2026-11-26T09:30:00+08:00",
+   "requests": 0,
+   "ageMinutes": 0,
+   "nextDueAt": "2026-11-26T10:00:00+08:00",
    "status": "ok"
   }
  }
