@@ -1,14 +1,14 @@
 {
  "date": "2026-11-27",
- "slot": "midmorning",
- "slotLabel": "午前（盤中整理）",
- "title": "午前：盤中整理",
- "generatedAt": "2026-11-27T11:31:02+08:00",
- "generatedAtText": "2026-11-27 11:31",
+ "slot": "close",
+ "slotLabel": "收盤（台股收盤快報）",
+ "title": "收盤：台股收盤快報",
+ "generatedAt": "2026-11-27T13:35:47+08:00",
+ "generatedAtText": "2026-11-27 13:35",
  "market": {
   "date": "2026-11-27",
   "twTradingDay": true,
-  "twPhase": "open",
+  "twPhase": "closed",
   "twNote": null,
   "goldQuoteTime": null,
   "goldQuoteDate": null,
@@ -31,7 +31,7 @@
   {
    "type": "quotes",
    "id": "tw",
-   "title": "台股盤中",
+   "title": "台股收盤快報",
    "items": [
     {
      "id": "twii",
@@ -40,31 +40,31 @@
      "currency": "TWD",
      "unit": "點",
      "priceLabel": "指數",
-     "price": 39377.91,
-     "priceText": "39,377.91",
-     "change": 226.1,
-     "changeText": "226.10",
-     "changePct": 0.5775,
-     "changePctText": "+0.58%",
+     "price": 39308.08,
+     "priceText": "39,308.08",
+     "change": 156.27,
+     "changeText": "156.27",
+     "changePct": 0.3991,
+     "changePctText": "+0.40%",
      "dir": "up",
      "date": "2026-11-27",
-     "text": "台股加權指數 39,377.91 上漲（+0.58%）",
+     "text": "台股加權指數 39,308.08 上漲（+0.40%）",
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:30:15"
+       "v": "13:33:00"
       }
      ],
      "compare": {
       "label": "今早",
       "before": 39119.08,
       "beforeText": "39,119.08",
-      "diff": 258.83000000000175,
-      "diffText": "258.83",
-      "diffPct": 0.6616464395379485,
-      "diffPctText": "+0.66%",
+      "diff": 189.0,
+      "diffText": "189.00",
+      "diffPct": 0.4831401965485896,
+      "diffPctText": "+0.48%",
       "dir": "up",
-      "text": "與今早相比上漲 258.83（0.66%）"
+      "text": "與今早相比上漲 189.00（0.48%）"
      }
     },
     {
@@ -74,31 +74,31 @@
      "currency": "TWD",
      "unit": "元",
      "priceLabel": "成交價",
-     "price": 2155.0,
-     "priceText": "2,155",
-     "change": 10.0,
-     "changeText": "10",
-     "changePct": 0.4662,
-     "changePctText": "+0.47%",
+     "price": 2180.0,
+     "priceText": "2,180",
+     "change": 35.0,
+     "changeText": "35",
+     "changePct": 1.6317,
+     "changePctText": "+1.63%",
      "dir": "up",
      "date": "2026-11-27",
-     "text": "台積電 2330 2,155 上漲（+0.47%）",
+     "text": "台積電 2330 2,180 上漲（+1.63%）",
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:30:15"
+       "v": "13:30:00"
       }
      ],
      "compare": {
       "label": "今早",
       "before": 2147.5,
       "beforeText": "2,148",
-      "diff": 7.5,
-      "diffText": "8",
-      "diffPct": 0.3492433061699651,
-      "diffPctText": "+0.35%",
+      "diff": 32.5,
+      "diffText": "32",
+      "diffPct": 1.5133876600698486,
+      "diffPctText": "+1.51%",
       "dir": "up",
-      "text": "與今早相比上漲 8（0.35%）"
+      "text": "與今早相比上漲 32（1.51%）"
      }
     },
     {
@@ -108,191 +108,40 @@
      "currency": "TWD",
      "unit": "元",
      "priceLabel": "成交價",
-     "price": 75.35,
-     "priceText": "75.35",
-     "change": 0.2,
-     "changeText": "0.20",
-     "changePct": 0.2661,
-     "changePctText": "+0.27%",
+     "price": 75.9,
+     "priceText": "75.90",
+     "change": 0.75,
+     "changeText": "0.75",
+     "changePct": 0.998,
+     "changePctText": "+1.00%",
      "dir": "up",
      "date": "2026-11-27",
-     "text": "元大 S&P500 00646 75.35 上漲（+0.27%）",
+     "text": "元大 S&P500 00646 75.90 上漲（+1.00%）",
      "extra": [
       {
        "k": "報價時間",
-       "v": "11:29:59"
+       "v": "13:30:00"
       }
      ],
      "compare": {
       "label": "今早",
       "before": 75.15,
       "beforeText": "75.15",
-      "diff": 0.19999999999998863,
-      "diffText": "0.20",
-      "diffPct": 0.2661343978709097,
-      "diffPctText": "+0.27%",
+      "diff": 0.75,
+      "diffText": "0.75",
+      "diffPct": 0.998003992015968,
+      "diffPctText": "+1.00%",
       "dir": "up",
-      "text": "與今早相比上漲 0.20（0.27%）"
+      "text": "與今早相比上漲 0.75（1.00%）"
      }
     }
    ],
-   "subtitle": "台股盤中即時報價。　（已和今早的晨報做比較）"
-  },
-  {
-   "type": "quotes",
-   "id": "bot",
-   "title": "金價與匯率",
-   "items": [
-    {
-     "id": "gold_twd",
-     "name": "黃金存摺（台幣）",
-     "status": "error",
-     "currency": "TWD",
-     "unit": "元 / 公克",
-     "priceLabel": "本行賣出",
-     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
-     "errorAt": "2026-11-26T09:00:27+08:00",
-     "lastGoodText": "上次成功 2026-10-28：4,255",
-     "text": "資料更新失敗，這一項沒有今天的價格。"
-    },
-    {
-     "id": "gold_cny",
-     "name": "黃金存摺（人民幣）",
-     "status": "error",
-     "currency": "CNY",
-     "unit": "人民幣 / 公克",
-     "priceLabel": "本行賣出",
-     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
-     "errorAt": "2026-11-26T09:00:27+08:00",
-     "lastGoodText": "上次成功 2026-10-28：869.20",
-     "text": "資料更新失敗，這一項沒有今天的價格。"
-    },
-    {
-     "id": "gold_bar",
-     "name": "台銀實體黃金條塊",
-     "status": "error",
-     "currency": "TWD",
-     "unit": "元",
-     "priceLabel": "本行賣出",
-     "error": "台銀要求瀏覽器驗證（回傳驗證頁），程式過不了，本輪不再重試。",
-     "errorAt": "2026-11-26T09:00:27+08:00",
-     "text": "資料更新失敗，這一項沒有今天的價格。"
-    },
-    {
-     "id": "fx_usd",
-     "name": "美元 / 台幣",
-     "status": "ok",
-     "currency": "TWD",
-     "unit": "台幣 / 1 美元",
-     "priceLabel": "即期賣出",
-     "price": 33.02,
-     "priceText": "33.020",
-     "change": -0.155,
-     "changeText": "-0.155",
-     "changePct": -0.4672,
-     "changePctText": "-0.47%",
-     "dir": "down",
-     "date": "2026-11-26",
-     "text": "美元 / 台幣 33.020 下跌（-0.47%）",
-     "extra": [
-      {
-       "k": "即期買入",
-       "v": "32.920"
-      },
-      {
-       "k": "即期賣出",
-       "v": "33.020"
-      },
-      {
-       "k": "現金買入",
-       "v": "32.570"
-      },
-      {
-       "k": "現金賣出",
-       "v": "33.240"
-      },
-      {
-       "k": "資料來源",
-       "v": "台銀每日匯率（經 FinMind）"
-      },
-      {
-       "k": "資料日期",
-       "v": "2026-11-26"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 33.02,
-      "beforeText": "33.020",
-      "diff": 0.0,
-      "diffText": "0.000",
-      "diffPct": 0.0,
-      "diffPctText": "+0.00%",
-      "dir": "flat",
-      "text": "與今早相同，沒有變動。"
-     }
-    },
-    {
-     "id": "fx_cny",
-     "name": "人民幣 / 台幣",
-     "status": "ok",
-     "currency": "TWD",
-     "unit": "台幣 / 1 人民幣",
-     "priceLabel": "即期賣出",
-     "price": 4.975,
-     "priceText": "4.975",
-     "change": -0.012,
-     "changeText": "-0.012",
-     "changePct": -0.2406,
-     "changePctText": "-0.24%",
-     "dir": "down",
-     "date": "2026-11-26",
-     "text": "人民幣 / 台幣 4.975 下跌（-0.24%）",
-     "extra": [
-      {
-       "k": "即期買入",
-       "v": "4.925"
-      },
-      {
-       "k": "即期賣出",
-       "v": "4.975"
-      },
-      {
-       "k": "現金買入",
-       "v": "4.853"
-      },
-      {
-       "k": "現金賣出",
-       "v": "5.015"
-      },
-      {
-       "k": "資料來源",
-       "v": "台銀每日匯率（經 FinMind）"
-      },
-      {
-       "k": "資料日期",
-       "v": "2026-11-26"
-      }
-     ],
-     "compare": {
-      "label": "今早",
-      "before": 4.975,
-      "beforeText": "4.975",
-      "diff": 0.0,
-      "diffText": "0.000",
-      "diffPct": 0.0,
-      "diffPctText": "+0.00%",
-      "dir": "flat",
-      "text": "與今早相同，沒有變動。"
-     }
-    }
-   ],
-   "subtitle": "台銀今日尚未掛牌（或今日無掛牌），以下是最近一次掛牌的牌價。"
+   "subtitle": "台股已收盤，以下是今日收盤價。　（已和今早的晨報做比較）"
   },
   {
    "type": "notes",
    "id": "observations",
-   "title": "盤中觀察",
+   "title": "收盤觀察",
    "subtitle": "以下每一句都是依固定規則自動產生的客觀描述，不是投資建議。",
    "items": [
     {
@@ -313,17 +162,12 @@
     {
      "level": "down",
      "id": "gold_intl",
-     "text": "國際金價（COMEX 近月期貨） 位於 52 週區間第 8 百分位，接近一年來的低點（區間 3,515.40 ～ 5,318.40）。"
+     "text": "國際金價（COMEX 近月期貨） 位於 52 週區間第 9 百分位，接近一年來的低點（區間 3,515.40 ～ 5,318.40）。"
     },
     {
-     "level": "down",
-     "id": "gold_intl",
-     "text": "國際金價（COMEX 近月期貨） 的 RSI(14) 為 29.5，進入一般所稱的超賣區（30 以下）。這只是指標描述，不代表該買。"
-    },
-    {
-     "level": "up",
-     "id": "gold_intl",
-     "text": "國際金價（COMEX 近月期貨） 今天上漲 3.42%，變動幅度較大。"
+     "level": "info",
+     "id": "tw00646",
+     "text": "元大 S&P500 00646 的位置燈號從「中性」變成「相對高檔區」（位於52 週區間第 76 百分位 → 高於 75%）。"
     },
     {
      "level": "down",
@@ -332,8 +176,13 @@
     },
     {
      "level": "up",
+     "id": "btc",
+     "text": "比特幣 今天上漲 2.14%，變動幅度較大。"
+    },
+    {
+     "level": "up",
      "id": "wti",
-     "text": "WTI 原油 今天上漲 2.61%，變動幅度較大。"
+     "text": "WTI 原油 今天站上 20 日均線（均線 86.07，現價 86.38）。"
     },
     {
      "level": "up",
@@ -349,15 +198,15 @@
   }
  ],
  "quoteSnapshot": {
-  "gold_intl": 3656.8,
-  "twii": 39377.91,
-  "tw2330": 2155.0,
-  "tw00646": 75.35,
-  "tw00679b": 26.595,
+  "gold_intl": 3676.6,
+  "twii": 39308.08,
+  "tw2330": 2180.0,
+  "tw00646": 75.9,
+  "tw00679b": 26.53,
   "nvda": 149.3,
   "gspc": 7182.78,
-  "btc": 61597.94,
-  "wti": 85.86,
+  "btc": 61788.33,
+  "wti": 86.38,
   "fx_usd": 33.02,
   "fx_cny": 4.975
  },
@@ -365,7 +214,7 @@
   "gold_intl": "low",
   "twii": "mid",
   "tw2330": "mid",
-  "tw00646": "mid",
+  "tw00646": "high",
   "tw00679b": "mid",
   "nvda": "low",
   "gspc": "mid",
@@ -378,6 +227,6 @@
  "producedBy": {
   "host": "github-actions",
   "event": "workflow_dispatch",
-  "runId": "45934564316"
+  "runId": "45946690045"
  }
 }
